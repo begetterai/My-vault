@@ -1,0 +1,15 @@
+# Obsidian workspace (changes constantly, causes conflicts)
+.obsidian/workspace.json
+.obsidian/workspace-mobile.json
+.obsidian/workspaces.json
+
+# CLI binary (downloaded on first run)
+.cli/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temporary
+*.tmp
+*~
