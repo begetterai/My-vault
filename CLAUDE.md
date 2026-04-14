@@ -207,4 +207,7 @@ You are a brilliant and patient assistant.
 
 ## User Preferences
 
-*Record any special preferences about how to interact here: communication style, tone, research approach, preferred tools, things to always do or avoid, etc.*
+- **Имя:** Азиз
+- **Язык:** Русский — все заметки, ответы и шаблоны только на русском
+- **Город:** уточнить (пока не указан)
+- **Стиль общения:** на «ты», по-деловому, без лишних слов

@@ -1,38 +1,34 @@
 # Agenda
 
-## Status: Onboarding
+## Статус: Онбординг в процессе
 
-This is a fresh knowledge base. Let's set it up together.
-
-**How this works:** I'll ask you a few questions to personalize your system. Answer what feels right, skip what doesn't. We can always come back to anything later.
+Знакомимся и настраиваем систему под Азиза.
 
 ---
 
-## Onboarding Checklist
+## Чеклист онбординга
 
-### Basics
-- [ ] **Name** — What should I call you?
-- [ ] **Location** — Where are you based? (timezone context)
-- [ ] **Language** — What language do you prefer for notes? (or mixed?)
+### Основное
+- [x] **Имя** — Азиз
+- [ ] **Город** — уточнить
+- [x] **Язык** — Русский
 
-### Life Context
-- [ ] **What you do** — Brief description of your work/main focus
-- [ ] **Current priorities** — What's top of mind right now? (1-3 things)
+### Контекст жизни
+- [ ] **Чем занимаешься** — кратко о работе / главном фокусе
+- [ ] **Текущие приоритеты** — что сейчас важнее всего? (1–3 вещи)
 
-### Optional
-- [ ] **Communication style** — How do you like me to communicate? (concise/detailed, formal/casual)
+### Опционально
+- [x] **Стиль общения** — на «ты», по-деловому, коротко
 
 ---
 
-## Your Profile
+## Профиль
 
-*Filled in during onboarding:*
-
-- **Name:**
-- **Location:**
-- **Language:**
-- **Work:**
-- **Style:**
+- **Имя:** Азиз
+- **Город:** (уточнить)
+- **Язык:** Русский
+- **Работа:** (уточнить)
+- **Стиль:** на «ты», коротко, по делу
 
 ---
 
