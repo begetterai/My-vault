@@ -306,6 +306,15 @@ def main():
         f.write(content)
 
     print(f"\n✅ Отчёт сохранён: finance/reports/{filename}")
+
+    # Загрузка в Google Drive
+    try:
+        sys.path.insert(0, os.path.dirname(__file__))
+        from drive_upload import upload
+        upload(filepath)
+    except Exception as e:
+        print(f"⚠️  Drive: {e}")
+
     print(content[:800])
     print("...")
 
