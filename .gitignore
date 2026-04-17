@@ -13,3 +13,4 @@ Thumbs.db
 # Temporary
 *.tmp
 *~
+scripts/credentials/
