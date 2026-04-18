@@ -45,7 +45,7 @@ CLR_WHITE  = {"red": 1.0,  "green": 1.0,  "blue": 1.0}
 CLR_WEEKEND= {"red": 0.93, "green": 0.93, "blue": 0.97}
 
 
-def cv(v, bold=False, bg=None, num_fmt=None, align="LEFT", italic=False, fg=None):
+def cv(v, bold=False, bg=None, num_fmt=None, align="LEFT", italic=False, fg=None, font_size=14):
     c = {}
     if isinstance(v, (int, float)):
         c["userEnteredValue"] = {"numberValue": v}
@@ -54,21 +54,21 @@ def cv(v, bold=False, bg=None, num_fmt=None, align="LEFT", italic=False, fg=None
     else:
         c["userEnteredValue"] = {"stringValue": str(v) if v is not None else ""}
     fmt = {}
-    tf = {}
+    tf = {"fontFamily": "Times New Roman", "fontSize": font_size}
     if bold:   tf["bold"] = True
     if italic: tf["italic"] = True
     if fg:     tf["foregroundColor"] = fg
-    if tf:     fmt["textFormat"] = tf
+    fmt["textFormat"] = tf
     if bg:     fmt["backgroundColor"] = bg
     if num_fmt: fmt["numberFormat"] = {"type": "NUMBER", "pattern": num_fmt}
     if align != "LEFT": fmt["horizontalAlignment"] = align
-    if fmt: c["userEnteredFormat"] = fmt
+    c["userEnteredFormat"] = fmt
     return c
 
 
 def hc(v, bg=None, align="CENTER"):
     return cv(v, bold=True, bg=bg or CLR_DARK, align=align,
-              fg={"red": 1.0, "green": 1.0, "blue": 1.0})
+              fg={"red": 1.0, "green": 1.0, "blue": 1.0}, font_size=18)
 
 
 def mc(v, bg=None, bold=False):

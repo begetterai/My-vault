@@ -40,7 +40,7 @@ def get_session():
 
 
 # ── Хелперы Sheets API ────────────────────────────────────────────────────────
-def cell(v, bold=False, bg=None, fmt=None, align="LEFT", wrap=False):
+def cell(v, bold=False, bg=None, fmt=None, align="LEFT", wrap=False, font_size=14):
     c = {"userEnteredValue": {}}
     if isinstance(v, (int, float)):
         c["userEnteredValue"]["numberValue"] = v
@@ -49,8 +49,10 @@ def cell(v, bold=False, bg=None, fmt=None, align="LEFT", wrap=False):
     else:
         c["userEnteredValue"]["stringValue"] = str(v) if v is not None else ""
     f = {}
+    tf = {"fontFamily": "Times New Roman", "fontSize": font_size}
     if bold:
-        f["textFormat"] = {"bold": True}
+        tf["bold"] = True
+    f["textFormat"] = tf
     if bg:
         f["backgroundColor"] = bg
     if fmt:
@@ -59,13 +61,12 @@ def cell(v, bold=False, bg=None, fmt=None, align="LEFT", wrap=False):
         f["horizontalAlignment"] = align
     if wrap:
         f["wrapStrategy"] = "WRAP"
-    if f:
-        c["userEnteredFormat"] = f
+    c["userEnteredFormat"] = f
     return c
 
 
 def hcell(v, bg=None, align="CENTER"):
-    return cell(v, bold=True, bg=bg or CLR_HEADER, align=align)
+    return cell(v, bold=True, bg=bg or CLR_HEADER, align=align, font_size=18)
 
 
 def row(*cells):
