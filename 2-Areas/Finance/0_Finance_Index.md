@@ -1,15 +1,43 @@
-# Finance
+# Финансы
 
-Money and investments.
+#area/finance #p2
 
-## Current State
+**Цель:** выстроить личные финансы, начать инвестировать осознанно.
 
-*Overview of your financial situation*
+---
 
-## Goals
+## Статус
 
-*What are you working toward?*
+| Направление | Статус | Приоритет |
+|-------------|--------|-----------|
+| Личный бюджет | ⬜ Не настроен | #p2 |
+| Фондовый рынок | ⬜ Изучение | #p2 |
+| Крипто | ⬜ Изучение | #p2 |
 
-## Open Tasks
+---
 
-- [ ] Add your first finance task #area/finance
+## Личный бюджет
+
+### Задачи
+- [ ] Зафиксировать текущие доходы и расходы #area/finance #p2
+- [ ] Определить % на сбережения и инвестиции #area/finance #p2
+
+---
+
+## Инвестиции
+
+- **Принцип:** сначала изучить — потом вкладывать
+
+### Задачи
+- [ ] Изучить фондовый рынок (базис) → [[2-Areas/Learning/0_Learning_Index|Обучение]] #p2
+- [ ] Изучить крипто (базис) → [[2-Areas/Learning/0_Learning_Index|Обучение]] #p2
+- [ ] Выбрать брокера / биржу #area/finance #p3
+- [ ] Определить стартовую сумму #area/finance #p3
+
+---
+
+## Связанные
+
+- [[2-Areas/Learning/0_Learning_Index|Обучение]] — изучение рынков
+- [[1-Projects/romashka/finance/финконтроль|Ромашка — финконтроль]]
+- [[AGENDA|Agenda]]
