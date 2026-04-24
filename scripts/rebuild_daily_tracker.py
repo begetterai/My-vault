@@ -163,10 +163,16 @@ def build_months_rows():
     for m in range(1,13):
         _,last = monthrange(2026,m)
         lr = day_offset+last
-        zr=f"='ЗБ'!O{lr}"; or_=f"='ОВИР'!O{lr}"
-        rows.append([MONTHS_RU[m], PLAN_ZB, zr, f"=IFERROR({zr}/{PLAN_ZB},\"\")",
-                     PLAN_OVIR, or_, f"=IFERROR({or_}/{PLAN_OVIR},\"\")",
-                     f"=IFERROR({zr}+{or_},\"\")", f"=IFERROR(({zr}+{or_})/660000,\"\")"])
+        zb = f"'ЗБ'!O{lr}"    # без = — вставляется внутрь формул
+        ov = f"'ОВИР'!O{lr}"
+        rows.append([MONTHS_RU[m], PLAN_ZB,
+                     f"=IFERROR({zb},\"\")",
+                     f"=IFERROR({zb}/{PLAN_ZB},\"\")",
+                     PLAN_OVIR,
+                     f"=IFERROR({ov},\"\")",
+                     f"=IFERROR({ov}/{PLAN_OVIR},\"\")",
+                     f"=IFERROR({zb}+{ov},\"\")",
+                     f"=IFERROR(({zb}+{ov})/660000,\"\")"])
         day_offset += last
     return rows
 
