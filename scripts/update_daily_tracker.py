@@ -21,7 +21,7 @@ CREDS        = os.path.join(os.path.dirname(os.path.abspath(__file__)),
 POSTER_TOKEN = '398711:8746917c4a23ea897774040e039dfb76'
 POSTER_BASE  = 'https://joinposter.com/api'
 
-TRACKER_SS_ID = '17ZWrd7lTEPC496C5kdkk5HGYR4A3wuEQ8dBuVQvwn6E'
+TRACKER_SS_ID = '1_KFsr5IRXMb9_5IJiuJOD8OD29b793La8TH5n7nIJE4'
 
 def poster_get(method, params=None):
     p = {'token': POSTER_TOKEN}

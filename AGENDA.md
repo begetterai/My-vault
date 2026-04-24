@@ -103,7 +103,7 @@
 
 ### 🟡 Ромашка — #p1 важно
 - [x] ✅ Super P&L 2026 — `1l8Lau8K9997pyqJj-zjlILAkLoOHlQmPo6BAwqc5FBU` (ЗБ, ОВИР, Свод, KPI)
-- [x] ✅ Дневной трекер 2026 — `17ZWrd7lTEPC496C5kdkk5HGYR4A3wuEQ8dBuVQvwn6E` (ЗБ авто, ОВИР вручную)
+- [x] ✅ Дневной трекер 2026 v2 — `1_KFsr5IRXMb9_5IJiuJOD8OD29b793La8TH5n7nIJE4` (ЗБ авто, ОВИР вручную)
   - Планы: ЗБ 300 000с/мес | ОВИР 360 000с/мес | Свод 660 000с/мес
   - Cron: `0 23 * * * python3 /home/user/My-vault/scripts/update_daily_tracker.py`
 - [ ] Подключить ОВИР Poster → автозаполнение трекера #next
