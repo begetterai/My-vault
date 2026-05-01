@@ -9,7 +9,7 @@ Cron: 0 23 * * * python3 /home/user/My-vault/scripts/update_daily_tracker.py
   K  Инкасс. нал.    — finance.getCashShifts
   L  Ост. откр.      — finance.getCashShifts
   N  Ост. закр.      — finance.getCashShifts
-  M  Расходы         — finance.getTransactions (sum type=2)
+  M  Расходы         — finance.getTransactions (sum type=0)
 
 Вручную управляющие:
   E  Alif
@@ -62,10 +62,10 @@ def get_day_data(token, date):
     open_bal   = int(shifts[0].get('amount_start', 0)) / 100 if shifts else None
     close_bal  = int(shifts[-1].get('amount_end', 0)) / 100 if shifts else None
 
-    # Расходы (финансовые транзакции тип=2)
+    # Расходы (финансовые транзакции тип=0, не тип=2 — проверено в check_pnl_transactions.py)
     rt = poster_get(token, 'finance.getTransactions', {'dateFrom': ds, 'dateTo': de})
     expenses = sum(int(t.get('amount', 0)) / 100
-                   for t in rt.get('response', []) if t.get('type') == '2')
+                   for t in rt.get('response', []) if t.get('type') == '0')
 
     return {
         'revenue':    revenue,

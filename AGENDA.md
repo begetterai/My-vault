@@ -102,13 +102,14 @@
 - [ ] SOP — Старший повар (V.0): создать
 
 ### 🟡 Ромашка — #p1 важно
-- [x] ✅ Super P&L 2026 — `1l8Lau8K9997pyqJj-zjlILAkLoOHlQmPo6BAwqc5FBU` (ЗБ, ОВИР, Свод, KPI)
+- [x] ✅ Super P&L 2026 v3 — `16aX_684tTXpRuuK1bR37DswcJMWdSixhmq-0zxhXFp8` (ЗБ, ОВИР, Свод, KPI, Cash Flow)
 - [x] ✅ Дневной трекер 2026 v2 — `1_KFsr5IRXMb9_5IJiuJOD8OD29b793La8TH5n7nIJE4` (ЗБ + ОВИР авто)
   - Планы: ЗБ 300 000с/мес | ОВИР 360 000с/мес | Свод 660 000с/мес
   - Авто (Poster): C Выручка, D Нал, K Инкасс, L Ост.откр, M Расходы, N Ост.закр
   - Вручную (управляющие): E Alif, F DC, G Карта, H Beeygor
   - Backfill Jan–Apr 2026: ЗБ ✅ (548 ячеек), ОВИР ✅ (438 ячеек)
   - Cron: `0 23 * * * python3 /home/user/My-vault/scripts/update_daily_tracker.py`
+  - ✅ Критический баг исправлен: расходы (колонка M) теперь type=0 (не type=2)
 - [x] ✅ Подключить ОВИР Poster → автозаполнение трекера
 - [ ] ⚠️ ОВИР Poster: оплатить счёт INV-039405 **до 01.05.2026** — иначе API заблокируют #p1 #next
 - [ ] P&L структура: доделать (скидки, данные ОВИР) #next
