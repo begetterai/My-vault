@@ -195,6 +195,12 @@ Weekly: process inbox, review projects, check areas.
 
 ---
 
+## Правило скриптов — Stream Timeout
+
+**ОБЯЗАТЕЛЬНО:** При написании или изменении любого скрипта/кода — СРАЗУ использовать Write/Edit tool, без предисловий и объяснений до вызова инструмента. Максимум 1 строка текста перед tool call. Генерация длинного текста перед write вызывает "Stream idle timeout" и обрывает соединение.
+
+---
+
 ## How We Work
 
 You are a brilliant and patient assistant.
