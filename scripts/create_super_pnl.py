@@ -41,12 +41,20 @@ ZB = {
     'pay_adm':    pad([15800,     15300,     15100]),
     'rent':       pad([26522,     13530,     27060]),
     'util':       pad([12558.52,  11344.25,  11485.27]),
+    'internet':   pad([0,         0,         0]),
     'pack':       pad([3630,      1759,      1270]),
     'logi':       pad([2806,      1530,      1210]),
     'crm':        pad([730.08,    739,       750]),
     'house':      pad([1540,      400,       1940]),
     'mkt':        pad([0,         0,         0]),
     'legal':      pad([2900,      4900,      800]),
+    'bank_fee':   pad([0,         0,         0]),
+    'aktu':       pad([0,         0,         0]),
+    'beeygor':    pad([0,         0,         0]),
+    'teztar':     pad([0,         0,         0]),
+    'invent':     pad([0,         0,         0]),
+    'equip':      pad([0,         0,         0]),
+    'venue':      pad([0,         0,         0]),
     'other':      pad([3924,      1246.50,   3594.75]),
     'force':      pad([13000,     8100,      500]),
     'taxes':      pad([14982,     5178,      6112]),
@@ -73,12 +81,20 @@ OVIR = {
     'pay_adm':    pad([6880,      16800,     16900]),
     'rent':       pad([32500,     20000,     32500]),
     'util':       pad([1345.27,   3755.03,   4134.57]),
+    'internet':   pad([0,         0,         0]),
     'pack':       pad([0,         2319,      4720]),
     'logi':       pad([450,       1740,      1336]),
     'crm':        pad([816.06,    843.04,    840]),
     'house':      pad([7886,      1174,      1740.76]),
     'mkt':        pad([0,         300,       200]),
     'legal':      pad([600,       1500,      1823]),
+    'bank_fee':   pad([0,         0,         0]),
+    'aktu':       pad([0,         0,         0]),
+    'beeygor':    pad([0,         0,         0]),
+    'teztar':     pad([0,         0,         0]),
+    'invent':     pad([0,         0,         0]),
+    'equip':      pad([0,         0,         0]),
+    'venue':      pad([0,         0,         0]),
     'other':      pad([1181,      2221,      558]),
     'force':      pad([0,         8000,      303]),
     'taxes':      pad([882,       0,         0]),
@@ -178,24 +194,34 @@ def build_rows(d, title, is_svod=False, ref_rows=None):
                    f'=IFERROR((N{Rct}+N{Rpt})/N{Rv},"")')
 
     s_opex  = sect('📋 ОПЕРАЦИОННЫЕ РАСХОДЫ')
-    Rre     = data('Аренда',                   'rent')
-    Rrp     = calc('  % аренды',
-                   lambda c: f'=IFERROR({c}{Rre}/{c}{Rv},"")',
-                   f'=IFERROR(N{Rre}/N{Rv},"")')
-    Rut     = data('Коммунальные',             'util')
-    Rpk     = data('Упаковка',                 'pack')
-    Rlg     = data('Логистика',                'logi')
-    Rcm     = data('CRM / Poster',             'crm')
-    Rho     = data('Хозтовары',               'house')
-    Rmk     = data('Маркетинг',                'mkt')
-    Rle     = data('Юридические расходы',      'legal')
-    Rot     = data('Прочие расходы',           'other')
-    Rfo     = data('Форс-мажор',               'force')
-    Rox     = calc('ИТОГО OpEx',
-                   lambda c: (f'=SUM({c}{Rre},{c}{Rut},{c}{Rpk},{c}{Rlg},'
-                              f'{c}{Rcm},{c}{Rho},{c}{Rmk},{c}{Rle},{c}{Rot},{c}{Rfo})'),
-                   (f'=SUM(N{Rre},N{Rut},N{Rpk},N{Rlg},'
-                    f'N{Rcm},N{Rho},N{Rmk},N{Rle},N{Rot},N{Rfo})'))
+    opex_items = []
+
+    Rre  = data('Аренда',                          'rent');      opex_items.append(Rre)
+    Rrp  = calc('  % аренды',
+                lambda c: f'=IFERROR({c}{Rre}/{c}{Rv},"")',
+                f'=IFERROR(N{Rre}/N{Rv},"")')
+    Rut  = data('Коммунальные',                    'util');      opex_items.append(Rut)
+    Rint = data('Интернет',                         'internet');  opex_items.append(Rint)
+    Rpk  = data('Упаковка',                        'pack');      opex_items.append(Rpk)
+    Rlg  = data('Логистика',                       'logi');      opex_items.append(Rlg)
+    Rcm  = data('CRM / Poster',                    'crm');       opex_items.append(Rcm)
+    Rho  = data('Хозтовары',                       'house');     opex_items.append(Rho)
+    Rmk  = data('Маркетинг',                       'mkt');       opex_items.append(Rmk)
+    Rle  = data('Юридические расходы',             'legal');     opex_items.append(Rle)
+    Rbf  = data('Банковские услуги и комиссии',    'bank_fee');  opex_items.append(Rbf)
+    Rak  = data('Актуализация (подписки)',          'aktu');      opex_items.append(Rak)
+    Rbg  = data('Выплаты Beeygor',                 'beeygor');   opex_items.append(Rbg)
+    Rtz  = data('Выплаты Teztar',                  'teztar');    opex_items.append(Rtz)
+    Rinv = data('Инвентарь',                       'invent');    opex_items.append(Rinv)
+    Req  = data('Расходы на оборудование',         'equip');     opex_items.append(Req)
+    Rven = data('Расходы на заведения',            'venue');     opex_items.append(Rven)
+    Rot  = data('Прочие расходы',                  'other');     opex_items.append(Rot)
+    Rfo  = data('Форс-мажор',                      'force');     opex_items.append(Rfo)
+
+    _oi  = list(opex_items)
+    Rox  = calc('ИТОГО OpEx',
+                lambda c: '=SUM(' + ','.join(f'{c}{r}' for r in _oi) + ')',
+                '=SUM(' + ','.join(f'N{r}' for r in _oi) + ')')
 
     s_ebit  = sect('🔶 EBITDA')
     Reb     = calc('EBITDA',
@@ -241,8 +267,10 @@ def build_rows(d, title, is_svod=False, ref_rows=None):
         'dushcity': Rdc, 'card': Rcd,
         'cogs_k': Rck,   'cogs_b': Rcb,     'cogs_staff': Rcs,  'cogs_mat': Rcm2,
         'pay_prod': Rpp, 'pay_adm': Rpa,
-        'rent': Rre,     'util': Rut,        'pack': Rpk,        'logi': Rlg,
-        'crm': Rcm,      'house': Rho,       'mkt': Rmk,         'legal': Rle,
+        'rent': Rre,     'util': Rut,        'internet': Rint,   'pack': Rpk,
+        'logi': Rlg,     'crm': Rcm,         'house': Rho,       'mkt': Rmk,
+        'legal': Rle,    'bank_fee': Rbf,    'aktu': Rak,        'beeygor': Rbg,
+        'teztar': Rtz,   'invent': Rinv,     'equip': Req,       'venue': Rven,
         'other': Rot,    'force': Rfo,
         'taxes': Rtx,    'divid': Rdv,
         'tx': Rtr,       'vis': Rvi,         'avg_chk': Rac,
@@ -260,11 +288,14 @@ def build_rows(d, title, is_svod=False, ref_rows=None):
         'R_NET': Rnet,     'R_NP': Rnp,        'R_FREE': Rfc,
         'R_GPD': Rgpd,     'R_AVG': Rac,       'R_VIS': Rvi,
         'R_TX': Rtr,       'R_DAYS': Rdy,      'R_REV': Rv,
+        # list for CF
+        '_opex_items': _oi,
     }
     return rows, ref
 
 
 # ── CASH FLOW BUILDER ─────────────────────────────────────────────────────────
+# Примечание: метки строк НЕ должны начинаться с = + - (Sheets воспримет как формулу)
 def build_cf_rows(sv_ref):
     rows = []
 
@@ -282,32 +313,32 @@ def build_cf_rows(sv_ref):
     rows.append(['🔵 ОПЕРАЦИОННАЯ ДЕЯТЕЛЬНОСТЬ'])
 
     r_rev  = len(rows) + 1
-    rows.append(['+  Поступления от клиентов (выручка)'] +
+    rows.append(['Поступления от клиентов (выручка)'] +
                 [sv('R_REV', i) for i in range(12)] +
                 [f"='Свод'!N{sv_ref['R_REV']}", ''])
 
     r_cogs = len(rows) + 1
-    rows.append(['−  Себестоимость (закупки)'] +
+    rows.append(['Себестоимость (закупки) — отток'] +
                 [neg('R_COGS_TOT', i) for i in range(12)] +
                 [f"=0-'Свод'!N{sv_ref['R_COGS_TOT']}", ''])
 
     r_pay  = len(rows) + 1
-    rows.append(['−  ФОТ (производство + администрация)'] +
+    rows.append(['ФОТ (производство + администрация) — отток'] +
                 [neg('R_PAY_TOT', i) for i in range(12)] +
                 [f"=0-'Свод'!N{sv_ref['R_PAY_TOT']}", ''])
 
     r_opex = len(rows) + 1
-    rows.append(['−  Операционные расходы (аренда, ком., прочее)'] +
+    rows.append(['Операционные расходы (OpEx) — отток'] +
                 [neg('R_OPEX_TOT', i) for i in range(12)] +
                 [f"=0-'Свод'!N{sv_ref['R_OPEX_TOT']}", ''])
 
     r_tax  = len(rows) + 1
-    rows.append(['−  Налоги'] +
+    rows.append(['Налоги — отток'] +
                 [neg('taxes', i) for i in range(12)] +
                 [f"=0-'Свод'!N{sv_ref['taxes']}", ''])
 
     r_oper = len(rows) + 1
-    rows.append(['= ОПЕРАЦИОННЫЙ ДЕНЕЖНЫЙ ПОТОК'] +
+    rows.append(['ОПЕРАЦИОННЫЙ ДЕНЕЖНЫЙ ПОТОК'] +
                 [f'={chr(66+i)}{r_rev}+{chr(66+i)}{r_cogs}+{chr(66+i)}{r_pay}+'
                  f'{chr(66+i)}{r_opex}+{chr(66+i)}{r_tax}' for i in range(12)] +
                 [f'=N{r_rev}+N{r_cogs}+N{r_pay}+N{r_opex}+N{r_tax}', ''])
@@ -315,33 +346,42 @@ def build_cf_rows(sv_ref):
     rows.append([])
     rows.append(['🟡 ИНВЕСТИЦИОННАЯ ДЕЯТЕЛЬНОСТЬ'])
 
-    r_capex    = len(rows) + 1
-    rows.append(['−  Покупка оборудования / ОС'] + [''] * 12 + ['=SUM(B{0}:M{0})'.format(r_capex), ''])
+    r_invest = len(rows) + 1
+    rows.append(['Инвестиции в развитие'] + [''] * 12 +
+                [f'=SUM(B{r_invest}:M{r_invest})', ''])
 
-    r_inv_oth  = len(rows) + 1
-    rows.append(['−  Прочие капитальные вложения'] + [''] * 12 + ['=SUM(B{0}:M{0})'.format(r_inv_oth), ''])
+    r_capex = len(rows) + 1
+    rows.append(['Покупка оборудования / ОС'] + [''] * 12 +
+                [f'=SUM(B{r_capex}:M{r_capex})', ''])
+
+    r_open_exp = len(rows) + 1
+    rows.append(['Расходы на открытие'] + [''] * 12 +
+                [f'=SUM(B{r_open_exp}:M{r_open_exp})', ''])
 
     r_inv  = len(rows) + 1
-    rows.append(['= ИНВЕСТИЦИОННЫЙ ДЕНЕЖНЫЙ ПОТОК'] +
-                [f'=0-{chr(66+i)}{r_capex}-{chr(66+i)}{r_inv_oth}' for i in range(12)] +
-                [f'=0-N{r_capex}-N{r_inv_oth}', ''])
+    rows.append(['ИНВЕСТИЦИОННЫЙ ДЕНЕЖНЫЙ ПОТОК'] +
+                [f'=0-{chr(66+i)}{r_invest}-{chr(66+i)}{r_capex}-{chr(66+i)}{r_open_exp}'
+                 for i in range(12)] +
+                [f'=0-N{r_invest}-N{r_capex}-N{r_open_exp}', ''])
 
     rows.append([])
     rows.append(['🟠 ФИНАНСОВАЯ ДЕЯТЕЛЬНОСТЬ'])
 
     r_div  = len(rows) + 1
-    rows.append(['−  Дивиденды выплаченные'] +
+    rows.append(['Дивиденды выплаченные — отток'] +
                 [neg('divid', i) for i in range(12)] +
                 [f"=0-'Свод'!N{sv_ref['divid']}", ''])
 
     r_ln_in  = len(rows) + 1
-    rows.append(['+  Займы полученные'] + [''] * 12 + ['=SUM(B{0}:M{0})'.format(r_ln_in), ''])
+    rows.append(['Займы полученные'] + [''] * 12 +
+                [f'=SUM(B{r_ln_in}:M{r_ln_in})', ''])
 
     r_ln_out = len(rows) + 1
-    rows.append(['−  Погашение займов'] + [''] * 12 + ['=SUM(B{0}:M{0})'.format(r_ln_out), ''])
+    rows.append(['Погашение займов — отток'] + [''] * 12 +
+                [f'=SUM(B{r_ln_out}:M{r_ln_out})', ''])
 
     r_fin  = len(rows) + 1
-    rows.append(['= ФИНАНСОВЫЙ ДЕНЕЖНЫЙ ПОТОК'] +
+    rows.append(['ФИНАНСОВЫЙ ДЕНЕЖНЫЙ ПОТОК'] +
                 [f'={chr(66+i)}{r_div}+{chr(66+i)}{r_ln_in}-{chr(66+i)}{r_ln_out}'
                  for i in range(12)] +
                 [f'=N{r_div}+N{r_ln_in}-N{r_ln_out}', ''])
@@ -356,28 +396,28 @@ def build_cf_rows(sv_ref):
                 [f'=N{r_oper}+N{r_inv}+N{r_fin}', ''])
 
     r_open = len(rows) + 1
-    rows.append(['+ Остаток кэша на начало периода (ручной ввод)'] +
+    rows.append(['Остаток кэша на начало периода (ручной ввод)'] +
                 [''] * 12 + ['', ''])
 
     r_close = len(rows) + 1
-    rows.append(['= Остаток кэша на конец периода'] +
+    rows.append(['Остаток кэша на конец периода'] +
                 [f'={chr(66+i)}{r_open}+{chr(66+i)}{r_net}' for i in range(12)] +
                 [f'=N{r_open}+N{r_net}', ''])
 
     cf_ref = {
         'r_rev': r_rev, 'r_cogs': r_cogs, 'r_pay': r_pay,
         'r_opex': r_opex, 'r_tax': r_tax, 'R_OPER': r_oper,
-        'r_capex': r_capex, 'r_inv_oth': r_inv_oth, 'R_INV': r_inv,
+        'r_invest': r_invest, 'r_capex': r_capex, 'r_open_exp': r_open_exp,
+        'R_INV': r_inv,
         'r_div': r_div, 'r_ln_in': r_ln_in, 'r_ln_out': r_ln_out, 'R_FIN': r_fin,
         'R_NET': r_net, 'r_open': r_open, 'r_close': r_close,
-        'S_OPER': 5, 'S_INV': r_capex - 1, 'S_FIN': r_div - 1, 'S_TOT': r_net - 1,
+        'S_OPER': 5, 'S_INV': r_invest - 1, 'S_FIN': r_div - 1, 'S_TOT': r_net - 1,
     }
     return rows, cf_ref
 
 
 # ── KPI BUILDER ───────────────────────────────────────────────────────────────
 def build_kpi_rows(zb_ref, ov_ref, sv_ref):
-    # March = col D (index 2); last fully closed month
     def z(key): return f"='ЗБ'!D{zb_ref[key]}"
     def o(key): return f"='ОВИР'!D{ov_ref[key]}"
     def s(key): return f"='Свод'!D{sv_ref[key]}"
@@ -388,8 +428,8 @@ def build_kpi_rows(zb_ref, ov_ref, sv_ref):
         [],
         ['Показатель', 'ЗБ (Лохути)', 'ОВИР (Турсунзода)', 'СЕТЬ итого', 'Цель', 'Статус'],
         ['📊 ВЫРУЧКА'],
-        ['Выручка месяц (с)',        z('R_REV'),   o('R_REV'),   s('R_REV'),   '—', ''],
-        ['Выручка в день (с)',       z('R_RPD'),   o('R_RPD'),   s('R_RPD'),   '—', ''],
+        ['Выручка месяц (с)',        z('R_REV'),      o('R_REV'),      s('R_REV'),      '—', ''],
+        ['Выручка в день (с)',       z('R_RPD'),      o('R_RPD'),      s('R_RPD'),      '—', ''],
         [],
         ['💳 ОПЛАТЫ'],
         ['% наличных',              z('R_CASH_PCT'), o('R_CASH_PCT'), s('R_CASH_PCT'), '—', ''],
@@ -397,25 +437,25 @@ def build_kpi_rows(zb_ref, ov_ref, sv_ref):
         [],
         ['🛒 СЕБЕСТОИМОСТЬ'],
         ['ИТОГО COGS (с)',           z('R_COGS_TOT'), o('R_COGS_TOT'), s('R_COGS_TOT'), '—', ''],
-        ['Food Cost кухня %',        z('R_FC_K'),  o('R_FC_K'),  s('R_FC_K'),  '30%', ''],
-        ['Food Cost общий %',        z('R_FC'),    o('R_FC'),    s('R_FC'),    '30%', ''],
+        ['Food Cost кухня %',        z('R_FC_K'),     o('R_FC_K'),     s('R_FC_K'),     '30%', ''],
+        ['Food Cost общий %',        z('R_FC'),       o('R_FC'),       s('R_FC'),       '30%', ''],
         [],
         ['👥 ФОТ'],
-        ['Labor Cost %',             z('R_LC'),    o('R_LC'),    s('R_LC'),    '25%', ''],
-        ['Prime Cost %',             z('R_PC'),    o('R_PC'),    s('R_PC'),    '55%', ''],
+        ['Labor Cost %',             z('R_LC'),       o('R_LC'),       s('R_LC'),       '25%', ''],
+        ['Prime Cost %',             z('R_PC'),       o('R_PC'),       s('R_PC'),       '55%', ''],
         [],
         ['ПРИБЫЛЬНОСТЬ'],
-        ['Валовая маржа %',          z('R_GPP'),   o('R_GPP'),   s('R_GPP'),   '60%', ''],
-        ['EBITDA %',                 z('R_EBITP'), o('R_EBITP'), s('R_EBITP'), '17%', ''],
-        ['Чистая маржа %',           z('R_NP'),    o('R_NP'),    s('R_NP'),    '12%', ''],
-        ['Чистая прибыль (с)',       z('R_NET'),   o('R_NET'),   s('R_NET'),   '—', ''],
-        ['Свободный кэш (с)',        z('R_FREE'),  o('R_FREE'),  s('R_FREE'),  '—', ''],
+        ['Валовая маржа %',          z('R_GPP'),      o('R_GPP'),      s('R_GPP'),      '60%', ''],
+        ['EBITDA %',                 z('R_EBITP'),    o('R_EBITP'),    s('R_EBITP'),    '17%', ''],
+        ['Чистая маржа %',           z('R_NP'),       o('R_NP'),       s('R_NP'),       '12%', ''],
+        ['Чистая прибыль (с)',       z('R_NET'),      o('R_NET'),      s('R_NET'),      '—', ''],
+        ['Свободный кэш (с)',        z('R_FREE'),     o('R_FREE'),     s('R_FREE'),     '—', ''],
         [],
         ['📱 POSTER'],
-        ['Гости в месяц',            z('R_VIS'),   o('R_VIS'),   s('R_VIS'),   '—', ''],
-        ['Гостей в день',            z('R_GPD'),   o('R_GPD'),   s('R_GPD'),   '>100', ''],
-        ['Средний чек (с)',          z('R_AVG'),   o('R_AVG'),   s('R_AVG'),   '>110', ''],
-        ['Транзакции',               z('R_TX'),    o('R_TX'),    s('R_TX'),    '—', ''],
+        ['Гости в месяц',            z('R_VIS'),      o('R_VIS'),      s('R_VIS'),      '—', ''],
+        ['Гостей в день',            z('R_GPD'),      o('R_GPD'),      s('R_GPD'),      '>100', ''],
+        ['Средний чек (с)',          z('R_AVG'),      o('R_AVG'),      s('R_AVG'),      '>110', ''],
+        ['Транзакции',               z('R_TX'),       o('R_TX'),       s('R_TX'),       '—', ''],
     ]
 
 
@@ -498,19 +538,27 @@ def format_pnl_sheet(sid, ref):
                             fmt_type='pct' if pct else 'num'))
 
     sec(R['S_REV']);  kr(R['R_REV']); dr(R['delivery']); dr(R['work_days']); cr(R['R_RPD'])
-    sec(R['S_OPL']);  dr(R['cash']); dr(R['noncash']); dr(R['alif']); dr(R['dushcity'])
-    dr(R['card']); cr(R['R_CASH_PCT'], pct=True); cr(R['R_NC_PCT'], pct=True)
-    sec(R['S_COGS']); dr(R['cogs_k']); dr(R['cogs_b']); dr(R['cogs_staff']); dr(R['cogs_mat'])
+    sec(R['S_OPL'])
+    dr(R['cash']); dr(R['noncash']); dr(R['alif']); dr(R['dushcity']); dr(R['card'])
+    cr(R['R_CASH_PCT'], pct=True); cr(R['R_NC_PCT'], pct=True)
+    sec(R['S_COGS'])
+    dr(R['cogs_k']); dr(R['cogs_b']); dr(R['cogs_staff']); dr(R['cogs_mat'])
     kr(R['R_COGS_TOT']); cr(R['R_FC_K'], pct=True); cr(R['R_FC'], pct=True)
     sec(R['S_GP']);   kr(R['R_GP']); cr(R['R_GPP'], pct=True)
-    sec(R['S_PAY']);  dr(R['pay_prod']); dr(R['pay_adm'])
+    sec(R['S_PAY'])
+    dr(R['pay_prod']); dr(R['pay_adm'])
     kr(R['R_PAY_TOT']); cr(R['R_LC'], pct=True); cr(R['R_PC'], pct=True)
-    sec(R['S_OPEX']); dr(R['rent']); cr(R['R_RENT_PCT'], pct=True)
-    dr(R['util']); dr(R['pack']); dr(R['logi']); dr(R['crm'])
-    dr(R['house']); dr(R['mkt']); dr(R['legal']); dr(R['other']); dr(R['force'])
+    sec(R['S_OPEX'])
+    dr(R['rent']); cr(R['R_RENT_PCT'], pct=True)
+    dr(R['util']); dr(R['internet']); dr(R['pack']); dr(R['logi']); dr(R['crm'])
+    dr(R['house']); dr(R['mkt']); dr(R['legal'])
+    dr(R['bank_fee']); dr(R['aktu']); dr(R['beeygor']); dr(R['teztar'])
+    dr(R['invent']); dr(R['equip']); dr(R['venue'])
+    dr(R['other']); dr(R['force'])
     kr(R['R_OPEX_TOT'])
     sec(R['S_EBIT']); kr(R['R_EBIT']); cr(R['R_EBITP'], pct=True)
-    sec(R['S_ITOG']); dr(R['taxes']); kr(R['R_NET']); cr(R['R_NP'], pct=True)
+    sec(R['S_ITOG'])
+    dr(R['taxes']); kr(R['R_NET']); cr(R['R_NP'], pct=True)
     dr(R['divid']); kr(R['R_FREE'])
     sec(R['S_POST']); dr(R['tx']); dr(R['vis']); dr(R['avg_chk']); cr(R['R_GPD'])
 
@@ -523,7 +571,7 @@ def format_cf_sheet(cf_sid, cf_ref):
     reqs = [freeze(cf_sid, rows=4, cols=0)]
     NCOLS = 15
 
-    reqs.append(col_width(cf_sid, 0, 285))
+    reqs.append(col_width(cf_sid, 0, 295))
     for c in range(1, 13): reqs.append(col_width(cf_sid, c, 78))
     reqs += [col_width(cf_sid, 13, 90), col_width(cf_sid, 14, 90)]
 
@@ -539,28 +587,32 @@ def format_cf_sheet(cf_sid, cf_ref):
         reqs.append(fmt_row(cf_sid, r-1, 0, NCOLS, bold=True, bg=C_SEC, fg=C_WHITE, fs=12))
         reqs.append(merge(cf_sid, r-1, r, 0, NCOLS))
 
-    def inf(r):  # inflow — green
+    def inf(r):
         reqs.append(fmt_row(cf_sid, r-1, 0, 1, bg=C_GREEN, fs=12))
         reqs.append(fmt_row(cf_sid, r-1, 1, NCOLS, bg=C_GREEN, fs=12, align='RIGHT', fmt_type='num'))
 
-    def out(r):  # outflow — red
+    def out(r):
         reqs.append(fmt_row(cf_sid, r-1, 0, 1, bg=C_RED, fs=12))
         reqs.append(fmt_row(cf_sid, r-1, 1, NCOLS, bg=C_RED, fs=12, align='RIGHT', fmt_type='num'))
 
-    def man(r):  # manual input
+    def man(r):
         reqs.append(fmt_row(cf_sid, r-1, 0, 1, bg=C_WHITE, fs=12))
         reqs.append(fmt_row(cf_sid, r-1, 1, NCOLS, bg=C_WHITE, fs=12, align='RIGHT', fmt_type='num'))
 
-    def tot(r):  # total
+    def tot(r):
         reqs.append(fmt_row(cf_sid, r-1, 0, 1, bold=True, bg=C_GOLD, fs=12))
         reqs.append(fmt_row(cf_sid, r-1, 1, NCOLS, bold=True, bg=C_GOLD, fs=12,
                             align='RIGHT', fmt_type='num'))
 
-    sec(R['S_OPER']); inf(R['r_rev']); out(R['r_cogs']); out(R['r_pay'])
-    out(R['r_opex']); out(R['r_tax']); tot(R['R_OPER'])
-    sec(R['S_INV']);  man(R['r_capex']); man(R['r_inv_oth']); tot(R['R_INV'])
-    sec(R['S_FIN']);  out(R['r_div']); man(R['r_ln_in']); man(R['r_ln_out']); tot(R['R_FIN'])
-    sec(R['S_TOT']);  tot(R['R_NET']); man(R['r_open']); tot(R['r_close'])
+    sec(R['S_OPER'])
+    inf(R['r_rev']); out(R['r_cogs']); out(R['r_pay']); out(R['r_opex']); out(R['r_tax'])
+    tot(R['R_OPER'])
+    sec(R['S_INV'])
+    man(R['r_invest']); man(R['r_capex']); man(R['r_open_exp']); tot(R['R_INV'])
+    sec(R['S_FIN'])
+    out(R['r_div']); man(R['r_ln_in']); man(R['r_ln_out']); tot(R['R_FIN'])
+    sec(R['S_TOT'])
+    tot(R['R_NET']); man(R['r_open']); tot(R['r_close'])
 
     return reqs
 
@@ -591,63 +643,47 @@ def write_values(s, fid, sheet_name, rows):
                       'values': [[str(c) if c != '' else '' for c in row] for row in rows]}]}
     r = api_post(s, f'https://sheets.googleapis.com/v4/spreadsheets/{fid}/values:batchUpdate', body)
     ok = r and r.status_code == 200
-    print(f'  {"✅" if ok else "❌"} Values: {sheet_name}' + ('' if ok else f' — {r.status_code if r else "no resp"}'))
-    if not ok and r: print(r.text[:300])
+    print(f'  {"✅" if ok else "❌"} Values: {sheet_name}' +
+          ('' if ok else f' — {r.status_code if r else "no resp"}: {r.text[:200] if r else ""}'))
 
 def apply_fmt(s, fid, reqs):
     if not reqs: return
     r = api_post(s, f'https://sheets.googleapis.com/v4/spreadsheets/{fid}:batchUpdate',
                  {'requests': reqs})
     ok = r and r.status_code == 200
-    print(f'  {"✅" if ok else "❌"} Format ({len(reqs)} reqs)' + ('' if ok else f' — {r.status_code if r else "no resp"}'))
-    if not ok and r: print(r.text[:300])
-
-def delete_old_pnl(s):
-    name = 'Ромашка — Super P&L 2026'
-    q = f"name='{name}' and '{FOLDER_ID}' in parents and trashed=false"
-    url = (f'https://www.googleapis.com/drive/v3/files'
-           f'?q={urllib_quote(q)}&fields=files(id,name)'
-           f'&supportsAllDrives=true&includeItemsFromAllDrives=true')
-    r = s.get(url, timeout=30)
-    for f in r.json().get('files', []):
-        dr = s.delete(f"https://www.googleapis.com/drive/v3/files/{f['id']}?supportsAllDrives=true",
-                      timeout=30)
-        print(f'  Удалён {f["id"]}: {dr.status_code}')
+    print(f'  {"✅" if ok else "❌"} Format ({len(reqs)} reqs)' +
+          ('' if ok else f' — {r.status_code if r else "no resp"}: {r.text[:200] if r else ""}'))
 
 
 # ── MAIN ──────────────────────────────────────────────────────────────────────
 def main():
-    from urllib.parse import quote as urllib_quote
+    from urllib.parse import urlencode
     s = get_session()
 
     # Delete old file
     print('Удаляю старый файл...')
     name = 'Ромашка — Super P&L 2026'
     q = f"name='{name}' and '{FOLDER_ID}' in parents and trashed=false"
-    from urllib.parse import urlencode
-    url = ('https://www.googleapis.com/drive/v3/files?'
-           + urlencode({'q': q, 'fields': 'files(id,name)',
-                        'supportsAllDrives': 'true', 'includeItemsFromAllDrives': 'true'}))
-    rlist = s.get(url, timeout=30)
-    for f in rlist.json().get('files', []):
+    url = ('https://www.googleapis.com/drive/v3/files?' +
+           urlencode({'q': q, 'fields': 'files(id,name)',
+                      'supportsAllDrives': 'true', 'includeItemsFromAllDrives': 'true'}))
+    for f in s.get(url, timeout=30).json().get('files', []):
         dr = s.delete(f"https://www.googleapis.com/drive/v3/files/{f['id']}?supportsAllDrives=true",
                       timeout=30)
         print(f'  Удалён {f["id"]}: {dr.status_code}')
 
     # Create new file
-    print('Создаю новый файл...')
+    print('Создаю файл...')
     r = api_post(s, 'https://www.googleapis.com/drive/v3/files?supportsAllDrives=true',
                  {'name': name, 'mimeType': 'application/vnd.google-apps.spreadsheet',
                   'parents': [FOLDER_ID]})
     fid = r.json()['id']
     print(f'ID: {fid}')
 
-    # Get default sheet ID
     r2 = s.get(f'https://sheets.googleapis.com/v4/spreadsheets/{fid}?fields=sheets.properties',
                timeout=30)
     default_sid = r2.json()['sheets'][0]['properties']['sheetId']
 
-    # Add sheets
     r3 = api_post(s, f'https://sheets.googleapis.com/v4/spreadsheets/{fid}:batchUpdate', {
         'requests': [
             {'updateSheetProperties': {'properties': {'sheetId': default_sid, 'title': 'ЗБ'},
@@ -658,36 +694,29 @@ def main():
             {'addSheet': {'properties': {'title': 'Cash Flow', 'index': 4}}},
         ]
     })
-    replies = r3.json()['replies']
+    replies  = r3.json()['replies']
     ovir_sid = replies[1]['addSheet']['properties']['sheetId']
     svod_sid = replies[2]['addSheet']['properties']['sheetId']
     kpi_sid  = replies[3]['addSheet']['properties']['sheetId']
     cf_sid   = replies[4]['addSheet']['properties']['sheetId']
     print(f'Sheets: ЗБ={default_sid} ОВИР={ovir_sid} Свод={svod_sid} KPI={kpi_sid} CF={cf_sid}')
 
-    # ── ЗБ ──
     print('\n── ЗБ ──')
     zb_rows, zb_ref = build_rows(ZB, 'РОМАШКА — P&L 2026 | ЗБ (Лохути 11)')
-    write_values(s, fid, 'ЗБ', zb_rows)
-    time.sleep(1)
+    write_values(s, fid, 'ЗБ', zb_rows);  time.sleep(1)
     apply_fmt(s, fid, format_pnl_sheet(default_sid, zb_ref))
 
-    # ── ОВИР ──
     print('\n── ОВИР ──')
     ov_rows, ov_ref = build_rows(OVIR, 'РОМАШКА — P&L 2026 | ОВИР (Турсунзода)')
-    write_values(s, fid, 'ОВИР', ov_rows)
-    time.sleep(1)
+    write_values(s, fid, 'ОВИР', ov_rows); time.sleep(1)
     apply_fmt(s, fid, format_pnl_sheet(ovir_sid, ov_ref))
 
-    # ── Свод ──
     print('\n── Свод ──')
     sv_rows, sv_ref = build_rows(ZB, 'РОМАШКА — P&L 2026 | СВОД (ЗБ + ОВИР)',
                                   is_svod=True, ref_rows=zb_ref)
-    write_values(s, fid, 'Свод', sv_rows)
-    time.sleep(1)
+    write_values(s, fid, 'Свод', sv_rows); time.sleep(1)
     apply_fmt(s, fid, format_pnl_sheet(svod_sid, sv_ref))
 
-    # ── KPI ──
     print('\n── KPI ──')
     kpi_rows = build_kpi_rows(zb_ref, ov_ref, sv_ref)
     write_values(s, fid, 'KPI', kpi_rows)
@@ -704,11 +733,9 @@ def main():
     ]
     apply_fmt(s, fid, kpi_fmt)
 
-    # ── Cash Flow ──
     print('\n── Cash Flow ──')
     cf_rows, cf_ref = build_cf_rows(sv_ref)
-    write_values(s, fid, 'Cash Flow', cf_rows)
-    time.sleep(1)
+    write_values(s, fid, 'Cash Flow', cf_rows); time.sleep(1)
     apply_fmt(s, fid, format_cf_sheet(cf_sid, cf_ref))
 
     print(f'\n✅ https://docs.google.com/spreadsheets/d/{fid}/edit')
