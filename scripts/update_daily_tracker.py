@@ -62,10 +62,13 @@ def get_day_data(token, date):
     open_bal   = int(shifts[0].get('amount_start', 0)) / 100 if shifts else None
     close_bal  = int(shifts[-1].get('amount_end', 0)) / 100 if shifts else None
 
-    # Расходы (финансовые транзакции тип=0, не тип=2 — проверено в check_pnl_transactions.py)
+    # Расходы (тип=0, суммы отрицательные → abs; Переводы/Внесения/Открытие ФС не расходы)
+    SKIP_CAT = {'Переводы', 'Внесения в кассу', 'Открытие ФС'}
     rt = poster_get(token, 'finance.getTransactions', {'dateFrom': ds, 'dateTo': de})
-    expenses = sum(int(t.get('amount', 0)) / 100
-                   for t in rt.get('response', []) if t.get('type') == '0')
+    expenses = sum(abs(int(t.get('amount', 0))) / 100
+                   for t in rt.get('response', [])
+                   if t.get('type') == '0'
+                   and t.get('category_name', '') not in SKIP_CAT)
 
     return {
         'revenue':    revenue,
