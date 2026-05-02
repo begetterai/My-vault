@@ -66,13 +66,18 @@ def parse_payments(transactions):
 
         if is_beeygor:
             beeygor += amt
+            # Beeygor Алиф → тоже в Alif; Beeygor DC → тоже в DC
+            if 'алиф' in comment or 'alif' in comment:
+                alif += amt
+            elif 'душанбе сити' in comment:
+                dc += amt
         elif 'алиф' in comment or 'alif' in comment:
             alif += amt
         elif 'душанбе сити' in comment:
             dc += amt
         elif 'безналичной' in comment:
             card += amt
-        # 'наличной' = cash → уже в колонке D, не учитываем
+        # 'наличной' = cash → уже в колонке E, не учитываем
 
     return alif, dc, card, beeygor
 
