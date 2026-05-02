@@ -3,19 +3,17 @@
 Ромашка — ежедневное обновление трекера.
 Cron: 0 23 * * * python3 /home/user/My-vault/scripts/update_daily_tracker.py
 
-Автоматически из Poster:
+Всё автоматически из Poster:
   C  Выручка         — dash.getAnalytics
   D  Наличные        — finance.getCashShifts
+  E  Alif            — finance.getTransactions (Алиф + Beeyor Алиф)
+  F  DC              — finance.getTransactions (Душанбе Сити + Beeyor ДС)
+  G  Карта           — finance.getTransactions (Карта)
+  H  Beeygor         — finance.getTransactions (все Beeyor)
   K  Инкасс. нал.    — finance.getCashShifts
   L  Ост. откр.      — finance.getCashShifts
-  N  Ост. закр.      — finance.getCashShifts
   M  Расходы         — finance.getTransactions (sum type=0)
-
-Вручную управляющие:
-  E  Alif
-  F  DC
-  G  Карта
-  H  Beeygor/Teztar
+  N  Ост. закр.      — finance.getCashShifts
 """
 import json, os, time, datetime, urllib.request, urllib.parse
 os.environ['REQUESTS_CA_BUNDLE'] = '/etc/ssl/certs/ca-certificates.crt'
@@ -32,6 +30,8 @@ LOCATIONS = [
     {'sheet': 'ОВИР', 'token': '935215:79675564e3d086d7e03d5fd56b50c8df'},
 ]
 
+SKIP_EXPENSE_CAT = {'Переводы', 'Внесения в кассу', 'Открытие ФС'}
+
 def poster_get(token, method, params=None):
     p = {'token': token}
     if params: p.update(params)
@@ -45,14 +45,43 @@ def poster_get(token, method, params=None):
         print(f"    ⚠️  {e}")
         return {}
 
+def parse_payments(transactions):
+    """Разбирает входящие транзакции (type=1) по типам оплаты.
+
+    Poster записывает закрытие кассы так:
+      'Алиф — Закрытие безналичной кассы'          → Alif
+      'Душанбе Сити — Закрытие безналичной кассы'   → DC
+      'Закрытие безналичной кассы'                   → Карта (обычный терминал)
+      'Beeyor (Алиф/ДС/Наличные) — ...'             → Beeygor (доставка)
+      'Teztar — ...'                                 → Beeygor (доставка)
+    """
+    alif = dc = card = beeygor = 0.0
+    for t in transactions:
+        if t.get('type') != '1' or t.get('category_name') != 'Кассовые смены':
+            continue
+        comment = (t.get('comment', '') or '').lower()
+        amt = abs(int(t.get('amount', 0))) / 100
+
+        is_beeygor = 'beeyor' in comment or 'teztar' in comment
+
+        if is_beeygor:
+            beeygor += amt
+        elif 'алиф' in comment or 'alif' in comment:
+            alif += amt
+        elif 'душанбе сити' in comment:
+            dc += amt
+        elif 'безналичной' in comment:
+            card += amt
+        # 'наличной' = cash → уже в колонке D, не учитываем
+
+    return alif, dc, card, beeygor
+
 def get_day_data(token, date):
-    """Возвращает все данные за один день из Poster."""
     ds = de = date.strftime("%Y%m%d")
 
     # Выручка
     ra = poster_get(token, 'dash.getAnalytics', {'dateFrom': ds, 'dateTo': de})
-    counters = ra.get('response', {}).get('counters', {})
-    revenue = float(counters.get('revenue', 0))
+    revenue = float(ra.get('response', {}).get('counters', {}).get('revenue', 0))
 
     # Кассовая смена
     rs = poster_get(token, 'finance.getCashShifts', {'dateFrom': ds, 'dateTo': de})
@@ -62,21 +91,28 @@ def get_day_data(token, date):
     open_bal   = int(shifts[0].get('amount_start', 0)) / 100 if shifts else None
     close_bal  = int(shifts[-1].get('amount_end', 0)) / 100 if shifts else None
 
-    # Расходы (тип=0, суммы отрицательные → abs; Переводы/Внесения/Открытие ФС не расходы)
-    SKIP_CAT = {'Переводы', 'Внесения в кассу', 'Открытие ФС'}
+    # Транзакции: расходы + типы оплаты
     rt = poster_get(token, 'finance.getTransactions', {'dateFrom': ds, 'dateTo': de})
+    txns = rt.get('response', [])
+
     expenses = sum(abs(int(t.get('amount', 0))) / 100
-                   for t in rt.get('response', [])
+                   for t in txns
                    if t.get('type') == '0'
-                   and t.get('category_name', '') not in SKIP_CAT)
+                   and t.get('category_name', '') not in SKIP_EXPENSE_CAT)
+
+    alif, dc, card, beeygor = parse_payments(txns)
 
     return {
-        'revenue':    revenue,
-        'cash':       cash if cash > 0 else None,
-        'collection': collection if collection > 0 else None,
+        'revenue':    revenue      if revenue    > 0 else None,
+        'cash':       cash         if cash       > 0 else None,
+        'alif':       alif         if alif       > 0 else None,
+        'dc':         dc           if dc         > 0 else None,
+        'card':       card         if card       > 0 else None,
+        'beeygor':    beeygor      if beeygor    > 0 else None,
+        'collection': collection   if collection > 0 else None,
         'open_bal':   open_bal,
+        'expenses':   expenses     if expenses   > 0 else None,
         'close_bal':  close_bal,
-        'expenses':   expenses if expenses > 0 else None,
     }
 
 def date_to_row(d):
@@ -87,17 +123,15 @@ def get_session():
         CREDS, scopes=['https://www.googleapis.com/auth/spreadsheets'])
     return AuthorizedSession(creds)
 
-# Column letters for each field
-COL = {'revenue': 'C', 'cash': 'D', 'collection': 'K',
-       'open_bal': 'L', 'expenses': 'M', 'close_bal': 'N'}
+COL = {
+    'revenue': 'C', 'cash': 'D', 'alif': 'E', 'dc': 'F',
+    'card': 'G', 'beeygor': 'H', 'collection': 'K',
+    'open_bal': 'L', 'expenses': 'M', 'close_bal': 'N',
+}
 
 def build_updates(sheet, row, data):
-    updates = []
-    for field, col in COL.items():
-        val = data.get(field)
-        if val is not None:
-            updates.append({'range': f"'{sheet}'!{col}{row}", 'values': [[val]]})
-    return updates
+    return [{'range': f"'{sheet}'!{col}{row}", 'values': [[data[field]]]}
+            for field, col in COL.items() if data.get(field) is not None]
 
 def run(target_date=None):
     if target_date is None:
@@ -109,11 +143,15 @@ def run(target_date=None):
     all_updates = []
 
     for loc in LOCATIONS:
-        print(f"  Poster {loc['sheet']}...")
+        print(f"  {loc['sheet']}...")
         data = get_day_data(loc['token'], target_date)
-        print(f"    выручка={data['revenue']:,.0f}с  нал={data['cash'] or 0:,.0f}с"
-              f"  инкасс={data['collection'] or 0:,.0f}с  расх={data['expenses'] or 0:,.0f}с")
-        if data['revenue'] > 0 or data['cash']:
+        print(f"    выручка={data.get('revenue') or 0:,.0f}с  "
+              f"нал={data.get('cash') or 0:,.0f}с  "
+              f"alif={data.get('alif') or 0:,.0f}с  "
+              f"dc={data.get('dc') or 0:,.0f}с  "
+              f"beeygor={data.get('beeygor') or 0:,.0f}с  "
+              f"расх={data.get('expenses') or 0:,.0f}с")
+        if data.get('revenue'):
             all_updates += build_updates(loc['sheet'], row, data)
         time.sleep(0.5)
 
