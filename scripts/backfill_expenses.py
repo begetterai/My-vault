@@ -94,7 +94,7 @@ def main():
             expenses = get_daily_expenses(token, current)
             if expenses is not None:
                 updates.append({
-                    'range': f"'{sheet}'!M{row}",
+                    'range': f"'{sheet}'!N{row}",
                     'values': [[expenses]]
                 })
                 filled += 1

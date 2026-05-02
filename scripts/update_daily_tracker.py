@@ -12,7 +12,7 @@ Cron: 0 23 * * * python3 /home/user/My-vault/scripts/update_daily_tracker.py
   H  Beeygor         — finance.getTransactions (все Beeyor)
   K  Инкасс. нал.    — finance.getCashShifts
   L  Ост. откр.      — finance.getCashShifts
-  M  Расходы         — finance.getTransactions (sum type=0)
+  N  Расходы         — finance.getTransactions (sum type=0)
   N  Ост. закр.      — finance.getCashShifts
 """
 import json, os, time, datetime, urllib.request, urllib.parse
@@ -124,9 +124,9 @@ def get_session():
     return AuthorizedSession(creds)
 
 COL = {
-    'revenue': 'C', 'cash': 'D', 'alif': 'E', 'dc': 'F',
-    'card': 'G', 'beeygor': 'H', 'collection': 'K',
-    'open_bal': 'L', 'expenses': 'M', 'close_bal': 'N',
+    'revenue': 'D', 'cash': 'E', 'alif': 'F', 'dc': 'G',
+    'card': 'H', 'beeygor': 'I', 'collection': 'L',
+    'open_bal': 'M', 'expenses': 'N', 'close_bal': 'O',
 }
 
 def build_updates(sheet, row, data):
