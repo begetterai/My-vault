@@ -26,8 +26,8 @@ TRACKER_SS_ID = '1_KFsr5IRXMb9_5IJiuJOD8OD29b793La8TH5n7nIJE4'
 POSTER_BASE   = 'https://joinposter.com/api'
 
 LOCATIONS = [
-    {'sheet': 'ЗБ',   'token': '398711:8746917c4a23ea897774040e039dfb76'},
-    {'sheet': 'ОВИР', 'token': '935215:79675564e3d086d7e03d5fd56b50c8df'},
+    {'sheet': 'ЗБ',   'token': '398711:8746917c4a23ea897774040e039dfb76', 'cash_account': '3'},
+    {'sheet': 'ОВИР', 'token': '935215:79675564e3d086d7e03d5fd56b50c8df', 'cash_account': '4'},
 ]
 
 SKIP_EXPENSE_CAT = {'Переводы', 'Внесения в кассу', 'Открытие ФС'}
@@ -81,7 +81,7 @@ def parse_payments(transactions):
 
     return alif, dc, card, beeygor
 
-def get_day_data(token, date):
+def get_day_data(token, date, cash_account='3'):
     ds = de = date.strftime("%Y%m%d")
 
     # Выручка
@@ -96,13 +96,15 @@ def get_day_data(token, date):
     open_bal   = int(shifts[0].get('amount_start', 0)) / 100 if shifts else None
     close_bal  = int(shifts[-1].get('amount_end', 0)) / 100 if shifts else None
 
-    # Транзакции: расходы + типы оплаты
+    # Транзакции: расходы только с физической кассы + типы оплаты
     rt = poster_get(token, 'finance.getTransactions', {'dateFrom': ds, 'dateTo': de})
     txns = rt.get('response', [])
 
+    # Только наличные расходы (account_id = касса) — для сверки физических денег
     expenses = sum(abs(int(t.get('amount', 0))) / 100
                    for t in txns
                    if t.get('type') == '0'
+                   and str(t.get('account_id', '')) == cash_account
                    and t.get('category_name', '') not in SKIP_EXPENSE_CAT)
 
     alif, dc, card, beeygor = parse_payments(txns)
@@ -149,7 +151,7 @@ def run(target_date=None):
 
     for loc in LOCATIONS:
         print(f"  {loc['sheet']}...")
-        data = get_day_data(loc['token'], target_date)
+        data = get_day_data(loc['token'], target_date, loc.get('cash_account', '3'))
         print(f"    выручка={data.get('revenue') or 0:,.0f}с  "
               f"нал={data.get('cash') or 0:,.0f}с  "
               f"alif={data.get('alif') or 0:,.0f}с  "

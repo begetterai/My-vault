@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Backfill колонки M (Расходы) в дневном трекере за Jan–Apr 2026.
-Использует type=0 (исправленный фильтр Poster).
-Пропускает дни где M уже заполнено (не перезаписывает).
+"""Перезаписывает колонку N (Расходы нал.) — только расходы с физической кассы.
+ЗБ: account_id=3, ОВИР: account_id=4.
+Перезаписывает всё (даже заполненные), т.к. старые данные были с учётом всех счетов.
 """
 import json, os, time, datetime, urllib.request, urllib.parse
 os.environ['REQUESTS_CA_BUNDLE'] = '/etc/ssl/certs/ca-certificates.crt'
@@ -20,6 +20,8 @@ LOCATIONS = [
 
 DATE_FROM = datetime.date(2026, 1, 1)
 DATE_TO   = datetime.date(2026, 4, 30)
+
+SKIP_CATEGORIES = {'Переводы', 'Внесения в кассу', 'Открытие ФС'}
 
 def date_to_row(d):
     return 3 + (d - datetime.date(2026, 1, 1)).days
@@ -42,22 +44,7 @@ def get_session():
         CREDS, scopes=['https://www.googleapis.com/auth/spreadsheets'])
     return AuthorizedSession(creds)
 
-def read_existing_m(s, sheet, row_from, row_to):
-    """Читает текущие значения колонки N чтобы не перезаписывать заполненные."""
-    rng = f"'{sheet}'!N{row_from}:N{row_to}"
-    r = s.get(f'https://sheets.googleapis.com/v4/spreadsheets/{TRACKER_SS_ID}/values/{urllib.parse.quote(rng)}',
-              timeout=20)
-    vals = r.json().get('values', [])
-    result = {}
-    for i, row in enumerate(vals):
-        row_num = row_from + i
-        if row and row[0] not in ('', '0', 0):
-            result[row_num] = row[0]
-    return result
-
-SKIP_CATEGORIES = {'Переводы', 'Внесения в кассу', 'Открытие ФС'}
-
-def get_daily_expenses(token, date, cash_account='3'):
+def get_cash_expenses(token, date, cash_account):
     ds = de = date.strftime("%Y%m%d")
     rt = poster_get(token, 'finance.getTransactions', {'dateFrom': ds, 'dateTo': de})
     total = sum(abs(int(t.get('amount', 0))) / 100
@@ -69,31 +56,21 @@ def get_daily_expenses(token, date, cash_account='3'):
 
 def main():
     s = get_session()
-    row_from = date_to_row(DATE_FROM)
-    row_to   = date_to_row(DATE_TO)
 
     for loc in LOCATIONS:
-        sheet = loc['sheet']
+        sheet        = loc['sheet']
         token        = loc['token']
-        cash_account = loc.get('cash_account', '3')
+        cash_account = loc['cash_account']
         print(f"\n{'='*50}")
-        print(f"  {sheet} — читаю текущие данные M...")
-
-        existing = read_existing_m(s, sheet, row_from, row_to)
-        print(f"  Уже заполнено: {len(existing)} дней — пропускаю")
+        print(f"  {sheet} (касса account_id={cash_account}) — перезаписываю N...")
 
         updates = []
+        filled = empty = 0
         current = DATE_FROM
-        filled = skipped = empty = 0
 
         while current <= DATE_TO:
             row = date_to_row(current)
-            if row in existing:
-                skipped += 1
-                current += datetime.timedelta(days=1)
-                continue
-
-            expenses = get_daily_expenses(token, current, cash_account)
+            expenses = get_cash_expenses(token, current, cash_account)
             if expenses is not None:
                 updates.append({
                     'range': f"'{sheet}'!N{row}",
@@ -107,7 +84,7 @@ def main():
             time.sleep(0.15)
             current += datetime.timedelta(days=1)
 
-        print(f"\n  Итого: заполнено {filled}, пропущено (уже было) {skipped}, пустых дней {empty}")
+        print(f"\n  Итого: заполнено {filled}, пустых дней {empty}")
 
         if not updates:
             print("  Нечего обновлять.")
