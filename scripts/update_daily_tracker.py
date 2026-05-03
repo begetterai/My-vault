@@ -63,17 +63,19 @@ def parse_payments(transactions):
         amt = abs(int(t.get('amount', 0))) / 100
 
         is_beeygor = 'beeyor' in comment or 'teztar' in comment
+        is_alif = 'алиф' in comment or 'alif' in comment
+        is_dc   = 'душанбе сити' in comment or 'dushanbe city' in comment
 
         if is_beeygor:
             beeygor += amt
             # Beeygor Алиф → тоже в Alif; Beeygor DC → тоже в DC
-            if 'алиф' in comment or 'alif' in comment:
+            if is_alif:
                 alif += amt
-            elif 'душанбе сити' in comment:
+            elif is_dc:
                 dc += amt
-        elif 'алиф' in comment or 'alif' in comment:
+        elif is_alif:
             alif += amt
-        elif 'душанбе сити' in comment:
+        elif is_dc:
             dc += amt
         elif 'безналичной' in comment:
             card += amt
