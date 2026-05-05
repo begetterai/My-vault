@@ -1,9 +1,54 @@
 #!/usr/bin/env python3
 """Ромашка — Super P&L 2026 | ЗБ + ОВИР + Свод + KPI + Cash Flow"""
-import json, os, time
+import json, os, time, requests as req_lib
 os.environ['REQUESTS_CA_BUNDLE'] = '/etc/ssl/certs/ca-certificates.crt'
 from google.oauth2 import service_account
 from google.auth.transport.requests import AuthorizedSession
+
+# ── POSTER TOKENS ──────────────────────────────────────────────────────────────
+POSTER_TOKEN_ZB   = '398711:8746917c4a23ea897774040e039dfb76'
+POSTER_TOKEN_OVIR = '935215:79675564e3d086d7e03d5fd56b50c8df'
+POSTER_BASE       = 'https://joinposter.com/api'
+POSTER_VERIFY     = '/etc/ssl/certs/ca-certificates.crt'
+
+
+def poster_analytics(token, year=2026):
+    """Возвращает dict {month_idx: {'tx':..,'vis':..,'avg_chk':..,'revenue':..}}
+    month_idx — 0-based (0=Янв, 1=Фев, ..., 11=Дек).
+    Только месяцы с реальными данными; остальные — 0.
+    """
+    result = {}
+    for m in range(1, 13):
+        d_from = f'{year}{m:02d}01'
+        import calendar
+        last_day = calendar.monthrange(year, m)[1]
+        d_to = f'{year}{m:02d}{last_day}'
+        try:
+            r = req_lib.get(f'{POSTER_BASE}/dash.getAnalytics',
+                            params={'token': token, 'dateFrom': d_from, 'dateTo': d_to},
+                            timeout=15, verify=POSTER_VERIFY)
+            c = r.json().get('response', {}).get('counters', {})
+            revenue = float(c.get('revenue', 0) or 0)
+            tx      = int(c.get('transactions', 0) or 0)
+            vis     = int(c.get('visitors', 0) or 0)
+            avg     = float(c.get('average_receipt', 0) or 0)
+            result[m - 1] = {'tx': tx, 'vis': vis, 'avg_chk': round(avg, 2), 'revenue': revenue}
+        except Exception:
+            result[m - 1] = {'tx': 0, 'vis': 0, 'avg_chk': 0, 'revenue': 0}
+    return result
+
+
+def merge_poster(data_dict, poster_result):
+    """Подмешивает tx/vis/avg_chk из Poster в словарь данных точки.
+    poster_result: {month_idx: {...}} — 0-based.
+    data_dict['tx'] и др. — списки длиной 12 (pad).
+    Перезаписывает только ненулевые значения из Poster.
+    """
+    for key in ('tx', 'vis', 'avg_chk'):
+        for m_idx, vals in poster_result.items():
+            v = vals.get(key, 0)
+            if v and m_idx < len(data_dict[key]):
+                data_dict[key][m_idx] = v
 
 CREDS = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                      'credentials', 'romashka-drive.json')
@@ -709,6 +754,14 @@ def apply_fmt(s, fid, reqs):
 def main():
     from urllib.parse import urlencode
     s = get_session()
+
+    print('Подтягиваю данные из Poster...')
+    poster_zb   = poster_analytics(POSTER_TOKEN_ZB)
+    poster_ovir = poster_analytics(POSTER_TOKEN_OVIR)
+    merge_poster(ZB,   poster_zb)
+    merge_poster(OVIR, poster_ovir)
+    print(f'  ЗБ:   {sum(v["tx"] for v in poster_zb.values())} транзакций за год')
+    print(f'  ОВИР: {sum(v["tx"] for v in poster_ovir.values())} транзакций за год')
 
     print('Удаляю старый файл...')
     name = 'Ромашка — Super P&L 2026'
