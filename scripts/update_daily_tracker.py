@@ -113,9 +113,10 @@ def parse_payments(transactions):
     return alif, dc, card, beeygor
 
 def get_day_data(token, date, cash_account='3'):
-    ds = de = date.strftime("%Y%m%d")
+    ds      = date.strftime("%Y%m%d")
+    d_next  = (date + datetime.timedelta(days=1)).strftime("%Y%m%d")
 
-    ra = poster_get(token, 'dash.getAnalytics', {'dateFrom': ds, 'dateTo': de})
+    ra = poster_get(token, 'dash.getAnalytics', {'dateFrom': ds, 'dateTo': ds})
     revenue = float(ra.get('response', {}).get('counters', {}).get('revenue', 0) or 0)
 
     shifts     = get_shifts(token, date)
@@ -125,7 +126,14 @@ def get_day_data(token, date, cash_account='3'):
     open_bal   = int(shifts[0].get('amount_start',  0)) / 100 if shifts else None
     close_bal  = int(shifts[-1].get('amount_end',   0)) / 100 if shifts else None
 
-    rt   = poster_get(token, 'finance.getTransactions', {'dateFrom': ds, 'dateTo': de})
+    # Если смена пересекает полночь (ОВИР работает до 03:00) — расходы тоже
+    # запрашиваем за оба дня: часть вносится ночью и попадает в Poster как «завтра».
+    # Поле закрытия смены в API: date_end.
+    d_next_iso = (date + datetime.timedelta(days=1)).strftime('%Y-%m-%d')
+    spans_midnight = any((s.get('date_end', '') or '')[:10] == d_next_iso for s in shifts)
+    txn_date_end = d_next if spans_midnight else ds
+
+    rt   = poster_get(token, 'finance.getTransactions', {'dateFrom': ds, 'dateTo': txn_date_end})
     txns = rt.get('response', []) or []
 
     expenses = sum(abs(int(t.get('amount', 0))) / 100
