@@ -19,6 +19,10 @@ Cron: 0 23 * * * python3 /home/user/My-vault/scripts/update_daily_tracker.py
 
 Сверка кассы (P = E + M + T − L − N − O ≈ 0):
   Расходы только с кассового счёта — безналичные не влияют на физическую кассу.
+
+Обработка полуночных смен (v4):
+  getCashShifts(X) пропускает смены, открытые в день X но закрытые в X+1.
+  Фолбэк: расширяем запрос до X+1 и берём смены, открытые именно в X.
 """
 import json, os, time, datetime, urllib.request, urllib.parse
 os.environ['REQUESTS_CA_BUNDLE'] = '/etc/ssl/certs/ca-certificates.crt'
@@ -35,8 +39,6 @@ LOCATIONS = [
     {'sheet': 'ОВИР', 'token': '935215:79675564e3d086d7e03d5fd56b50c8df', 'cash_account': '4'},
 ]
 
-# Системные категории — не считаем расходами кассы
-# Открытие ФС включается (1–3 сомони реального расхода)
 SKIP_EXPENSE_CAT = {'Переводы', 'Внесения в кассу', 'Кассовые смены'}
 
 def poster_get(token, method, params=None):
@@ -52,6 +54,27 @@ def poster_get(token, method, params=None):
     except Exception as e:
         print(f"    ⚠️  {e}")
         return {}
+
+def get_shifts(token, date):
+    """Возвращает смены за бизнес-день с обработкой полуночных смен.
+
+    Poster getCashShifts фильтрует по тому, чтобы И дата открытия И дата закрытия
+    попадали в диапазон. Смены, открытые в день X и закрытые в X+1, выпадают из
+    запроса getCashShifts(X, X). Фолбэк: расширяем до X+1 и фильтруем по date_start.
+    """
+    ds      = date.strftime("%Y%m%d")
+    d_next  = (date + datetime.timedelta(days=1)).strftime("%Y%m%d")
+    day_iso = date.strftime('%Y-%m-%d')
+
+    rs = poster_get(token, 'finance.getCashShifts', {'dateFrom': ds, 'dateTo': ds})
+    shifts = rs.get('response', []) or []
+
+    if not shifts:
+        rs2 = poster_get(token, 'finance.getCashShifts', {'dateFrom': ds, 'dateTo': d_next})
+        shifts = [s for s in (rs2.get('response', []) or [])
+                  if s.get('date_start', '')[:10] == day_iso]
+
+    return shifts
 
 def parse_payments(transactions):
     """Разбирает транзакции (type=1, Кассовые смены) по типам оплаты.
@@ -92,24 +115,19 @@ def parse_payments(transactions):
 def get_day_data(token, date, cash_account='3'):
     ds = de = date.strftime("%Y%m%d")
 
-    # Выручка — нетто после скидок (реальные деньги, пришедшие в кассу)
     ra = poster_get(token, 'dash.getAnalytics', {'dateFrom': ds, 'dateTo': de})
-    revenue = float(ra.get('response', {}).get('counters', {}).get('revenue', 0))
+    revenue = float(ra.get('response', {}).get('counters', {}).get('revenue', 0) or 0)
 
-    # Кассовые смены — наличные продажи, инкассация, остатки, внесения
-    rs = poster_get(token, 'finance.getCashShifts', {'dateFrom': ds, 'dateTo': de})
-    shifts = rs.get('response', [])
+    shifts     = get_shifts(token, date)
     cash       = sum(int(s.get('amount_sell_cash',  0)) / 100 for s in shifts)
     collection = sum(int(s.get('amount_collection', 0)) / 100 for s in shifts)
     deposits   = sum(int(s.get('amount_debit',      0)) / 100 for s in shifts)
-    open_bal   = int(shifts[0].get('amount_start', 0))  / 100 if shifts else None
-    close_bal  = int(shifts[-1].get('amount_end',  0))  / 100 if shifts else None
+    open_bal   = int(shifts[0].get('amount_start',  0)) / 100 if shifts else None
+    close_bal  = int(shifts[-1].get('amount_end',   0)) / 100 if shifts else None
 
-    # Транзакции — только кассовый счёт (физическая касса) + типы оплаты
-    rt = poster_get(token, 'finance.getTransactions', {'dateFrom': ds, 'dateTo': de})
-    txns = rt.get('response', [])
+    rt   = poster_get(token, 'finance.getTransactions', {'dateFrom': ds, 'dateTo': de})
+    txns = rt.get('response', []) or []
 
-    # Расходы только с кассового счёта — включая Открытие ФС (1–3 сомони)
     expenses = sum(abs(int(t.get('amount', 0))) / 100
                    for t in txns
                    if t.get('type') == '0'
