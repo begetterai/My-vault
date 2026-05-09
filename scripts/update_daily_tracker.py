@@ -3,17 +3,24 @@
 Ромашка — ежедневное обновление трекера.
 Cron: 0 23 * * * python3 /home/user/My-vault/scripts/update_daily_tracker.py
 
-Всё автоматически из Poster:
-  C  Выручка         — dash.getAnalytics
-  D  Наличные        — finance.getCashShifts
-  E  Alif            — finance.getTransactions (Алиф + Beeyor Алиф)
-  F  DC              — finance.getTransactions (Душанбе Сити + Beeyor ДС)
-  G  Карта           — finance.getTransactions (Карта)
-  H  Beeygor         — finance.getTransactions (все Beeyor)
-  K  Инкасс. нал.    — finance.getCashShifts
-  L  Ост. откр.      — finance.getCashShifts
-  N  Расходы         — finance.getTransactions (sum type=0)
-  N  Ост. закр.      — finance.getCashShifts
+Источники данных:
+  D  Выручка (gross)  — transactions.getTransactions → sum (без скидок, включая чеки без оплаты)
+  E  Наличные         — finance.getCashShifts → amount_sell_cash
+  F  Alif             — finance.getTransactions (Алиф + Beeyor Алиф)
+  G  DC               — finance.getTransactions (Душанбе Сити + Beeyor ДС)
+  H  Карта            — finance.getTransactions (Карта)
+  I  Beeygor          — finance.getTransactions (все Beeyor)
+  L  Инкасс. нал.     — finance.getCashShifts → amount_collection (все смены за день)
+  M  Ост. откр.       — finance.getCashShifts → amount_start первой смены
+  N  Расходы          — finance.getTransactions type=0, ВСЕ счета (кроме Переводы/Внесения)
+  O  Ост. закр.       — finance.getCashShifts → amount_end последней смены
+  T  Внесения         — finance.getCashShifts → amount_debit (приход в кассу)
+
+Исправления v2:
+  - Выручка: gross из orders API (до скидок), НЕ dash.getAnalytics (после скидок)
+  - Расходы: ВСЕ счета (не только касса), исключаем Переводы и Внесения
+  - Внесения: теперь трекируются как + к кассе (колонка T)
+  - Открытие ФС: системная транзакция 1с, корректно исключена
 """
 import json, os, time, datetime, urllib.request, urllib.parse
 os.environ['REQUESTS_CA_BUNDLE'] = '/etc/ssl/certs/ca-certificates.crt'
@@ -26,15 +33,17 @@ TRACKER_SS_ID = '1_KFsr5IRXMb9_5IJiuJOD8OD29b793La8TH5n7nIJE4'
 POSTER_BASE   = 'https://joinposter.com/api'
 
 LOCATIONS = [
-    {'sheet': 'ЗБ',   'token': '398711:8746917c4a23ea897774040e039dfb76', 'cash_account': '3'},
-    {'sheet': 'ОВИР', 'token': '935215:79675564e3d086d7e03d5fd56b50c8df', 'cash_account': '4'},
+    {'sheet': 'ЗБ',   'token': '398711:8746917c4a23ea897774040e039dfb76'},
+    {'sheet': 'ОВИР', 'token': '935215:79675564e3d086d7e03d5fd56b50c8df'},
 ]
 
-SKIP_EXPENSE_CAT = {'Переводы', 'Внесения в кассу', 'Открытие ФС'}
+# Системные категории — не считаем расходами
+SKIP_EXPENSE_CAT = {'Переводы', 'Внесения в кассу', 'Открытие ФС', 'Кассовые смены'}
 
 def poster_get(token, method, params=None):
     p = {'token': token}
-    if params: p.update(params)
+    if params:
+        p.update(params)
     url = f"{POSTER_BASE}/{method}?{urllib.parse.urlencode(p)}"
     try:
         with urllib.request.urlopen(
@@ -45,8 +54,32 @@ def poster_get(token, method, params=None):
         print(f"    ⚠️  {e}")
         return {}
 
+def get_gross_revenue(token, date):
+    """Gross выручка из orders API — сумма поля 'sum' по всем чекам (до скидок).
+    Включает чеки закрытые без оплаты. Поле sum уже в сомони, делить на 100 не нужно.
+    """
+    date_str = date.strftime('%Y-%m-%d')
+    all_orders = []
+    page = 1
+    while True:
+        r = poster_get(token, 'transactions.getTransactions',
+                       {'date_from': date_str, 'date_to': date_str,
+                        'per_page': 100, 'page': page})
+        data = r.get('response', {})
+        if not isinstance(data, dict):
+            break
+        items = data.get('data', [])
+        if not items:
+            break
+        all_orders.extend(items)
+        if len(all_orders) >= int(data.get('count', 0)):
+            break
+        page += 1
+    total = sum(float(t.get('sum', 0)) for t in all_orders)
+    return round(total, 2) if total > 0 else None
+
 def parse_payments(transactions):
-    """Разбирает входящие транзакции (type=1) по типам оплаты.
+    """Разбирает транзакции (type=1, Кассовые смены) по типам оплаты.
 
     Poster записывает закрытие кассы так:
       'Алиф — Закрытие безналичной кассы'          → Alif
@@ -63,12 +96,11 @@ def parse_payments(transactions):
         amt = abs(int(t.get('amount', 0))) / 100
 
         is_beeygor = 'beeyor' in comment or 'teztar' in comment
-        is_alif = 'алиф' in comment or 'alif' in comment
-        is_dc   = 'душанбе сити' in comment or 'dushanbe city' in comment
+        is_alif    = 'алиф' in comment or 'alif' in comment
+        is_dc      = 'душанбе сити' in comment or 'dushanbe city' in comment
 
         if is_beeygor:
             beeygor += amt
-            # Beeygor Алиф → тоже в Alif; Beeygor DC → тоже в DC
             if is_alif:
                 alif += amt
             elif is_dc:
@@ -79,49 +111,48 @@ def parse_payments(transactions):
             dc += amt
         elif 'безналичной' in comment:
             card += amt
-        # 'наличной' = cash → уже в колонке E, не учитываем
 
     return alif, dc, card, beeygor
 
-def get_day_data(token, date, cash_account='3'):
+def get_day_data(token, date):
     ds = de = date.strftime("%Y%m%d")
 
-    # Выручка
-    ra = poster_get(token, 'dash.getAnalytics', {'dateFrom': ds, 'dateTo': de})
-    revenue = float(ra.get('response', {}).get('counters', {}).get('revenue', 0))
+    # Выручка — gross до скидок (orders API)
+    revenue = get_gross_revenue(token, date)
 
-    # Кассовая смена
+    # Кассовые смены — наличные продажи, инкассация, остатки, внесения
     rs = poster_get(token, 'finance.getCashShifts', {'dateFrom': ds, 'dateTo': de})
     shifts = rs.get('response', [])
-    cash       = sum(int(s.get('amount_sell_cash', 0)) / 100 for s in shifts)
+    cash       = sum(int(s.get('amount_sell_cash',  0)) / 100 for s in shifts)
     collection = sum(int(s.get('amount_collection', 0)) / 100 for s in shifts)
-    open_bal   = int(shifts[0].get('amount_start', 0)) / 100 if shifts else None
-    close_bal  = int(shifts[-1].get('amount_end', 0)) / 100 if shifts else None
+    deposits   = sum(int(s.get('amount_debit',      0)) / 100 for s in shifts)  # Внесения в кассу
+    open_bal   = int(shifts[0].get('amount_start', 0))  / 100 if shifts else None
+    close_bal  = int(shifts[-1].get('amount_end',  0))  / 100 if shifts else None
 
-    # Транзакции: расходы только с физической кассы + типы оплаты
+    # Транзакции — расходы ВСЕ счета + разбивка по типам оплаты
     rt = poster_get(token, 'finance.getTransactions', {'dateFrom': ds, 'dateTo': de})
     txns = rt.get('response', [])
 
-    # Только наличные расходы (account_id = касса) — для сверки физических денег
+    # Расходы: ВСЕ счета, исключаем только системные категории
     expenses = sum(abs(int(t.get('amount', 0))) / 100
                    for t in txns
                    if t.get('type') == '0'
-                   and str(t.get('account_id', '')) == cash_account
                    and t.get('category_name', '') not in SKIP_EXPENSE_CAT)
 
     alif, dc, card, beeygor = parse_payments(txns)
 
     return {
-        'revenue':    revenue      if revenue    > 0 else None,
-        'cash':       cash         if cash       > 0 else None,
-        'alif':       alif         if alif       > 0 else None,
-        'dc':         dc           if dc         > 0 else None,
-        'card':       card         if card       > 0 else None,
-        'beeygor':    beeygor      if beeygor    > 0 else None,
-        'collection': collection   if collection > 0 else None,
+        'revenue':    revenue,
+        'cash':       cash       if cash       > 0 else None,
+        'alif':       alif       if alif       > 0 else None,
+        'dc':         dc         if dc         > 0 else None,
+        'card':       card       if card       > 0 else None,
+        'beeygor':    beeygor    if beeygor    > 0 else None,
+        'collection': collection if collection > 0 else None,
         'open_bal':   open_bal,
-        'expenses':   expenses     if expenses   > 0 else None,
+        'expenses':   round(expenses, 2) if expenses > 0 else None,
         'close_bal':  close_bal,
+        'deposits':   round(deposits, 2) if deposits > 0 else None,
     }
 
 def date_to_row(d):
@@ -133,9 +164,17 @@ def get_session():
     return AuthorizedSession(creds)
 
 COL = {
-    'revenue': 'D', 'cash': 'E', 'alif': 'F', 'dc': 'G',
-    'card': 'H', 'beeygor': 'I', 'collection': 'L',
-    'open_bal': 'M', 'expenses': 'N', 'close_bal': 'O',
+    'revenue':    'D',
+    'cash':       'E',
+    'alif':       'F',
+    'dc':         'G',
+    'card':       'H',
+    'beeygor':    'I',
+    'collection': 'L',
+    'open_bal':   'M',
+    'expenses':   'N',
+    'close_bal':  'O',
+    'deposits':   'T',  # Внесения в кассу — новая колонка
 }
 
 def build_updates(sheet, row, data):
@@ -153,13 +192,14 @@ def run(target_date=None):
 
     for loc in LOCATIONS:
         print(f"  {loc['sheet']}...")
-        data = get_day_data(loc['token'], target_date, loc.get('cash_account', '3'))
-        print(f"    выручка={data.get('revenue') or 0:,.0f}с  "
+        data = get_day_data(loc['token'], target_date)
+        print(f"    выручка(gross)={data.get('revenue') or 0:,.2f}с  "
               f"нал={data.get('cash') or 0:,.0f}с  "
               f"alif={data.get('alif') or 0:,.0f}с  "
               f"dc={data.get('dc') or 0:,.0f}с  "
               f"beeygor={data.get('beeygor') or 0:,.0f}с  "
-              f"расх={data.get('expenses') or 0:,.0f}с")
+              f"расх={data.get('expenses') or 0:,.0f}с  "
+              f"внесения={data.get('deposits') or 0:,.0f}с")
         if data.get('revenue'):
             all_updates += build_updates(loc['sheet'], row, data)
         time.sleep(0.5)
