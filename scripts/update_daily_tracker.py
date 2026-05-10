@@ -58,11 +58,14 @@ def poster_get(token, method, params=None):
 def get_shifts(token, date):
     """Возвращает смены за бизнес-день с обработкой полуночных смен.
 
-    Poster getCashShifts фильтрует по тому, чтобы И дата открытия И дата закрытия
-    попадали в диапазон. Смены, открытые в день X и закрытые в X+1, выпадают из
-    запроса getCashShifts(X, X). Фолбэк: расширяем до X+1 и фильтруем по date_start.
+    Три уровня фолбэка — Poster API иногда не возвращает смену при узком диапазоне:
+    1. Строгий запрос getCashShifts(D, D): работает для обычных смен
+    2. Расширенный D→D+1: находит смены, открытые в D и закрытые в D+1
+    3. Широкий D-1→D+1: находит смены с открытием в 01:00-05:00 дня D,
+       которые Poster не возвращает при dateFrom=D
     """
     ds      = date.strftime("%Y%m%d")
+    d_prev  = (date - datetime.timedelta(days=1)).strftime("%Y%m%d")
     d_next  = (date + datetime.timedelta(days=1)).strftime("%Y%m%d")
     day_iso = date.strftime('%Y-%m-%d')
 
@@ -72,6 +75,11 @@ def get_shifts(token, date):
     if not shifts:
         rs2 = poster_get(token, 'finance.getCashShifts', {'dateFrom': ds, 'dateTo': d_next})
         shifts = [s for s in (rs2.get('response', []) or [])
+                  if s.get('date_start', '')[:10] == day_iso]
+
+    if not shifts:
+        rs3 = poster_get(token, 'finance.getCashShifts', {'dateFrom': d_prev, 'dateTo': d_next})
+        shifts = [s for s in (rs3.get('response', []) or [])
                   if s.get('date_start', '')[:10] == day_iso]
 
     return shifts
