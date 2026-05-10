@@ -114,13 +114,17 @@
   - create_super_pnl.py: автоподтяжка tx/vis/avg_chk из обоих Poster-аккаунтов при запуске
 - [x] ✅ Дневной трекер 2026 v2 — `1_KFsr5IRXMb9_5IJiuJOD8OD29b793La8TH5n7nIJE4` (ЗБ + ОВИР авто)
   - Планы: ЗБ 300 000с/мес | ОВИР 360 000с/мес | Свод 660 000с/мес
-  - Авто (Poster): C Выручка, D Нал, K Инкасс, L Ост.откр, M Расходы, N Ост.закр
-  - Вручную (управляющие): E Alif, F DC, G Карта, H Beeygor
-  - Backfill Jan–Apr 2026: ЗБ ✅ (548 ячеек), ОВИР ✅ (438 ячеек)
+  - Авто (Poster): D Выручка, E Нал, F Alif, G DC, H Карта, I Beeygor, L Инкасс, M Ост.откр, N Расходы, O Ост.закр, T Внесения
+  - Backfill Jan–Mar 2026 ОВИР переделан 2026-05-10 — фикс суточных смен (shift_start фильтр)
   - Cron: `0 23 * * * python3 /home/user/My-vault/scripts/update_daily_tracker.py`
-  - ✅ Критический баг исправлен: расходы (колонка M) теперь type=0 (не type=2)
+  - Правила: Google Doc `11VuNq-xUKU3E16l2OHNiPPGPvnpooPOo_XQgvDcU22I`
+- [x] ✅ Super P&L — ФОТ убран из Poster-автоматики (вносится вручную из Main P&L)
+  - ФОТ янв–апр записан в Google Sheet (16 ячеек: строки 27–28, ЗБ + ОВИР)
+  - Правила: Google Doc `1ybEYLMeC43z0g7WD38xI4RR2ENAoY8HQGQGjcqGGmN0`
+- [x] ✅ Папка «Правила» создана в Google Drive (Ромашка) — 2 документа: трекер + P&L
 - [x] ✅ Подключить ОВИР Poster → автозаполнение трекера
-- [ ] ⚠️ ОВИР Poster: оплатить счёт INV-039405 **до 01.05.2026** — иначе API заблокируют #p1 #next
+- [ ] ⚠️ Poster (ОВИР): оплатить — срок был 01.05.2026 — проверить статус API #p1
+- [ ] COGS ЗБ: внести поставки Махмуда за март–апрель в Poster, затем `python3 scripts/update_pnl.py 2026 3 4`
 - [ ] P&L структура: доделать (скидки, данные ОВИР) #next
 - [ ] Cash Flow месячный: шаблон на базе категорий Poster
 - [ ] To-Do таблица в Drive УК по 7 блокам плана — одобрено, создать (скрипт: `create_loungebar_todo.py`)
