@@ -126,26 +126,29 @@ def get_day_data(token, date, cash_account='3'):
     open_bal   = int(shifts[0].get('amount_start',  0)) / 100 if shifts else None
     close_bal  = int(shifts[-1].get('amount_end',   0)) / 100 if shifts else None
 
-    # Если смена пересекает полночь (ОВИР работает до 03:00) — расходы тоже
-    # запрашиваем за оба дня: часть вносится ночью и попадает в Poster как «завтра».
-    # Поле закрытия смены в API: date_end.
-    # Фильтруем по времени закрытия смены, чтобы не захватить дневные транзакции
-    # следующего дня (баг: dateTo=d_next тянул весь следующий день).
+    # Если смена пересекает полночь — расходы запрашиваем за оба дня.
+    # Фильтруем транзакции строго по диапазону [shift_start, shift_end]:
+    #   - нижняя граница: исключает расходы до открытия смены (принадлежат предыдущей смене)
+    #   - верхняя граница: исключает расходы после закрытия смены (принадлежат следующей смене)
+    # Это корректно работает как для стандартных смен (22:00–03:00),
+    # так и для длинных суточных смен (22:00–22:00 следующего дня).
     d_next_iso = (date + datetime.timedelta(days=1)).strftime('%Y-%m-%d')
     spans_midnight = any((s.get('date_end', '') or '')[:10] == d_next_iso for s in shifts)
     txn_date_end = d_next if spans_midnight else ds
 
-    # Крайнее время закрытия смены — для фильтрации транзакций
-    shift_end_dt = None
+    shift_start_dt = None
+    shift_end_dt   = None
     if spans_midnight and shifts:
-        shift_end_dt = max((s.get('date_end', '') or '') for s in shifts)
+        shift_start_dt = min((s.get('date_start', '') or '') for s in shifts)
+        shift_end_dt   = max((s.get('date_end',   '') or '') for s in shifts)
 
     rt   = poster_get(token, 'finance.getTransactions', {'dateFrom': ds, 'dateTo': txn_date_end})
     txns = rt.get('response', []) or []
 
-    # Исключаем транзакции после закрытия смены (принадлежат следующему бизнес-дню)
     if shift_end_dt:
         txns = [t for t in txns if (t.get('date', '') or '') <= shift_end_dt]
+    if shift_start_dt:
+        txns = [t for t in txns if (t.get('date', '') or '') >= shift_start_dt]
 
     expenses = sum(abs(int(t.get('amount', 0))) / 100
                    for t in txns
