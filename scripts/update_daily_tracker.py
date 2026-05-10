@@ -126,12 +126,11 @@ def get_day_data(token, date, cash_account='3'):
     open_bal   = int(shifts[0].get('amount_start',  0)) / 100 if shifts else None
     close_bal  = int(shifts[-1].get('amount_end',   0)) / 100 if shifts else None
 
-    # Если смена пересекает полночь — расходы запрашиваем за оба дня.
-    # Фильтруем транзакции строго по диапазону [shift_start, shift_end]:
-    #   - нижняя граница: исключает расходы до открытия смены (принадлежат предыдущей смене)
-    #   - верхняя граница: исключает расходы после закрытия смены (принадлежат следующей смене)
-    # Это корректно работает как для стандартных смен (22:00–03:00),
-    # так и для длинных суточных смен (22:00–22:00 следующего дня).
+    # Если смена пересекает полночь — запрашиваем транзакции за оба дня.
+    # Расходы (type=0) фильтруем строго по [shift_start, shift_end].
+    # Платежи (type=1, Кассовые смены) фильтруем по окну ±10 мин от shift_end:
+    #   Poster создаёт closing-транзакции через 3–15 сек ПОСЛЕ shift_end,
+    #   поэтому строгий фильтр "<= shift_end" их отсекает.
     d_next_iso = (date + datetime.timedelta(days=1)).strftime('%Y-%m-%d')
     spans_midnight = any((s.get('date_end', '') or '')[:10] == d_next_iso for s in shifts)
     txn_date_end = d_next if spans_midnight else ds
@@ -143,28 +142,48 @@ def get_day_data(token, date, cash_account='3'):
         shift_end_dt   = max((s.get('date_end',   '') or '') for s in shifts)
 
     rt   = poster_get(token, 'finance.getTransactions', {'dateFrom': ds, 'dateTo': txn_date_end})
-    txns = rt.get('response', []) or []
+    all_txns = rt.get('response', []) or []
 
-    if shift_end_dt:
-        txns = [t for t in txns if (t.get('date', '') or '') <= shift_end_dt]
-    if shift_start_dt:
-        txns = [t for t in txns if (t.get('date', '') or '') >= shift_start_dt]
+    if spans_midnight:
+        # Расходы: строгие границы [shift_start, shift_end]
+        expense_txns = all_txns
+        if shift_start_dt:
+            expense_txns = [t for t in expense_txns if (t.get('date', '') or '') >= shift_start_dt]
+        if shift_end_dt:
+            expense_txns = [t for t in expense_txns if (t.get('date', '') or '') <= shift_end_dt]
+
+        # Платежи: окно [shift_end − 10 мин, shift_end + 10 мин]
+        # Закрытие кассы происходит в секундах после shift_end — нужен буфер
+        if shift_end_dt:
+            se = datetime.datetime.fromisoformat(shift_end_dt)
+            pay_lo = (se - datetime.timedelta(minutes=10)).strftime('%Y-%m-%d %H:%M:%S')
+            pay_hi = (se + datetime.timedelta(minutes=10)).strftime('%Y-%m-%d %H:%M:%S')
+            payment_txns = [t for t in all_txns
+                            if pay_lo <= (t.get('date', '') or '') <= pay_hi]
+        else:
+            payment_txns = expense_txns
+    else:
+        expense_txns  = all_txns
+        payment_txns  = all_txns
 
     expenses = sum(abs(int(t.get('amount', 0))) / 100
-                   for t in txns
+                   for t in expense_txns
                    if t.get('type') == '0'
                    and str(t.get('account_id', '')) == cash_account
                    and t.get('category_name', '') not in SKIP_EXPENSE_CAT)
 
-    alif, dc, card, beeygor = parse_payments(txns)
+    alif, dc, card, beeygor = parse_payments(payment_txns)
 
+    has_data = revenue > 0
     return {
         'revenue':    revenue      if revenue    > 0 else None,
         'cash':       cash         if cash       > 0 else None,
-        'alif':       alif         if alif       > 0 else None,
-        'dc':         dc           if dc         > 0 else None,
-        'card':       card         if card       > 0 else None,
-        'beeygor':    beeygor      if beeygor    > 0 else None,
+        # Платёжные колонки: всегда пишем (даже 0) когда есть выручка —
+        # чтобы стейлые значения от предыдущих запусков очищались
+        'alif':       alif         if has_data else None,
+        'dc':         dc           if has_data else None,
+        'card':       card         if has_data else None,
+        'beeygor':    beeygor      if has_data else None,
         'collection': collection   if collection > 0 else None,
         'open_bal':   open_bal,
         'expenses':   round(expenses, 2) if expenses > 0 else None,
