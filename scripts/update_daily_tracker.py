@@ -129,12 +129,23 @@ def get_day_data(token, date, cash_account='3'):
     # Если смена пересекает полночь (ОВИР работает до 03:00) — расходы тоже
     # запрашиваем за оба дня: часть вносится ночью и попадает в Poster как «завтра».
     # Поле закрытия смены в API: date_end.
+    # Фильтруем по времени закрытия смены, чтобы не захватить дневные транзакции
+    # следующего дня (баг: dateTo=d_next тянул весь следующий день).
     d_next_iso = (date + datetime.timedelta(days=1)).strftime('%Y-%m-%d')
     spans_midnight = any((s.get('date_end', '') or '')[:10] == d_next_iso for s in shifts)
     txn_date_end = d_next if spans_midnight else ds
 
+    # Крайнее время закрытия смены — для фильтрации транзакций
+    shift_end_dt = None
+    if spans_midnight and shifts:
+        shift_end_dt = max((s.get('date_end', '') or '') for s in shifts)
+
     rt   = poster_get(token, 'finance.getTransactions', {'dateFrom': ds, 'dateTo': txn_date_end})
     txns = rt.get('response', []) or []
+
+    # Исключаем транзакции после закрытия смены (принадлежат следующему бизнес-дню)
+    if shift_end_dt:
+        txns = [t for t in txns if (t.get('date', '') or '') <= shift_end_dt]
 
     expenses = sum(abs(int(t.get('amount', 0))) / 100
                    for t in txns
