@@ -29,7 +29,7 @@ def pct_fmt():
 
 
 def num_fmt():
-    return {'numberFormat': {'type': 'NUMBER', 'pattern': '#,##0'}}
+    return {'numberFormat': {'type': 'NUMBER', 'pattern': '0'}}
 
 
 def main():

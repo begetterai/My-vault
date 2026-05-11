@@ -104,23 +104,33 @@ def poster_get(token, method, params=None):
 
 def get_month_data(token, year, month):
     """Собирает все P&L данные за месяц из Poster."""
-    date_from = f"{year}{month:02d}01"
     last_day  = calendar.monthrange(year, month)[1]
+    date_from = f"{year}{month:02d}01"
     date_to   = f"{year}{month:02d}{last_day:02d}"
+    month_str = f"{year}-{month:02d}"
+
+    # Для транзакций расширяем диапазон на ±1 день:
+    # Poster хранит время UTC, Душанбе UTC+5. Транзакции в начале месяца
+    # (00:00–04:59 местного) попадают в предыдущий месяц по UTC.
+    prev_day = (datetime.date(year, month, 1) - datetime.timedelta(days=1)).strftime('%Y%m%d')
+    next_day = (datetime.date(year, month, last_day) + datetime.timedelta(days=1)).strftime('%Y%m%d')
 
     # Выручка
     ra = poster_get(token, 'dash.getAnalytics', {'dateFrom': date_from, 'dateTo': date_to})
     revenue = float(ra.get('response', {}).get('counters', {}).get('revenue', 0) or 0)
 
-    # Транзакции расходов
-    rt   = poster_get(token, 'finance.getTransactions', {'dateFrom': date_from, 'dateTo': date_to})
+    # Транзакции расходов (расширенный диапазон + фильтр по отображаемой дате)
+    rt   = poster_get(token, 'finance.getTransactions', {'dateFrom': prev_day, 'dateTo': next_day})
     txns = rt.get('response', []) or []
 
     # Поставки на склады — строки 4,5,7,8
     rs = poster_get(token, 'storage.getSupplies', {'dateFrom': date_from, 'dateTo': date_to})
     supplies = rs.get('response', []) or []
 
-    row_totals = defaultdict(float)
+    # Инициализируем все строки данных нулём
+    DATA_ROWS = [2, 4, 5, 7, 8, 13, 15, 18, 22, 23, 24, 25, 26, 27, 28,
+                 29, 30, 31, 32, 33, 34, 35, 36, 37, 40, 44, 45, 46]
+    row_totals = {r: 0.0 for r in DATA_ROWS}
 
     if revenue > 0:
         row_totals[2] = revenue
@@ -129,6 +139,9 @@ def get_month_data(token, year, month):
 
     for tx in txns:
         if tx.get('type') != '0':
+            continue
+        # Фильтр по отображаемой (местной) дате транзакции
+        if (tx.get('date', '') or '')[:7] != month_str:
             continue
         cat = (tx.get('category_name', '') or '').strip()
         if cat in SKIP_CATS:
@@ -162,7 +175,7 @@ def get_month_data(token, year, month):
         if name in storage_row:
             row_totals[storage_row[name]] += amt
 
-    return dict(row_totals)
+    return row_totals
 
 
 def month_col(month):
