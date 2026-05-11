@@ -10,7 +10,7 @@ CREDS = os.path.join(os.path.dirname(os.path.abspath(__file__)),
 SCOPES = ['https://www.googleapis.com/auth/spreadsheets',
           'https://www.googleapis.com/auth/drive.readonly']
 
-MAIN_PNL_ID  = '10U6n12I9O9HJ4nRqXsmmyf2AOMb4Es9w'
+MAIN_PNL_ID  = '1-XcAxW8chzWQka9WCuNvuf0HpYbli3eA'
 SUPER_PNL_ID = '1l8Lau8K9997pyqJj-zjlILAkLoOHlQmPo6BAwqc5FBU'
 
 def main():
