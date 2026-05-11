@@ -157,8 +157,8 @@ def get_month_data(token, year, month):
 
 
 def month_col(month):
-    """Месяц (1–12) → буква столбца (B–M)."""
-    return chr(ord('A') + month)  # 1→B, 2→C, ..., 12→M
+    """Месяц (1–12) → буква столбца (C–N)."""
+    return chr(ord('B') + month)  # 1→C, 2→D, ..., 12→N
 
 
 def write_month(session, sheet, year, month, row_data):
