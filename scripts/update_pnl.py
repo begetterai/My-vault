@@ -74,6 +74,14 @@ CATEGORY_ROWS = {
 }
 
 # Категории-исключения: не расходы в P&L смысле
+# Коррекции для поставок с неверной датой в Poster.
+# Poster фильтрует по дате создания записи, изменить нельзя без пересоздания.
+# Формат: (sheet, year, month, row) → дельта в сомах.
+SUPPLY_DELTA = {
+    ('ОВИР', 2026, 1, 5): -1383,  # supply_id=90 Кухня: Poster=Январь, фактически=Февраль
+    ('ОВИР', 2026, 2, 5): +1383,
+}
+
 SKIP_CATS = {
     'Переводы', 'Внесения в кассу', 'Кассовые смены',
     'Открытие ФС', 'Актуализация',
@@ -226,6 +234,9 @@ def run(year=None, month_from=None, month_to=None):
         for loc in LOCATIONS:
             print(f"  {loc['sheet']}...")
             data = get_month_data(loc['token'], year, month)
+            for (sh, yr, mo, row), delta in SUPPLY_DELTA.items():
+                if sh == loc['sheet'] and yr == year and mo == month:
+                    data[row] = round(data.get(row, 0) + delta, 2)
             rev  = data.get(2, 0)
             cogs = data.get(5, 0) + data.get(6, 0) + data.get(8, 0) + data.get(9, 0)
             opex = sum(v for k, v in data.items() if 19 <= k <= 38)
