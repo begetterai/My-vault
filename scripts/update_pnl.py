@@ -123,7 +123,7 @@ def get_month_data(token, year, month):
     rt   = poster_get(token, 'finance.getTransactions', {'dateFrom': prev_day, 'dateTo': next_day})
     txns = rt.get('response', []) or []
 
-    # Поставки на склады — строки 4,5,7,8
+    # Поставки на склады — точный диапазон (Poster фильтрует поставки по дате записи)
     rs = poster_get(token, 'storage.getSupplies', {'dateFrom': date_from, 'dateTo': date_to})
     supplies = rs.get('response', []) or []
 
@@ -145,6 +145,10 @@ def get_month_data(token, year, month):
             continue
         cat = (tx.get('category_name', '') or '').strip()
         if cat in SKIP_CATS:
+            continue
+        # Исключаем оплату арбы (Махмуд - ароба) — не входит в P&L
+        comment = (tx.get('comment', '') or '').strip().lower()
+        if 'ароба' in comment or 'aroба' in comment:
             continue
         amt = abs(int(tx.get('amount', 0))) / 100
         if cat in CATEGORY_ROWS:
