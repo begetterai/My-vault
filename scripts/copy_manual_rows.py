@@ -13,7 +13,7 @@ CREDS = os.path.join(os.path.dirname(os.path.abspath(__file__)),
 SCOPES = ['https://www.googleapis.com/auth/spreadsheets',
           'https://www.googleapis.com/auth/drive.readonly']
 
-MAIN_PNL_ID  = '10U6n12I9O9HJ4nRqXsmmyf2AOMb4Es9w'
+MAIN_PNL_ID  = '1-XcAxW8chzWQka9WCuNvuf0HpYbli3eA'
 SUPER_PNL_ID = '1l8Lau8K9997pyqJj-zjlILAkLoOHlQmPo6BAwqc5FBU'
 
 # Excel sheet name → Super P&L sheet name
@@ -23,8 +23,8 @@ SHEET_MAP = {
 }
 
 # Строки для ручного копирования (не из Poster)
-# 44, 45, 46 — теперь берутся из Poster (finance.getTransactions)
-MANUAL_ROWS = [13, 15]
+# 45, 46, 47 — теперь берутся из Poster (finance.getTransactions)
+MANUAL_ROWS = [14, 16]
 
 
 def col_letter(month):

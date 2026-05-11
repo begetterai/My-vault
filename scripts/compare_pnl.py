@@ -13,7 +13,7 @@ CREDS = os.path.join(os.path.dirname(os.path.abspath(__file__)),
 SCOPES = ['https://www.googleapis.com/auth/spreadsheets',
           'https://www.googleapis.com/auth/drive.readonly']
 
-MAIN_PNL_ID  = '10U6n12I9O9HJ4nRqXsmmyf2AOMb4Es9w'
+MAIN_PNL_ID  = '1-XcAxW8chzWQka9WCuNvuf0HpYbli3eA'
 SUPER_PNL_ID = '1l8Lau8K9997pyqJj-zjlILAkLoOHlQmPo6BAwqc5FBU'
 
 SHEET_MAP = {
@@ -25,12 +25,12 @@ MONTHS_RU = ['','Январь','Февраль','Март','Апрель','Ма�
              'Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь']
 
 # Строки для сравнения (данные, не формулы)
-DATA_ROWS = [2, 4, 5, 7, 8, 13, 15, 18, 22, 23, 24,
-             25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37,
-             40, 44, 45, 46]
+DATA_ROWS = [2, 5, 6, 8, 9, 14, 16, 19, 23, 24, 25,
+             26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38,
+             41, 45, 46, 47]
 
 # Строки с формулами — тоже проверяем итоговые значения
-FORMULA_ROWS = [3, 6, 9, 11, 17, 20, 38, 42, 47]
+FORMULA_ROWS = [3, 4, 7, 10, 12, 18, 21, 39, 43, 48]
 
 ALL_ROWS = sorted(DATA_ROWS + FORMULA_ROWS)
 
@@ -52,7 +52,7 @@ def download_excel(session):
 
 def read_super_pnl(session, sheet_name, months):
     cols = [col_letter(m) for m in months]
-    ranges = [f"'{sheet_name}'!{c}1:{c}47" for c in cols]
+    ranges = [f"'{sheet_name}'!{c}1:{c}48" for c in cols]
     r = session.get(
         f'https://sheets.googleapis.com/v4/spreadsheets/{SUPER_PNL_ID}/values:batchGet',
         params={'ranges': ranges, 'valueRenderOption': 'UNFORMATTED_VALUE'},
@@ -104,7 +104,7 @@ def main(month_from=1, month_to=4):
 
         # Читаем метки из Super P&L col B
         labels_r = session.get(
-            f'https://sheets.googleapis.com/v4/spreadsheets/{SUPER_PNL_ID}/values/{super_sheet}!B1:B47',
+            f'https://sheets.googleapis.com/v4/spreadsheets/{SUPER_PNL_ID}/values/{super_sheet}!B1:B48',
             timeout=20
         )
         labels = [v[0] if v else '' for v in labels_r.json().get('values', [])]
