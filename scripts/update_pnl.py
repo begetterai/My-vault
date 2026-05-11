@@ -147,8 +147,8 @@ def get_month_data(token, year, month):
     storage_row = {
         'Кухня':                18,
         'Бар':                  19,
-        'Персоналка':           43,
-        'Расходные материалы':  44,
+        'Персоналка':           21,  # в COGS секции
+        'Расходные материалы':  22,  # в COGS секции
     }
     for s in supplies:
         name = (s.get('storage_name', '') or '').strip()
