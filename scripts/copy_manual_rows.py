@@ -23,7 +23,8 @@ SHEET_MAP = {
 }
 
 # Строки для ручного копирования (не из Poster)
-MANUAL_ROWS = [13, 15, 44, 45, 46]
+# 44, 45, 46 — теперь берутся из Poster (finance.getTransactions)
+MANUAL_ROWS = [13, 15]
 
 
 def col_letter(month):
