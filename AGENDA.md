@@ -124,7 +124,11 @@
 - [x] ✅ Папка «Правила» создана в Google Drive (Ромашка) — 2 документа: трекер + P&L
 - [x] ✅ Подключить ОВИР Poster → автозаполнение трекера
 - [ ] ⚠️ Poster (ОВИР): оплатить — срок был 01.05.2026 — проверить статус API #p1
-- [ ] COGS ЗБ: внести поставки Махмуда за март–апрель в Poster, затем `python3 scripts/update_pnl.py 2026 3 4`
+- [x] ✅ Super P&L структура обновлена на 48 строк (как в Main P&L) — rebuild_pnl_structure.py, fix_format.py, update_pnl.py, compare_pnl.py, copy_manual_rows.py
+  - Все данные Jan–Apr 2026 загружены и сверены: ЗБ 146 ✅, ОВИР 147 ✅
+  - Расхождение ±85с/64с (хоз.расходы апрель) — оставлено намеренно
+  - supply_id=90 ОВИР (Кухня Jan→Feb ±1,383с) зафиксирован через SUPPLY_DELTA в скрипте
+  - Cron и ручной запуск: `python3 scripts/update_pnl.py` → `copy_manual_rows.py` → `compare_pnl.py`
 - [ ] P&L структура: доделать (скидки, данные ОВИР) #next
 - [ ] Cash Flow месячный: шаблон на базе категорий Poster
 - [ ] To-Do таблица в Drive УК по 7 блокам плана — одобрено, создать (скрипт: `create_loungebar_todo.py`)
