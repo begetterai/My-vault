@@ -9,12 +9,13 @@ Cron: 1 2 1 * * python3 /home/user/My-vault/scripts/update_pnl.py
   python3 update_pnl.py 2026 4     — конкретный месяц
   python3 update_pnl.py 2026 1 4   — диапазон месяцев (январь–апрель)
 
-Источники (Poster type=0 транзакции, все счета):
+Источники данных:
   строка 6   Выручка             dash.getAnalytics → revenue
-  строка 18  Закупки (COGS)      категория Поставки (кухня+бар объединены)
-  строка 19  Закупки бар         → 0 (всё идёт в строку 18)
+  строка 18  Закупки кухня       storage.getSupplies → склад «Кухня»
+  строка 19  Закупки бар         storage.getSupplies → склад «Бар»
+  строки 43–44 Персоналка/РМ    storage.getSupplies → склады «Персоналка» / «Расходные материалы»
   строки 27–28 ФОТ              НЕ берётся из Poster — вводится вручную
-  строки 33–50  OpEx             по категориям (см. CATEGORY_ROWS)
+  строки 33–50  OpEx             finance.getTransactions по категориям (см. CATEGORY_ROWS)
   строка 56  Налоги              категория Налоги
 
 Если категория не найдена в маппинге — предупреждение в stdout.
@@ -47,7 +48,7 @@ LOCATIONS = [
 # Юридические (строка 48): Юридические расходы + Документы для заведения
 # Прочие (строка 49): Прочие расходы + Неоплаченные счета
 CATEGORY_ROWS = {
-    'Поставки':                  18,  # COGS (кухня+бар вместе; строка 19 → 0)
+    # Поставки (строки 18–19) берутся из storage.getSupplies по складам, не из транзакций
     # ФОТ (строки 27–28) — вводится вручную, не берётся из Poster
     'Аренда помещения':          33,
     'Электричество':             35,
@@ -78,8 +79,11 @@ CATEGORY_ROWS = {
 SKIP_CATS = {
     'Переводы', 'Внесения в кассу', 'Кассовые смены',
     'Открытие ФС', 'Выплаты дивидентов', 'Погашение долгов', 'Актуализация',
+    'Неоплаченные счета',
     # ФОТ вводится вручную в P&L, из Poster не берётся
     'ФОТ Производственный', 'ФОТ Административный',
+    # Поставки на склады — берутся из storage.getSupplies, не из транзакций
+    'Поставки',
 }
 
 
@@ -121,9 +125,6 @@ def get_month_data(token, year, month):
     if revenue > 0:
         row_totals[6] = revenue
 
-    # Обнуляем строку 19 (бар): все Поставки пойдут в строку 18
-    row_totals[19] = 0.0
-
     unknown_cats = defaultdict(float)
 
     for tx in txns:
@@ -142,13 +143,18 @@ def get_month_data(token, year, month):
         for cat, total in sorted(unknown_cats.items(), key=lambda x: -x[1]):
             print(f"    ⚠️  Неизвестная категория: «{cat}» = {total:,.0f}с → добавь в CATEGORY_ROWS")
 
+    # COGS и прочие склады — из storage.getSupplies по имени склада
+    storage_row = {
+        'Кухня':                18,
+        'Бар':                  19,
+        'Персоналка':           43,
+        'Расходные материалы':  44,
+    }
     for s in supplies:
         name = (s.get('storage_name', '') or '').strip()
         amt  = int(s.get('supply_sum', 0)) / 100
-        if name == 'Персоналка':
-            row_totals[43] += amt
-        elif name == 'Расходные материалы':
-            row_totals[44] += amt
+        if name in storage_row:
+            row_totals[storage_row[name]] += amt
 
     return dict(row_totals)
 
