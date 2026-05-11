@@ -25,11 +25,11 @@ NUM_ROWS = [2, 3, 4, 5, 6, 7, 8, 9, 11, 13, 15, 17, 18, 20,
 
 
 def pct_fmt():
-    return {'numberFormat': {'type': 'PERCENT', 'pattern': '0,00%'}}
+    return {'numberFormat': {'type': 'PERCENT', 'pattern': '0.00%'}}
 
 
 def num_fmt():
-    return {'numberFormat': {'type': 'NUMBER', 'pattern': '# ##0'}}
+    return {'numberFormat': {'type': 'NUMBER', 'pattern': '#,##0'}}
 
 
 def main():
@@ -38,10 +38,11 @@ def main():
 
     reqs = []
 
-    # 1. Локаль
+    # 1. Локаль — оставляем en_US, иначе формулы ломаются
+    # (Google Sheets ломает SUM/IFERROR при ru_RU locale)
     reqs.append({
         'updateSpreadsheetProperties': {
-            'properties': {'locale': 'ru_RU'},
+            'properties': {'locale': 'en_US'},
             'fields': 'locale'
         }
     })

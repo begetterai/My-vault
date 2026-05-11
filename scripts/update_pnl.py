@@ -49,7 +49,6 @@ LOCATIONS = [
 CATEGORY_ROWS = {
     'Аренда помещения':          18,
     'Электричество':             22,
-    'Коммунальные платежи':      22,  # catch-all → Электроэнергия
     'Водоснабжение':             23,
     'Вывоз мусора':              24,
     'Расходы на заведение':      25,
@@ -144,14 +143,20 @@ def get_month_data(token, year, month):
         for cat, total in sorted(unknown_cats.items(), key=lambda x: -x[1]):
             print(f"    ⚠️  Неизвестная категория: «{cat}» = {total:,.0f}с → добавь в CATEGORY_ROWS")
 
-    # COGS из storage.getSupplies по имени склада
+    # COGS из storage.getSupplies по имени склада (дедупликация по supply_id)
     storage_row = {
         'Кухня':                4,
         'Бар':                  5,
         'Персоналка':           7,
         'Расходные материалы':  8,
     }
+    seen_supply_ids = set()
     for s in supplies:
+        sid = s.get('supply_id')
+        if sid and sid in seen_supply_ids:
+            continue
+        if sid:
+            seen_supply_ids.add(sid)
         name = (s.get('storage_name', '') or '').strip()
         amt  = int(s.get('supply_sum', 0)) / 100
         if name in storage_row:
