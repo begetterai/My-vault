@@ -112,6 +112,10 @@ def get_month_data(token, year, month):
     rt   = poster_get(token, 'finance.getTransactions', {'dateFrom': date_from, 'dateTo': date_to})
     txns = rt.get('response', []) or []
 
+    # Поставки на склады — строки 43 (Персоналка) и 44 (Расходные материалы)
+    rs = poster_get(token, 'storage.getSupplies', {'dateFrom': date_from, 'dateTo': date_to})
+    supplies = rs.get('response', []) or []
+
     row_totals = defaultdict(float)
 
     if revenue > 0:
@@ -137,6 +141,14 @@ def get_month_data(token, year, month):
     if unknown_cats:
         for cat, total in sorted(unknown_cats.items(), key=lambda x: -x[1]):
             print(f"    ⚠️  Неизвестная категория: «{cat}» = {total:,.0f}с → добавь в CATEGORY_ROWS")
+
+    for s in supplies:
+        name = (s.get('storage_name', '') or '').strip()
+        amt  = int(s.get('supply_sum', 0)) / 100
+        if name == 'Персоналка':
+            row_totals[43] += amt
+        elif name == 'Расходные материалы':
+            row_totals[44] += amt
 
     return dict(row_totals)
 
