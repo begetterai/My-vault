@@ -89,8 +89,15 @@ ensure_remote() {
     return 0
   fi
 
+  # Local agent-proxy remote (Claude Code remote env): auth is injected
+  # transparently by the proxy itself, GH_TOKEN here is just a sentinel
+  # ("proxy-injected"), not a real token. Leave the remote alone.
+  if echo "$current_remote" | grep -q "local_proxy"; then
+    return 0
+  fi
+
   # Need to fix remote - check for GH_TOKEN
-  if [ -z "$GH_TOKEN" ]; then
+  if [ -z "$GH_TOKEN" ] || [ "$GH_TOKEN" = "proxy-injected" ]; then
     echo "ERROR: Remote needs fixing but GH_TOKEN is not set" >&2
     echo "Current remote: $current_remote" >&2
     echo "" >&2
