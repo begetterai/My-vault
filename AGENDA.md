@@ -49,6 +49,8 @@
 - ✅ Poster API → финансы, меню, аналитика, поставки, склад (оба токена: ЗБ + ОВИР)
 - ✅ Google Drive → автозагрузка отчётов в папку Ромашка (Общие диски → AI)
 - ✅ Google Sheets → автоматические таблицы (P&L, аналитика, маржинальность)
+- ✅ Obsidian на iPad (vault `Shoga`) → клонирован через плагин Git, автосинк (pull 5 мин / commit+push 10 мин)
+  → Гайд: `[[3-Resources/guides/obsidian-ipad-setup]]`
 → Детали: `[[1-Projects/romashka/tech/подключения]]`
 
 ---
