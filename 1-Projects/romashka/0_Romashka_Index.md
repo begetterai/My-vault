@@ -10,14 +10,14 @@
 
 | # | Блок | Статус | Файлы |
 |---|------|--------|-------|
-| 1 | Организация | ✅ Готово | [[1-Projects/romashka/org/оргструктура\|оргструктура]], [[1-Projects/romashka/org/смены\|смены]], [[1-Projects/romashka/ops/доставка\|доставка]] |
-| 2 | Финансы | ✅ Готово | [[1-Projects/romashka/finance/финконтроль\|финконтроль]], [[1-Projects/romashka/finance/poster-аудит\|poster-аудит]] |
+| 1 | Организация | ✅ Готово | [[1-Projects/romashka/org/оргструктура\|оргструктура]], [[1-Projects/romashka/org/смены\|смены]], [[1-Projects/romashka/ops/доставка\|доставка]], [[1-Projects/romashka/management/Оргструктура_Ромашка\|оргструктура (роли, KPI)]], [[1-Projects/romashka/management/Брифинг_Управляющие_Май2026\|брифинг с управляющими]] |
+| 2 | Финансы | ✅ Готово | [[1-Projects/romashka/finance/финконтроль\|финконтроль]], [[1-Projects/romashka/finance/poster-аудит\|poster-аудит]], [[1-Projects/romashka/finance/super-pnl-источники\|super-pnl источники]], [[1-Projects/romashka/finance/docs/Super_PnL_2026_Описание\|Super P&L 2026]], [[1-Projects/romashka/finance/docs/Дневной_трекер_2026_Описание\|дневной трекер]], отчёты ([[1-Projects/romashka/finance/reports/месяц-2026-04\|апрель]], [[1-Projects/romashka/finance/reports/неделя-2026-W16\|нед.16]], [[1-Projects/romashka/finance/reports/день-2026-04-15\|15.04]], [[1-Projects/romashka/finance/reports/день-2026-04-17\|17.04]]) |
 | 3 | Операции | ⬜ Следующий | — |
 | 4 | Продукт | ⬜ Не начат | — |
-| 5 | Персонал | ⬜ Не начат | — |
-| 6 | Снабжение | ⬜ Не начат | — |
+| 5 | Персонал | 🟡 Частично | [[1-Projects/romashka/hr/зарплата\|зарплата]] |
+| 6 | Снабжение | 🟡 Частично | [[1-Projects/romashka/supply/поставщики\|поставщики]] |
 | 7 | Контроль | ⬜ Не начат | — |
-| — | Технологии | ✅ Готово | [[1-Projects/romashka/tech/подключения\|подключения]] |
+| — | Технологии | ✅ Готово | [[1-Projects/romashka/tech/подключения\|подключения]], [[1-Projects/romashka/tech/стандарты-оформления\|стандарты оформления]] |
 
 ---
 
