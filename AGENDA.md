@@ -42,6 +42,10 @@
 Зал 4×/нед (идёт). Уроки Маркаряна: видео + аудио + текст → транскрибировать, оцифровать, систематизировать. Рынки/крипто — изучение.
 → `[[2-Areas/Health/0_Health_Index]]`, `[[2-Areas/Learning/0_Learning_Index]]`, `[[2-Areas/Finance/0_Finance_Index]]`
 
+### #p2 · Система — подписки и бюджет (рабочее название)
+Новая система учёта вместо старой разрозненной. Старт — подписки: Claude $22, iCloud+ $0.99, Telegram $3.99 (карта Mastercard Алиф) — известны. На проверке: Gemini/Google One по всем Google-аккаунтам, Google Workspace (Base@azizkhaidarov.com).
+→ `[[1-Projects/sistema/0_Sistema_Index]]`
+
 ---
 
 ## Что подключено
