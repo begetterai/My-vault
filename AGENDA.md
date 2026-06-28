@@ -107,7 +107,7 @@
   - Планы: ЗБ 300 000с/мес | ОВИР 360 000с/мес | Свод 660 000с/мес
   - Авто (Poster): D Выручка, E Нал, F Alif, G DC, H Карта, I Beeygor, L Инкасс, M Ост.откр, N Расходы, O Ост.закр, T Внесения
   - Backfill Jan–Mar 2026 ОВИР переделан 2026-05-10 — фикс суточных смен (shift_start фильтр)
-  - Cron: `0 23 * * * python3 /home/user/My-vault/scripts/update_daily_tracker.py`
+  - Автозапуск: НЕ настроен (cron в AGENDA был фиктивным — проверено и убрано 2026-06-28). Запуск вручную: `python3 scripts/update_daily_tracker.py`. Для реальной автоматизации нужен Trigger на уровне среды (Claude Code on the web), не OS-cron — см. `[[1-Projects/sistema/0_Sistema_Index]]`
   - Правила: Google Doc `11VuNq-xUKU3E16l2OHNiPPGPvnpooPOo_XQgvDcU22I`
 - [x] ✅ Super P&L — ФОТ убран из Poster-автоматики (вносится вручную из Main P&L)
   - ФОТ янв–апр записан в Google Sheet (16 ячеек: строки 27–28, ЗБ + ОВИР)
@@ -119,7 +119,7 @@
   - Все данные Jan–Apr 2026 загружены и сверены: ЗБ 146 ✅, ОВИР 147 ✅
   - Расхождение ±85с/64с (хоз.расходы апрель) — оставлено намеренно
   - supply_id=90 ОВИР (Кухня Jan→Feb ±1,383с) зафиксирован через SUPPLY_DELTA в скрипте
-  - Cron и ручной запуск: `python3 scripts/update_pnl.py` → `copy_manual_rows.py` → `compare_pnl.py`
+  - Запуск вручную: `python3 scripts/update_pnl.py` → `copy_manual_rows.py` → `compare_pnl.py` (автозапуска нет, см. `[[1-Projects/sistema/0_Sistema_Index]]`)
 - [ ] P&L структура: доделать (скидки, данные ОВИР) #next
 - [ ] Cash Flow месячный: шаблон на базе категорий Poster
 - [ ] To-Do таблица в Drive УК по 7 блокам плана — одобрено, создать (скрипт: `create_loungebar_todo.py`)
