@@ -27,11 +27,20 @@ def get_values(session, rng):
     return r.json().get('values', [])
 
 
+CURRENCY_SYMBOLS = {'USD': '$', 'EUR': '€'}
+
+
 def fmt_amount(v):
     try:
         return f'{float(v):.2f}'
     except (TypeError, ValueError):
         return v
+
+
+def fmt_money(amount, currency):
+    symbol = CURRENCY_SYMBOLS.get(currency)
+    amt = fmt_amount(amount)
+    return f'{symbol}{amt}' if symbol else f'{amt} {currency}'
 
 
 def build_table(headers, rows):
@@ -61,12 +70,11 @@ def main():
     active_headers, active_rows = active_raw[0], active_raw[1:]
     cancelled_headers, cancelled_rows = cancelled_raw[0], cancelled_raw[1:]
 
-    display_active = [[r[0], f'${fmt_amount(r[1])}' if r[2] == 'USD' else f'{fmt_amount(r[1])} {r[2]}', r[3], r[4], r[5]]
-                       for r in active_rows]
+    display_active = [[r[0], fmt_money(r[1], r[2]), r[3], r[4], r[5]] for r in active_rows]
     display_headers = ['Сервис', 'Сумма', 'Периодичность', 'Дата списания', 'Способ оплаты']
 
     totals = totals_by_currency(active_rows, 1, 2)
-    totals_str = ' + '.join(f'${v:.2f}' if cur == 'USD' else f'{v:.2f} {cur}' for cur, v in totals.items())
+    totals_str = ' + '.join(fmt_money(v, cur) for cur, v in totals.items())
 
     now = datetime.datetime.now().strftime('%Y-%m-%d %H:%M')
     block = (
