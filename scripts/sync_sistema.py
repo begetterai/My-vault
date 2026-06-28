@@ -4,13 +4,14 @@
 Данные (суммы, даты) — источник истины в Drive. В Obsidian подтягивается только снимок;
 статусы/решения/задачи остаются ручными и не затрагиваются.
 """
-import os, datetime, subprocess
+import os, json, datetime, subprocess
 os.environ['REQUESTS_CA_BUNDLE'] = '/etc/ssl/certs/ca-certificates.crt'
 from google.oauth2 import service_account
 from google.auth.transport.requests import AuthorizedSession
 
 VAULT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-CREDS = os.path.join(VAULT_ROOT, 'scripts', 'credentials', 'romashka-drive.json')
+CREDS_FILE = os.path.join(VAULT_ROOT, 'scripts', 'credentials', 'romashka-drive.json')
+CREDS_ENV_VAR = 'SISTEMA_SA_JSON'  # содержимое romashka-drive.json — нужно в Routine, т.к. файл в .gitignore
 SS_ID = '1tP1xPKU6BO3w9zbhru7dhAsk5nijDl_9Ii9tyF9SAYo'
 NOTE_PATH = os.path.join(VAULT_ROOT, '1-Projects', 'sistema', 'подписки.md')
 SCOPES = ['https://www.googleapis.com/auth/spreadsheets.readonly']
@@ -60,8 +61,15 @@ def totals_by_currency(rows, amount_idx, currency_idx):
     return totals
 
 
+def load_creds():
+    raw = os.environ.get(CREDS_ENV_VAR)
+    if raw:
+        return service_account.Credentials.from_service_account_info(json.loads(raw), scopes=SCOPES)
+    return service_account.Credentials.from_service_account_file(CREDS_FILE, scopes=SCOPES)
+
+
 def main():
-    creds = service_account.Credentials.from_service_account_file(CREDS, scopes=SCOPES)
+    creds = load_creds()
     session = AuthorizedSession(creds)
 
     active_raw = get_values(session, "'Подписки'!A1:F50")
