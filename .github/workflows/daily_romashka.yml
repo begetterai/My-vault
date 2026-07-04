@@ -1,0 +1,38 @@
+name: Ромашка — Ежедневный дайджест
+
+on:
+  schedule:
+    # 09:00 Душанбе = 04:00 UTC (UTC+5)
+    - cron: '0 4 * * *'
+  workflow_dispatch:
+    # Ручной запуск из GitHub Actions
+
+jobs:
+  digest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Установить зависимости
+        run: pip install requests google-auth google-auth-httplib2
+
+      - name: Синхронизировать Poster → Sheet (вчерашние данные)
+        run: python scripts/sync_romashka.py
+        env:
+          ROMASHKA_SA_JSON: ${{ secrets.ROMASHKA_SA_JSON }}
+
+      - name: Отправить дайджест в Telegram
+        run: python scripts/romashka_daily_digest.py
+        env:
+          ROMASHKA_SA_JSON: ${{ secrets.ROMASHKA_SA_JSON }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
