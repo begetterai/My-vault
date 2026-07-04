@@ -62,10 +62,10 @@ def fetch_day(token, date_str):
     })
     c = data.get('response', {}).get('counters', {})
     return {
-        'revenue':      round(float(c.get('revenue', 0)) / 100, 2),
+        'revenue':      round(float(c.get('revenue', 0)), 2),
         'visitors':     int(c.get('visitors', 0)),
         'transactions': int(c.get('transactions', 0)),
-        'avg_check':    round(float(c.get('average_receipt', 0)) / 100, 2),
+        'avg_check':    round(float(c.get('average_receipt', 0)), 2),
     }
 
 # ── Sheets helpers ────────────────────────────────────────────────────────────
