@@ -20,7 +20,7 @@ from collections import defaultdict
 TOKEN = "398711:8746917c4a23ea897774040e039dfb76"
 BASE_URL = "https://joinposter.com/api"
 VAULT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-REPORTS_DIR = os.path.join(VAULT, "1-Projects", "romashka", "finance", "reports")
+REPORTS_DIR = os.path.join(VAULT, "1-Области", "Ромашка", "reports")
 
 # Локализация системных категорий
 CAT_NAMES = {

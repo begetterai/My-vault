@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Создаёт Google Sheet «Система — Подписки» в папке Трекеры.
-Источник данных для 1-Projects/sistema/подписки.md (Drive = данные, Obsidian = структура).
+Источник данных для 1-Области/Финансы/подписки.md (Drive = данные, Obsidian = структура).
 """
 import os
 os.environ['REQUESTS_CA_BUNDLE'] = '/etc/ssl/certs/ca-certificates.crt'

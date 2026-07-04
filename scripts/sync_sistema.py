@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Синхронизация: Google Sheet «Система — Подписки» → 1-Projects/sistema/подписки.md
+Синхронизация: Google Sheet «Система — Подписки» → 1-Области/Финансы/подписки.md
 Данные (суммы, даты) — источник истины в Drive. В Obsidian подтягивается только снимок;
 статусы/решения/задачи остаются ручными и не затрагиваются.
 """
@@ -13,7 +13,7 @@ VAULT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CREDS_FILE = os.path.join(VAULT_ROOT, 'scripts', 'credentials', 'romashka-drive.json')
 CREDS_ENV_VAR = 'SISTEMA_SA_JSON'  # содержимое romashka-drive.json — нужно в Routine, т.к. файл в .gitignore
 SS_ID = '1tP1xPKU6BO3w9zbhru7dhAsk5nijDl_9Ii9tyF9SAYo'
-NOTE_PATH = os.path.join(VAULT_ROOT, '1-Projects', 'sistema', 'подписки.md')
+NOTE_PATH = os.path.join(VAULT_ROOT, '1-Области', 'Финансы', 'подписки.md')
 SCOPES = ['https://www.googleapis.com/auth/spreadsheets.readonly']
 
 SYNC_START = '<!-- DRIVE-SYNC:START -->'

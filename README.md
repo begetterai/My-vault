@@ -91,12 +91,12 @@ This commits and pushes everything to main.
 ```
 ├── CLAUDE.md      # Agent instructions
 ├── AGENDA.md      # Current context and open threads
-├── 0-Inbox/       # Quick capture
-├── 1-Projects/    # Active work with artifacts
-├── 2-Areas/       # Life areas (health, career, etc.)
-├── 3-Resources/   # Reference material
-├── 4-Archive/     # Completed items
-└── Daily/         # Daily notes
+├── 0-Входящие/    # Quick capture
+├── 1-Области/     # Life areas (core)
+├── 2-Циклы/       # 30-day cycles (hypothesis → action → analysis)
+├── 3-Дни/         # Daily notes
+├── 4-Архив/       # Completed and inactive
+└── 5-Шаблоны/     # Templates
 ```
 
 ## License
