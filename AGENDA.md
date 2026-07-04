@@ -29,6 +29,16 @@
 Операционная и финансовая часть сети кафе. Навести порядок, выстроить процессы, сделать всё управляемым и прозрачным.
 → `[[1-Projects/romashka/0_Romashka_Index]]`
 
+### #p1 · Ромашка — дашборд + Telegram-бот (04.07.2026)
+Дашборд-артефакт с реальными данными Poster (Янв–Июн 2026): https://claude.ai/code/artifact/4ae088f2-dadd-4b55-b65c-beeded5193d3
+- Вкладки: Операции (выручка/гости/ср.чек — данные есть), П&У и ДДС (МСФО — **пустые, нужны расходы**), ИИ-чат (нужен ключ Groq)
+- Данные: Google Sheet «Ромашка — Финансы 2026» `1bTDELaAo8Ft9WIQqeWDFQQzp5rrDDHiRZ4VpFo-D4m8` (AI drive → main), синк: `scripts/sync_romashka.py`
+- ⚠️ Январь ЗБ в Sheet задвоен (62 строки вместо 31) — в дашборде поделён на 2, в Sheet надо почистить
+- Telegram: `scripts/romashka_daily_digest.py` (утренний дайджест) + `scripts/romashka_bot.py` (команды /отчет /месяц /неделя)
+- GitHub Actions `.github/workflows/daily_romashka.yml` — 09:00 Душанбе ежедневно
+- **Ждёт от Азиза:** 3 секрета в GitHub (TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, ROMASHKA_SA_JSON) + цифры расходов для П&У
+- Для 24/7-бота: Railway (railway.json + requirements.txt готовы) — деплой из GitHub, те же env vars
+
 ### #p1 · 30 дней — Цикл 1 (26.06–25.07.2026)
 План по 4 блокам (Ромашка, Здоровье, Финансы, Обучение) по принципу Гипотеза → Действие → Анализ → Доработка. Трекер в Life OS.
 → `[[1-Projects/30-dney-cycle1/0_30_Dney_Index]]` | Sheet: «30 Дней — Цикл 1» в Life OS
