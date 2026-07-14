@@ -35,12 +35,17 @@ def load_creds():
     return service_account.Credentials.from_service_account_file(creds_file, scopes=SCOPES)
 
 def get_poster_rows():
+    import time
     session = AuthorizedSession(load_creds())
-    r = session.get(
-        f'https://sheets.googleapis.com/v4/spreadsheets/{ROMASHKA_SS_ID}/values/'
-        'Данные_Poster!A2:G', timeout=30)
-    r.raise_for_status()
-    return r.json().get('values', [])
+    for attempt in range(5):
+        r = session.get(
+            f'https://sheets.googleapis.com/v4/spreadsheets/{ROMASHKA_SS_ID}/values/'
+            'Данные_Poster!A2:G', timeout=30)
+        if r.status_code >= 500 and attempt < 4:
+            time.sleep(2 ** attempt)
+            continue
+        r.raise_for_status()
+        return r.json().get('values', [])
 
 def fmt(n):
     return f'{int(round(float(n or 0))):,}'.replace(',', ' ')

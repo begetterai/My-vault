@@ -69,20 +69,35 @@ def fetch_day(token, date_str):
     }
 
 # ── Sheets helpers ────────────────────────────────────────────────────────────
+def _with_retries(fn, retries=5):
+    """Google API иногда отдаёт 5xx — повторяем с экспоненциальной паузой."""
+    for attempt in range(retries):
+        try:
+            return fn()
+        except requests.HTTPError as e:
+            code = e.response.status_code if e.response is not None else 0
+            if code < 500 or attempt == retries - 1:
+                raise
+            time.sleep(2 ** attempt)
+
 def sheets_get(session, range_):
-    r = session.get(
-        f'https://sheets.googleapis.com/v4/spreadsheets/{ROMASHKA_SS_ID}/values/{range_}',
-        timeout=30)
-    r.raise_for_status()
-    return r.json().get('values', [])
+    def call():
+        r = session.get(
+            f'https://sheets.googleapis.com/v4/spreadsheets/{ROMASHKA_SS_ID}/values/{range_}',
+            timeout=30)
+        r.raise_for_status()
+        return r.json().get('values', [])
+    return _with_retries(call)
 
 def sheets_append(session, range_, values):
-    r = session.post(
-        f'https://sheets.googleapis.com/v4/spreadsheets/{ROMASHKA_SS_ID}/values/{range_}:append'
-        '?valueInputOption=RAW&insertDataOption=INSERT_ROWS',
-        json={'values': values}, timeout=30)
-    r.raise_for_status()
-    return r.json()
+    def call():
+        r = session.post(
+            f'https://sheets.googleapis.com/v4/spreadsheets/{ROMASHKA_SS_ID}/values/{range_}:append'
+            '?valueInputOption=RAW&insertDataOption=INSERT_ROWS',
+            json={'values': values}, timeout=30)
+        r.raise_for_status()
+        return r.json()
+    return _with_retries(call)
 
 def sheets_write(session, range_, values):
     r = session.put(
