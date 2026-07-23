@@ -153,6 +153,53 @@ def tool_capture_note(text, **_):
     with open(p,'a') as f: f.write(f'- {datetime.datetime.now().strftime("%H:%M")} {text}\n')
     return f'📝 Записал в входящие: {text}'
 
+def _notion_query(db, flt=None):
+    payload = {'filter':flt} if flt else {}
+    r = requests.post(f'https://api.notion.com/v1/databases/{db}/query', headers=NH, json=payload, timeout=30)
+    r.raise_for_status(); return r.json().get('results',[])
+
+def tool_list_tasks(kind='тактическая', **_):
+    db = NIDS.get('sdb') if kind.startswith('страт') else NIDS.get('tdb')
+    items=[]
+    for p in _notion_query(db):
+        pr=p['properties']
+        title=''.join(x['plain_text'] for x in pr['Задача']['title'])
+        st=(pr.get('Статус',{}).get('select') or {}).get('name','')
+        if st=='Готово': continue
+        items.append(f'• {title}' + (f' — {st}' if st else ''))
+    hdr = '🏛 Стратегические задачи:' if kind.startswith('страт') else '🎯 Тактические задачи:'
+    return hdr+'\n'+('\n'.join(items) if items else 'пусто')
+
+def tool_list_violations(period='неделя', **_):
+    today=datetime.date.today()
+    since = today - datetime.timedelta(days=1 if period.startswith('дн') else 7 if period.startswith('нед') else 30)
+    items=[]
+    for p in _notion_query(NIDS.get('vdb')):
+        pr=p['properties']
+        d=(pr.get('Дата',{}).get('date') or {}).get('start','')
+        if d and d < str(since): continue
+        desc=''.join(x['plain_text'] for x in pr['Нарушение']['title'])
+        pt=(pr.get('Точка',{}).get('select') or {}).get('name','')
+        emp=''.join(x['plain_text'] for x in pr.get('Сотрудник',{}).get('rich_text',[]))
+        items.append(f'• {d[5:]} {pt} {emp}: {desc}'.replace('  ',' '))
+    return f'🚨 Нарушения ({period}):\n'+('\n'.join(items) if items else 'нет')
+
+def tool_revenue_by_month(**_):
+    rows=_sheet_rows()
+    from collections import defaultdict
+    m=defaultdict(lambda:defaultdict(float))
+    for r in rows:
+        if len(r)<3: continue
+        if r[1] in ('ЗБ','ОВИР'):
+            try: m[r[0][:7]][r[1]]+=float(r[2] or 0)
+            except: pass
+    f=lambda n: f'{int(round(n)):,}'.replace(',',' ')
+    out=['📈 Выручка по месяцам (ЗБ / ОВИР / Сеть):']
+    for mm in sorted(m)[-6:]:
+        z,o=m[mm]['ЗБ'],m[mm]['ОВИР']
+        out.append(f'{mm}: {f(z)} / {f(o)} / {f(z+o)}')
+    return '\n'.join(out)
+
 TOOLS_SPEC = [
  {'type':'function','function':{'name':'add_task','description':'Добавить задачу в Notion. Тактическая — оперативная (эта неделя), стратегическая — долгосрочная (по этапам).',
    'parameters':{'type':'object','properties':{
@@ -171,14 +218,23 @@ TOOLS_SPEC = [
      'category':{'type':'string'},'date_from':{'type':'string'},'date_to':{'type':'string'}},'required':['metric']}}},
  {'type':'function','function':{'name':'capture_note','description':'Сохранить мысль/заметку во входящие.',
    'parameters':{'type':'object','properties':{'text':{'type':'string'}},'required':['text']}}},
+ {'type':'function','function':{'name':'list_tasks','description':'ПОКАЗАТЬ существующие задачи (не создавать). Для вопросов «какие задачи», «что мне сделать».',
+   'parameters':{'type':'object','properties':{'kind':{'type':'string','enum':['тактическая','стратегическая']}},'required':['kind']}}},
+ {'type':'function','function':{'name':'list_violations','description':'ПОКАЗАТЬ нарушения за период (не создавать).',
+   'parameters':{'type':'object','properties':{'period':{'type':'string','enum':['день','неделя','месяц']}},'required':['period']}}},
+ {'type':'function','function':{'name':'revenue_by_month','description':'Динамика выручки по месяцам (последние 6). Для «динамика продаж», «выручка по месяцам», «за несколько месяцев».',
+   'parameters':{'type':'object','properties':{},'required':[]}}},
 ]
 TOOLS = {'add_task':tool_add_task,'add_violation':tool_add_violation,'get_revenue':tool_get_revenue,
-         'poster_query':tool_poster_query,'capture_note':tool_capture_note}
+         'poster_query':tool_poster_query,'capture_note':tool_capture_note,
+         'list_tasks':tool_list_tasks,'list_violations':tool_list_violations,'revenue_by_month':tool_revenue_by_month}
 
 SYSTEM = ('Ты — исполнительный ассистент Азиза, операционного директора сети кафе «Ромашка» '
  '(две точки: ЗБ Лохути, ОВИР Турсунзода). Азиз пишет/говорит по-русски, коротко. '
- 'Пойми намерение и вызови нужный инструмент. Если данных не хватает (например, на кого нарушение) — '
- 'переспроси одним вопросом, не выдумывай. Отвечай кратко, по-деловому, на «ты». '
+ 'Пойми намерение и вызови нужный инструмент. ВАЖНО: если Азиз ПРОСИТ ПОКАЗАТЬ задачи/нарушения — '
+ 'используй list_tasks/list_violations, НЕ создавай новые. add_task/add_violation — только когда явно просят добавить/записать. '
+ 'Если данных не хватает (например, на кого нарушение) — переспроси одним вопросом, не выдумывай. '
+ 'Отвечай кратко, по-деловому, на «ты». '
  'Сегодня '+str(datetime.date.today())+'.')
 
 # ── Мозг (Groq по умолчанию, OpenAI-совместимый tool-calling) ─────────────────
