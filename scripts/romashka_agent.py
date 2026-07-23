@@ -65,6 +65,11 @@ def typing():
     tg('sendChatAction', chat_id=ALLOWED, action='typing')
 
 # ── Расшифровка голоса (Groq Whisper) ─────────────────────────────────────────
+# Словарь-подсказка Whisper — термины Ромашки, чтобы узнавал имена и жаргон
+WHISPER_PROMPT = ('Ромашка, ЗБ, ОВИР, Лохути, Турсунзода, Владимир, Дилчу, Азиз, Махмуд, '
+ 'касса, инкассация, поставка, шаурма, бариста, повар, кассир, смена, нарушение, '
+ 'выручка, план, факт, Beeyor, Алиф, Душанбе, food cost, перчатки, техкарта.')
+
 def transcribe(file_id):
     info = tg('getFile', file_id=file_id)
     path = info['result']['file_path']
@@ -72,7 +77,7 @@ def transcribe(file_id):
     r = requests.post('https://api.groq.com/openai/v1/audio/transcriptions',
         headers={'Authorization': f'Bearer {GROQ_KEY}'},
         files={'file': ('audio.ogg', audio, 'audio/ogg')},
-        data={'model':'whisper-large-v3','language':'ru'}, timeout=90)
+        data={'model':'whisper-large-v3','language':'ru','prompt':WHISPER_PROMPT,'temperature':'0'}, timeout=90)
     r.raise_for_status()
     return r.json().get('text','').strip()
 
@@ -149,9 +154,12 @@ def tool_poster_query(metric='расходы', category=None, date_from=None, da
     return f'📊 {metric.capitalize()}{cat_lbl} {df}…{dt}:\n'+'\n'.join(out)
 
 def tool_capture_note(text, **_):
-    p = os.path.join(ROOT, '0-Входящие', f'{datetime.date.today()}-заметка.md')
-    with open(p,'a') as f: f.write(f'- {datetime.datetime.now().strftime("%H:%M")} {text}\n')
-    return f'📝 Записал в входящие: {text}'
+    """Заметка → база Входящие в Notion (не эфемерный диск)."""
+    _notion_post('pages', {'parent':{'database_id':NIDS.get('inbox')},'properties':{
+        'Заметка':{'title':[{'text':{'content':text}}]},
+        'Дата':{'date':{'start':str(datetime.date.today())}},
+        'Статус':{'select':{'name':'Новое'}}}})
+    return f'📝 Записал во входящие: {text}'
 
 def _notion_query(db, flt=None):
     payload = {'filter':flt} if flt else {}
