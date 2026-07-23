@@ -237,6 +237,24 @@ TOOLS = {'add_task':tool_add_task,'add_violation':tool_add_violation,'get_revenu
          'poster_query':tool_poster_query,'capture_note':tool_capture_note,
          'list_tasks':tool_list_tasks,'list_violations':tool_list_violations,'revenue_by_month':tool_revenue_by_month}
 
+# Инструменты, которые ЧТО-ТО ЗАПИСЫВАЮТ — требуют подтверждения. Чтение — сразу.
+WRITE_TOOLS = {'add_task','add_violation','capture_note'}
+PENDING = {}  # chat_id -> [(fn, args), ...] ожидают «да/нет»
+AFFIRM = {'да','ага','угу','подтверждаю','подтвердить','ок','окей','ok','yes','+','давай','верно','точно','да.','ок.'}
+DENY   = {'нет','не','отмена','отмени','отменить','no','неверно','не надо','нет.'}
+
+def describe_action(fn, args):
+    if fn=='add_task':
+        kind=args.get('kind','тактическая'); who=args.get('assignee'); due=args.get('due')
+        extra=(f' · {who}' if who else '')+(f' · до {due}' if due else '')
+        return f'✅ Задача ({kind}): {args.get("title","")}{extra}'
+    if fn=='add_violation':
+        emp=args.get('employee'); cat=args.get('category','Прочее')
+        return f'🚨 Нарушение — {args.get("point","?")}{(" · "+emp) if emp else ""} · {cat}: {args.get("description","")}'
+    if fn=='capture_note':
+        return f'📝 Заметка: {args.get("text","")}'
+    return f'{fn}({args})'
+
 SYSTEM = ('Ты — исполнительный ассистент Азиза, операционного директора сети кафе «Ромашка» '
  '(две точки: ЗБ Лохути, ОВИР Турсунзода). Азиз пишет/говорит по-русски, коротко. '
  'Пойми намерение и вызови нужный инструмент. ВАЖНО: если Азиз ПРОСИТ ПОКАЗАТЬ задачи/нарушения — '
@@ -260,13 +278,23 @@ def _brain_groq(history):
     r.raise_for_status()
     m=r.json()['choices'][0]['message']
     if m.get('tool_calls'):
-        results=[]
-        for tc in m['tool_calls']:
-            fn=tc['function']['name']; args=json.loads(tc['function']['arguments'] or '{}')
-            try: results.append(TOOLS[fn](**args))
-            except Exception as e: results.append(f'⚠️ Ошибка «{fn}»: {e}')
-        return '\n'.join(results)
+        calls=[(tc['function']['name'], json.loads(tc['function']['arguments'] or '{}')) for tc in m['tool_calls']]
+        return _run_calls(calls)
     return m.get('content') or 'Не понял, повтори иначе.'
+
+def _run_calls(calls):
+    """Чтение — сразу. Запись — откладываем в PENDING и просим подтвердить."""
+    reads=[]; writes=[]
+    for fn,args in calls:
+        if fn in WRITE_TOOLS: writes.append((fn,args))
+        else:
+            try: reads.append(TOOLS[fn](**args))
+            except Exception as e: reads.append(f'⚠️ Ошибка «{fn}»: {e}')
+    out=reads[:]
+    if writes:
+        PENDING[ALLOWED]=writes
+        out.append('❓ Подтверди:\n'+'\n'.join(describe_action(fn,args) for fn,args in writes)+'\n\nОтветь «да» или «нет».')
+    return '\n'.join(out) if out else 'Не понял, повтори иначе.'
 
 def _brain_anthropic(history):
     tools=[{'name':t['function']['name'],'description':t['function']['description'],
@@ -276,14 +304,15 @@ def _brain_anthropic(history):
         json={'model':'claude-3-5-sonnet-20241022','max_tokens':1024,'system':SYSTEM,
               'messages':history,'tools':tools},timeout=60)
     r.raise_for_status(); data=r.json()
-    outs=[]
+    calls=[]; texts=[]
     for block in data.get('content',[]):
         if block['type']=='tool_use':
-            try: outs.append(TOOLS[block['name']](**block['input']))
-            except Exception as e: outs.append(f'⚠️ Ошибка «{block["name"]}»: {e}')
+            calls.append((block['name'], block['input']))
         elif block['type']=='text' and block['text'].strip():
-            outs.append(block['text'].strip())
-    return '\n'.join(outs) or 'Не понял, повтори иначе.'
+            texts.append(block['text'].strip())
+    if calls:
+        return _run_calls(calls)
+    return '\n'.join(texts) or 'Не понял, повтори иначе.'
 
 # ── Аудит ─────────────────────────────────────────────────────────────────────
 def audit(kind, text, result):
@@ -308,8 +337,20 @@ def handle(msg):
         except Exception as e:
             send(f'⚠️ Не смог расшифровать голос: {e}'); return
     if not text: return
+    low = text.strip().lower().rstrip('!.')
+    # Ждём подтверждения отложенного действия?
+    if PENDING.get(ALLOWED):
+        if low in AFFIRM:
+            acts = PENDING.pop(ALLOWED); res=[]
+            for fn,args in acts:
+                try: res.append(TOOLS[fn](**args))
+                except Exception as e: res.append(f'⚠️ Ошибка «{fn}»: {e}')
+            r='\n'.join(res); send(r); audit('confirm', text, r); return
+        if low in DENY:
+            PENDING.pop(ALLOWED, None); send('Отменил, ничего не записал.'); return
+        PENDING.pop(ALLOWED, None)  # новое сообщение — сбрасываем ожидание
     if text.strip().lower() in ('/start','/помощь','/help'):
-        send('🌸 Кидай голос или текст: задачи, нарушения, «выручка за неделю», «сколько потратили на аренду в июне», заметки. Я сам разложу.'); return
+        send('🌸 Кидай голос или текст: задачи, нарушения, «выручка за неделю», «сколько потратили на аренду в июне», заметки. Действия с записью я делаю после твоего «да».'); return
     typing()
     try:
         reply=brain([{'role':'user','content':text}])
