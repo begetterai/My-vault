@@ -54,15 +54,29 @@ def poster_get(token, method, params=None, retries=4):
                 raise
             time.sleep(2 ** attempt)
 
+# Категории п/ф — это НЕ выручка, а продажа полуфабрикатов другой точке (СНБЖ).
+# Исключаем их из выручки. Сравнение регистронезависимое.
+EXCLUDE_CATEGORIES = {'полуфабрикаты', 'соуса п/ф'}
+
 def fetch_day(token, date_str):
-    """Fetch analytics for one day. Returns dict with revenue, visitors, transactions, avg_check."""
-    data = poster_get(token, 'dash.getAnalytics', {
-        'dateFrom': date_str.replace('-', ''),
-        'dateTo':   date_str.replace('-', ''),
-    })
+    """Fetch analytics for one day. Revenue считается БЕЗ п/ф-категорий (СНБЖ)."""
+    d = date_str.replace('-', '')
+    data = poster_get(token, 'dash.getAnalytics', {'dateFrom': d, 'dateTo': d})
     c = data.get('response', {}).get('counters', {})
+
+    # Выручка из категорий, за вычетом п/ф (getCategoriesSales отдаёт в копейках)
+    cats = poster_get(token, 'dash.getCategoriesSales', {'dateFrom': d, 'dateTo': d})
+    rows = cats.get('response', []) or []
+    if rows:
+        clean_kop = sum(float(x.get('revenue', 0)) for x in rows
+                        if x.get('category_name', '').strip().lower() not in EXCLUDE_CATEGORIES)
+        revenue = round(clean_kop / 100, 2)
+    else:
+        # фолбэк — общая выручка, если категории недоступны
+        revenue = round(float(c.get('revenue', 0)), 2)
+
     return {
-        'revenue':      round(float(c.get('revenue', 0)), 2),
+        'revenue':      revenue,
         'visitors':     int(c.get('visitors', 0)),
         'transactions': int(c.get('transactions', 0)),
         'avg_check':    round(float(c.get('average_receipt', 0)), 2),
