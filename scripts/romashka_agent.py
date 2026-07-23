@@ -81,7 +81,7 @@ def _notion_post(path, payload):
     r = requests.post(f'https://api.notion.com/v1/{path}', headers=NH, json=payload, timeout=30)
     r.raise_for_status(); return r.json()
 
-def tool_add_task(title, kind='тактическая', assignee=None, due=None):
+def tool_add_task(title, kind='тактическая', assignee=None, due=None, **_):
     db = NIDS.get('sdb') if kind.startswith('страт') else NIDS.get('tdb')
     props = {'Задача':{'title':[{'text':{'content':title}}]}}
     if kind.startswith('страт'):
@@ -93,7 +93,7 @@ def tool_add_task(title, kind='тактическая', assignee=None, due=None)
     _notion_post('pages', {'parent':{'database_id':db},'properties':props})
     return f'✅ Задача добавлена ({kind}): {title}'
 
-def tool_add_violation(point, description, employee=None, category='Прочее'):
+def tool_add_violation(point, description, employee=None, category='Прочее', **_):
     props = {'Нарушение':{'title':[{'text':{'content':description}}]},
              'Дата':{'date':{'start':str(datetime.date.today())}},
              'Точка':{'select':{'name':point}},
@@ -108,7 +108,7 @@ def _sheet_rows():
     r = SHEETS.get(f'https://sheets.googleapis.com/v4/spreadsheets/{SS_ID}/values/Данные_Poster!A2:G', timeout=30)
     r.raise_for_status(); return r.json().get('values',[])
 
-def tool_get_revenue(period='день'):
+def tool_get_revenue(period='день', **_):
     rows = _sheet_rows()
     today = datetime.date.today(); yday = today - datetime.timedelta(days=1)
     acc = {'ЗБ':0.0,'ОВИР':0.0}
@@ -130,7 +130,7 @@ def tool_get_revenue(period='день'):
     return (f'💰 Выручка {label}:\nЗБ: {f(acc["ЗБ"])} с\nОВИР: {f(acc["ОВИР"])} с\n'
             f'Сеть: {f(acc["ЗБ"]+acc["ОВИР"])} с')
 
-def tool_poster_query(metric='расходы', category=None, date_from=None, date_to=None):
+def tool_poster_query(metric='расходы', category=None, date_from=None, date_to=None, **_):
     df = date_from or str(datetime.date.today().replace(day=1))
     dt = date_to or str(datetime.date.today())
     out=[]
@@ -148,7 +148,7 @@ def tool_poster_query(metric='расходы', category=None, date_from=None, da
     cat_lbl = f' по «{category}»' if category else ''
     return f'📊 {metric.capitalize()}{cat_lbl} {df}…{dt}:\n'+'\n'.join(out)
 
-def tool_capture_note(text):
+def tool_capture_note(text, **_):
     p = os.path.join(ROOT, '0-Входящие', f'{datetime.date.today()}-заметка.md')
     with open(p,'a') as f: f.write(f'- {datetime.datetime.now().strftime("%H:%M")} {text}\n')
     return f'📝 Записал в входящие: {text}'
