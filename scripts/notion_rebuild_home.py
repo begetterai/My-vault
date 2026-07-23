@@ -46,28 +46,41 @@ creds=service_account.Credentials.from_service_account_file('/home/user/My-vault
 s=AuthorizedSession(creds)
 rows=s.get(f'https://sheets.googleapis.com/v4/spreadsheets/{SS}/values/Данные_Poster!A2:G',timeout=30).json().get('values',[])
 today=datetime.date.today(); yday=today-datetime.timedelta(days=1); mon=today.strftime('%Y-%m')
-mtd={'ЗБ':0.0,'ОВИР':0.0}; yd={'ЗБ':0.0,'ОВИР':0.0}
+import calendar
+dim=calendar.monthrange(today.year,today.month)[1]  # дней в месяце
+week_days={str(yday-datetime.timedelta(days=i)) for i in range(7)}  # последние 7 дней
+day_f={'ЗБ':0.0,'ОВИР':0.0}; week_f={'ЗБ':0.0,'ОВИР':0.0}; mtd={'ЗБ':0.0,'ОВИР':0.0}
 for r_ in rows:
     if len(r_)<3: continue
     d,loc=r_[0],r_[1]
+    if loc not in day_f: continue
     try: rev=float(r_[2] or 0)
     except: continue
-    if loc in mtd and d.startswith(mon): mtd[loc]+=rev
-    if d==str(yday) and loc in yd: yd[loc]=rev
+    if d.startswith(mon): mtd[loc]+=rev
+    if d in week_days: week_f[loc]+=rev
+    if d==str(yday): day_f[loc]=rev
 PLAN={'ЗБ':354000,'ОВИР':277000}
 def f(n): return f'{int(round(n)):,}'.replace(',',' ')
+def pct(fact,plan): return f'{round(fact/plan*100)}%' if plan else '—'
+def rev_table(title, fact, plan_div):
+    """plan_div: делитель месячного плана (1=месяц, dim=день, dim/7=неделя)"""
+    pz,po=PLAN['ЗБ']/plan_div,PLAN['ОВИР']/plan_div
+    return [{'heading_3':{'rich_text':t(title)}},
+     {'table':{'table_width':4,'has_column_header':True,'children':[
+       {'table_row':{'cells':[t('Точка'),t('План'),t('Факт'),t('%')]}},
+       {'table_row':{'cells':[t('ЗБ'),t(f(pz)),t(f(fact['ЗБ'])),t(pct(fact['ЗБ'],pz))]}},
+       {'table_row':{'cells':[t('ОВИР'),t(f(po)),t(f(fact['ОВИР'])),t(pct(fact['ОВИР'],po))]}},
+       {'table_row':{'cells':[t('Сеть'),t(f(pz+po)),t(f(fact['ЗБ']+fact['ОВИР'])),t(pct(fact['ЗБ']+fact['ОВИР'],pz+po))]}},
+     ]}}]
 
 # ── 2. Дашборд ПРЯМО на главной ──
-add(ROOT,[
- call(f'Открыл — увидел всё. Обновлено {today.strftime("%d.%m.%Y")}, прошло {today.day-1} дн. месяца. Цифры из Poster (бот утром).','🌸','yellow_background'),
- h2('💰 Выручка — план / факт'),
- {'table':{'table_width':5,'has_column_header':True,'children':[
-   {'table_row':{'cells':[t('Точка'),t('План/мес'),t('Факт MTD'),t('% плана'),t('Вчера')]}},
-   {'table_row':{'cells':[t('ЗБ Лохути'),t(f(PLAN['ЗБ'])),t(f(mtd['ЗБ'])),t(f"{round(mtd['ЗБ']/PLAN['ЗБ']*100)}%"),t(f(yd['ЗБ']))]}},
-   {'table_row':{'cells':[t('ОВИР Турсунзода'),t(f(PLAN['ОВИР'])),t(f(mtd['ОВИР'])),t(f"{round(mtd['ОВИР']/PLAN['ОВИР']*100)}%"),t(f(yd['ОВИР']))]}},
-   {'table_row':{'cells':[t('Сеть'),t(f(PLAN['ЗБ']+PLAN['ОВИР'])),t(f(mtd['ЗБ']+mtd['ОВИР'])),t(f"{round((mtd['ЗБ']+mtd['ОВИР'])/(PLAN['ЗБ']+PLAN['ОВИР'])*100)}%"),t(f(yd['ЗБ']+yd['ОВИР']))]}},
- ]}},
-])
+add(ROOT,
+ [call(f'Открыл — увидел всё. Обновлено {today.strftime("%d.%m.%Y")}, прошло {today.day-1} дн. месяца. Выручка без п/ф (СНБЖ). Цифры из Poster (бот утром).','🌸','yellow_background'),
+  h2('💰 Выручка — план / факт')]
+ + rev_table(f'📅 День (вчера, {yday.strftime("%d.%m")})', day_f, dim)
+ + rev_table('📆 Неделя (последние 7 дней)', week_f, dim/7)
+ + rev_table(f'🗓 Месяц ({today.strftime("%B")}, MTD)', mtd, 1)
+)
 tdb=post('databases',{'parent':{'page_id':ROOT},'title':t('🎯 Тактические задачи'),'is_inline':True,
  'properties':{'Задача':{'title':{}},
   'Статус':{'select':{'options':[{'name':'Не начато','color':'gray'},{'name':'В работе','color':'blue'},{'name':'Готово','color':'green'}]}},
