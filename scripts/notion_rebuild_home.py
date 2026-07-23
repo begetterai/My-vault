@@ -74,11 +74,14 @@ def rev_table(title, fact, plan_div):
      ]}}]
 
 # ── 2. Дашборд ПРЯМО на главной ──
+two_cols={'type':'column_list','column_list':{'children':[
+    {'type':'column','column':{'children': rev_table(f'📅 День (вчера, {yday.strftime("%d.%m")})', day_f, dim)}},
+    {'type':'column','column':{'children': rev_table('📆 Неделя (7 дней)', week_f, dim/7)}},
+]}}
 add(ROOT,
  [call(f'Открыл — увидел всё. Обновлено {today.strftime("%d.%m.%Y")}, прошло {today.day-1} дн. месяца. Выручка без п/ф (СНБЖ). Цифры из Poster (бот утром).','🌸','yellow_background'),
-  h2('💰 Выручка — план / факт')]
- + rev_table(f'📅 День (вчера, {yday.strftime("%d.%m")})', day_f, dim)
- + rev_table('📆 Неделя (последние 7 дней)', week_f, dim/7)
+  h2('💰 Выручка — план / факт'),
+  two_cols]
  + rev_table(f'🗓 Месяц ({today.strftime("%B")}, MTD)', mtd, 1)
 )
 tdb=post('databases',{'parent':{'page_id':ROOT},'title':t('🎯 Тактические задачи'),'is_inline':True,
