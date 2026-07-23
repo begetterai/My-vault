@@ -49,13 +49,15 @@ today=datetime.date.today(); yday=today-datetime.timedelta(days=1); mon=today.st
 import calendar
 dim=calendar.monthrange(today.year,today.month)[1]  # дней в месяце
 week_days={str(yday-datetime.timedelta(days=i)) for i in range(7)}  # последние 7 дней
-day_f={'ЗБ':0.0,'ОВИР':0.0}; week_f={'ЗБ':0.0,'ОВИР':0.0}; mtd={'ЗБ':0.0,'ОВИР':0.0}
+day_f={'ЗБ':0.0,'ОВИР':0.0}; week_f={'ЗБ':0.0,'ОВИР':0.0}; mtd={'ЗБ':0.0,'ОВИР':0.0}; year_f={'ЗБ':0.0,'ОВИР':0.0}
+yr=str(today.year)
 for r_ in rows:
     if len(r_)<3: continue
     d,loc=r_[0],r_[1]
     if loc not in day_f: continue
     try: rev=float(r_[2] or 0)
     except: continue
+    if d.startswith(yr): year_f[loc]+=rev
     if d.startswith(mon): mtd[loc]+=rev
     if d in week_days: week_f[loc]+=rev
     if d==str(yday): day_f[loc]=rev
@@ -74,15 +76,18 @@ def rev_table(title, fact, plan_div):
      ]}}]
 
 # ── 2. Дашборд ПРЯМО на главной ──
-two_cols={'type':'column_list','column_list':{'children':[
+dw_cols={'type':'column_list','column_list':{'children':[
     {'type':'column','column':{'children': rev_table(f'📅 День (вчера, {yday.strftime("%d.%m")})', day_f, dim)}},
     {'type':'column','column':{'children': rev_table('📆 Неделя (7 дней)', week_f, dim/7)}},
+]}}
+my_cols={'type':'column_list','column_list':{'children':[
+    {'type':'column','column':{'children': rev_table(f'🗓 Месяц (MTD, {today.day-1} дн.)', mtd, 1)}},
+    {'type':'column','column':{'children': rev_table(f'📈 Год ({yr}, YTD)', year_f, 1/12)}},
 ]}}
 add(ROOT,
  [call(f'Открыл — увидел всё. Обновлено {today.strftime("%d.%m.%Y")}, прошло {today.day-1} дн. месяца. Выручка без п/ф (СНБЖ). Цифры из Poster (бот утром).','🌸','yellow_background'),
   h2('💰 Выручка — план / факт'),
-  two_cols]
- + rev_table(f'🗓 Месяц ({today.strftime("%B")}, MTD)', mtd, 1)
+  dw_cols, my_cols]
 )
 tdb=post('databases',{'parent':{'page_id':ROOT},'title':t('🎯 Тактические задачи'),'is_inline':True,
  'properties':{'Задача':{'title':{}},
