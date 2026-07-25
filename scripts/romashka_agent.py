@@ -232,18 +232,33 @@ def tool_poster_query(metric='расходы', category=None, date_from=None, da
     return f'📊 {metric.capitalize()}{cat_lbl} {df}…{dt}:\n'+'\n'.join(out)
 
 BUDGET_SS = '1Cn3QwTy2AiW4Kjw2PLNniZuB_2LyQ2ES8nOCgHPKDIE'
-BUDGET_CATS = {'Машина','Кафе','Телефон','Здоровье','Курение','Магазин','Прочее'}
-def tool_add_budget_entry(amount, category='Прочее', kind='расход', comment='', **_):
-    """Запись в личный ПНЛ (вкладка Операции). kind: расход/доход."""
-    cat = category if category in BUDGET_CATS else 'Прочее'
-    kind = 'доход' if str(kind).startswith('дох') else 'расход'
-    today = datetime.date.today()
-    row = [str(today), kind, cat, float(amount), comment, today.strftime('%Y-%m')]
-    r = SHEETS.post(f'https://sheets.googleapis.com/v4/spreadsheets/{BUDGET_SS}/values/Операции!A:F:append'
+BUDGET_CATS = {'Машина','Кафе','Телефон','Здоровье','Курение','Магазин','Оплата кредита','Прочее'}
+def _budget_append(tab, row):
+    r = SHEETS.post(f'https://sheets.googleapis.com/v4/spreadsheets/{BUDGET_SS}/values/{tab}:append'
         '?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS', json={'values':[row]}, timeout=30)
     r.raise_for_status()
-    f=lambda n: f'{int(round(n)):,}'.replace(',',' ')
-    return f'💵 {kind.capitalize()}: {f(float(amount))} с · {cat}' + (f' · {comment}' if comment else '')
+_money = lambda n: f'{int(round(float(n))):,}'.replace(',',' ')
+
+def tool_add_budget_entry(amount, category='Прочее', kind='расход', comment='', **_):
+    """Запись обычного дохода/расхода в ПНЛ (вкладка Операции)."""
+    kind = 'доход' if str(kind).startswith('дох') else 'расход'
+    cat = 'Доход' if kind=='доход' else (category if category in BUDGET_CATS else 'Прочее')
+    today = datetime.date.today()
+    _budget_append('Операции!A:F', [str(today), kind, cat, float(amount), comment, today.strftime('%Y-%m')])
+    return f'💵 {kind.capitalize()}: {_money(amount)} с · {cat}' + (f' · {comment}' if comment else '')
+
+def tool_add_credit(amount, kind='получен', name='', comment='', **_):
+    """Кредит: 'получен' → доход + лист Кредиты; 'погашение' → расход «Оплата кредита» + лист Кредиты."""
+    got = str(kind).startswith('получ')
+    today = datetime.date.today(); ym = today.strftime('%Y-%m'); amt=float(amount)
+    if got:
+        _budget_append('Операции!A:F', [str(today),'доход','Кредит',amt, name or comment, ym])
+        _budget_append('Кредиты!A:E', [str(today),'Получен', name or '—', amt, comment])
+        return f'🏦 Кредит получен: {_money(amt)} с' + (f' · {name}' if name else '') + ' (в доходах + учтён в долге)'
+    else:
+        _budget_append('Операции!A:F', [str(today),'расход','Оплата кредита',amt, name or comment, ym])
+        _budget_append('Кредиты!A:E', [str(today),'Погашение', name or '—', amt, comment])
+        return f'🏦 Погашение кредита: {_money(amt)} с' + (f' · {name}' if name else '') + ' (расход + уменьшил долг)'
 
 def tool_capture_note(text, **_):
     """Заметка → база Входящие в Notion (не эфемерный диск)."""
@@ -367,8 +382,11 @@ TOOLS_SPEC = [
    'parameters':{'type':'object','properties':{'text':{'type':'string'}},'required':['text']}}},
  {'type':'function','function':{'name':'add_budget_entry','description':'Записать личный доход/расход в бюджет-ПНЛ. Если в сообщении несколько трат — вызови для каждой отдельно. Определи категорию по смыслу (бензин/машина→Машина, сигареты→Курение, продукты/магазин→Магазин, врач/аптека/зал→Здоровье, связь/интернет→Телефон, кафе/ресторан/кино→Кафе, зарплата/поступление→доход).',
    'parameters':{'type':'object','properties':{
-     'amount':{'type':'string','description':'сумма числом, например "160"'},'category':{'type':'string','enum':['Машина','Кафе','Телефон','Здоровье','Курение','Магазин','Прочее']},
+     'amount':{'type':'string','description':'сумма числом, например "160"'},'category':{'type':'string','enum':['Машина','Кафе','Телефон','Здоровье','Курение','Магазин','Оплата кредита','Прочее']},
      'kind':{'type':'string','enum':['расход','доход']},'comment':{'type':'string'}},'required':['amount']}}},
+ {'type':'function','function':{'name':'add_credit','description':'Кредит/займ. Получение кредита (приходуется как доход) или погашение (расход). Для «взял кредит», «получил займ», «оплатил кредит», «погасил кредит».',
+   'parameters':{'type':'object','properties':{
+     'amount':{'type':'string'},'kind':{'type':'string','enum':['получен','погашение']},'name':{'type':'string','description':'кто/название кредита'},'comment':{'type':'string'}},'required':['amount','kind']}}},
  {'type':'function','function':{'name':'list_tasks','description':'ПОКАЗАТЬ существующие задачи (не создавать). Для вопросов «какие задачи», «что мне сделать».',
    'parameters':{'type':'object','properties':{'kind':{'type':'string','enum':['тактическая','стратегическая']}},'required':['kind']}}},
  {'type':'function','function':{'name':'list_violations','description':'ПОКАЗАТЬ нарушения за период (не создавать).',
@@ -383,12 +401,12 @@ TOOLS_SPEC = [
    'parameters':{'type':'object','properties':{'title':{'type':'string'},'date':{'type':'string','description':'YYYY-MM-DD'},'time':{'type':'string','description':'HH:MM'},'duration_min':{'type':'string'}},'required':['title','date']}}},
 ]
 TOOLS = {'add_task':tool_add_task,'add_violation':tool_add_violation,'get_revenue':tool_get_revenue,
-         'poster_query':tool_poster_query,'capture_note':tool_capture_note,'add_budget_entry':tool_add_budget_entry,
+         'poster_query':tool_poster_query,'capture_note':tool_capture_note,'add_budget_entry':tool_add_budget_entry,'add_credit':tool_add_credit,
          'list_tasks':tool_list_tasks,'list_violations':tool_list_violations,'revenue_by_month':tool_revenue_by_month,
          'send_email':tool_send_email,'list_events':tool_list_events,'create_event':tool_create_event}
 
 # Инструменты, которые ЧТО-ТО ЗАПИСЫВАЮТ/ОТПРАВЛЯЮТ — требуют подтверждения. Чтение — сразу.
-WRITE_TOOLS = {'add_task','add_violation','capture_note','send_email','create_event','add_budget_entry'}
+WRITE_TOOLS = {'add_task','add_violation','capture_note','send_email','create_event','add_budget_entry','add_credit'}
 PENDING = {}  # chat_id -> [(fn, args), ...] ожидают «да/нет»
 AFFIRM = {'да','ага','угу','подтверждаю','подтвердить','ок','окей','ok','yes','+','давай','верно','точно','да.','ок.'}
 DENY   = {'нет','не','отмена','отмени','отменить','no','неверно','не надо','нет.'}
@@ -405,6 +423,8 @@ def describe_action(fn, args):
         return f'📝 Заметка: {args.get("text","")}'
     if fn=='add_budget_entry':
         return f'💵 {args.get("kind","расход")}: {args.get("amount",0)} с · {args.get("category","Прочее")}'+(' · '+args.get('comment','') if args.get('comment') else '')
+    if fn=='add_credit':
+        return f'🏦 Кредит {args.get("kind","получен")}: {args.get("amount",0)} с'+(' · '+args.get('name','') if args.get('name') else '')
     if fn=='send_email':
         return f'✉️ Письмо → {args.get("to","")}\nТема: {args.get("subject","")}\n{args.get("body","")[:300]}'
     if fn=='create_event':
