@@ -231,6 +231,20 @@ def tool_poster_query(metric='расходы', category=None, date_from=None, da
     cat_lbl = f' по «{category}»' if category else ''
     return f'📊 {metric.capitalize()}{cat_lbl} {df}…{dt}:\n'+'\n'.join(out)
 
+BUDGET_SS = '1Cn3QwTy2AiW4Kjw2PLNniZuB_2LyQ2ES8nOCgHPKDIE'
+BUDGET_CATS = {'Машина','Кафе','Телефон','Здоровье','Курение','Магазин','Прочее'}
+def tool_add_budget_entry(amount, category='Прочее', kind='расход', comment='', **_):
+    """Запись в личный ПНЛ (вкладка Операции). kind: расход/доход."""
+    cat = category if category in BUDGET_CATS else 'Прочее'
+    kind = 'доход' if str(kind).startswith('дох') else 'расход'
+    today = datetime.date.today()
+    row = [str(today), kind, cat, float(amount), comment, today.strftime('%Y-%m')]
+    r = SHEETS.post(f'https://sheets.googleapis.com/v4/spreadsheets/{BUDGET_SS}/values/Операции!A:F:append'
+        '?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS', json={'values':[row]}, timeout=30)
+    r.raise_for_status()
+    f=lambda n: f'{int(round(n)):,}'.replace(',',' ')
+    return f'💵 {kind.capitalize()}: {f(float(amount))} с · {cat}' + (f' · {comment}' if comment else '')
+
 def tool_capture_note(text, **_):
     """Заметка → база Входящие в Notion (не эфемерный диск)."""
     _notion_post('pages', {'parent':{'database_id':NIDS.get('inbox')},'properties':{
@@ -351,6 +365,10 @@ TOOLS_SPEC = [
      'category':{'type':'string'},'date_from':{'type':'string'},'date_to':{'type':'string'}},'required':['metric']}}},
  {'type':'function','function':{'name':'capture_note','description':'Сохранить мысль/заметку во входящие.',
    'parameters':{'type':'object','properties':{'text':{'type':'string'}},'required':['text']}}},
+ {'type':'function','function':{'name':'add_budget_entry','description':'Записать личный доход/расход в бюджет-ПНЛ. Определи категорию по смыслу (бензин/машина→Машина, сигареты→Курение, продукты/магазин→Магазин, врач/аптека/зал→Здоровье, связь/интернет→Телефон, кафе/ресторан→Кафе, зарплата/поступление→доход).',
+   'parameters':{'type':'object','properties':{
+     'amount':{'type':'number'},'category':{'type':'string','enum':['Машина','Кафе','Телефон','Здоровье','Курение','Магазин','Прочее']},
+     'kind':{'type':'string','enum':['расход','доход']},'comment':{'type':'string'}},'required':['amount']}}},
  {'type':'function','function':{'name':'list_tasks','description':'ПОКАЗАТЬ существующие задачи (не создавать). Для вопросов «какие задачи», «что мне сделать».',
    'parameters':{'type':'object','properties':{'kind':{'type':'string','enum':['тактическая','стратегическая']}},'required':['kind']}}},
  {'type':'function','function':{'name':'list_violations','description':'ПОКАЗАТЬ нарушения за период (не создавать).',
@@ -365,12 +383,12 @@ TOOLS_SPEC = [
    'parameters':{'type':'object','properties':{'title':{'type':'string'},'date':{'type':'string','description':'YYYY-MM-DD'},'time':{'type':'string','description':'HH:MM'},'duration_min':{'type':'integer'}},'required':['title','date']}}},
 ]
 TOOLS = {'add_task':tool_add_task,'add_violation':tool_add_violation,'get_revenue':tool_get_revenue,
-         'poster_query':tool_poster_query,'capture_note':tool_capture_note,
+         'poster_query':tool_poster_query,'capture_note':tool_capture_note,'add_budget_entry':tool_add_budget_entry,
          'list_tasks':tool_list_tasks,'list_violations':tool_list_violations,'revenue_by_month':tool_revenue_by_month,
          'send_email':tool_send_email,'list_events':tool_list_events,'create_event':tool_create_event}
 
 # Инструменты, которые ЧТО-ТО ЗАПИСЫВАЮТ/ОТПРАВЛЯЮТ — требуют подтверждения. Чтение — сразу.
-WRITE_TOOLS = {'add_task','add_violation','capture_note','send_email','create_event'}
+WRITE_TOOLS = {'add_task','add_violation','capture_note','send_email','create_event','add_budget_entry'}
 PENDING = {}  # chat_id -> [(fn, args), ...] ожидают «да/нет»
 AFFIRM = {'да','ага','угу','подтверждаю','подтвердить','ок','окей','ok','yes','+','давай','верно','точно','да.','ок.'}
 DENY   = {'нет','не','отмена','отмени','отменить','no','неверно','не надо','нет.'}
@@ -385,6 +403,8 @@ def describe_action(fn, args):
         return f'🚨 Нарушение — {args.get("point","?")}{(" · "+emp) if emp else ""} · {cat}: {args.get("description","")}'
     if fn=='capture_note':
         return f'📝 Заметка: {args.get("text","")}'
+    if fn=='add_budget_entry':
+        return f'💵 {args.get("kind","расход")}: {args.get("amount",0)} с · {args.get("category","Прочее")}'+(' · '+args.get('comment','') if args.get('comment') else '')
     if fn=='send_email':
         return f'✉️ Письмо → {args.get("to","")}\nТема: {args.get("subject","")}\n{args.get("body","")[:300]}'
     if fn=='create_event':
