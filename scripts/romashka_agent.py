@@ -365,9 +365,9 @@ TOOLS_SPEC = [
      'category':{'type':'string'},'date_from':{'type':'string'},'date_to':{'type':'string'}},'required':['metric']}}},
  {'type':'function','function':{'name':'capture_note','description':'Сохранить мысль/заметку во входящие.',
    'parameters':{'type':'object','properties':{'text':{'type':'string'}},'required':['text']}}},
- {'type':'function','function':{'name':'add_budget_entry','description':'Записать личный доход/расход в бюджет-ПНЛ. Определи категорию по смыслу (бензин/машина→Машина, сигареты→Курение, продукты/магазин→Магазин, врач/аптека/зал→Здоровье, связь/интернет→Телефон, кафе/ресторан→Кафе, зарплата/поступление→доход).',
+ {'type':'function','function':{'name':'add_budget_entry','description':'Записать личный доход/расход в бюджет-ПНЛ. Если в сообщении несколько трат — вызови для каждой отдельно. Определи категорию по смыслу (бензин/машина→Машина, сигареты→Курение, продукты/магазин→Магазин, врач/аптека/зал→Здоровье, связь/интернет→Телефон, кафе/ресторан/кино→Кафе, зарплата/поступление→доход).',
    'parameters':{'type':'object','properties':{
-     'amount':{'type':'number'},'category':{'type':'string','enum':['Машина','Кафе','Телефон','Здоровье','Курение','Магазин','Прочее']},
+     'amount':{'type':'string','description':'сумма числом, например "160"'},'category':{'type':'string','enum':['Машина','Кафе','Телефон','Здоровье','Курение','Магазин','Прочее']},
      'kind':{'type':'string','enum':['расход','доход']},'comment':{'type':'string'}},'required':['amount']}}},
  {'type':'function','function':{'name':'list_tasks','description':'ПОКАЗАТЬ существующие задачи (не создавать). Для вопросов «какие задачи», «что мне сделать».',
    'parameters':{'type':'object','properties':{'kind':{'type':'string','enum':['тактическая','стратегическая']}},'required':['kind']}}},
@@ -380,7 +380,7 @@ TOOLS_SPEC = [
  {'type':'function','function':{'name':'list_events','description':'Показать события календаря на дату (по умолчанию сегодня).',
    'parameters':{'type':'object','properties':{'date':{'type':'string','description':'YYYY-MM-DD'}},'required':[]}}},
  {'type':'function','function':{'name':'create_event','description':'Создать событие в календаре.',
-   'parameters':{'type':'object','properties':{'title':{'type':'string'},'date':{'type':'string','description':'YYYY-MM-DD'},'time':{'type':'string','description':'HH:MM'},'duration_min':{'type':'integer'}},'required':['title','date']}}},
+   'parameters':{'type':'object','properties':{'title':{'type':'string'},'date':{'type':'string','description':'YYYY-MM-DD'},'time':{'type':'string','description':'HH:MM'},'duration_min':{'type':'string'}},'required':['title','date']}}},
 ]
 TOOLS = {'add_task':tool_add_task,'add_violation':tool_add_violation,'get_revenue':tool_get_revenue,
          'poster_query':tool_poster_query,'capture_note':tool_capture_note,'add_budget_entry':tool_add_budget_entry,
@@ -431,6 +431,17 @@ def _brain_groq(history):
         headers={'Authorization':f'Bearer {GROQ_KEY}','Content-Type':'application/json'},
         json={'model':'llama-3.3-70b-versatile','messages':msgs,'tools':TOOLS_SPEC,'tool_choice':'auto','temperature':0.2},
         timeout=60)
+    # Groq строго валидирует tool-calls: при несовпадении даёт 400 tool_use_failed.
+    if r.status_code==400 and 'tool_use_failed' in r.text:
+        try:
+            gen=r.json()['error'].get('failed_generation','')
+            import re
+            mm=re.search(r'<function=(\w+)>(\{.*\})</function>', gen, re.S)
+            if mm:
+                return _run_calls([(mm.group(1), json.loads(mm.group(2)))])
+        except Exception:
+            pass
+        return 'Не разобрал — переформулируй, пожалуйста (например: «кино 160, снеки 92»).'
     r.raise_for_status()
     m=r.json()['choices'][0]['message']
     if m.get('tool_calls'):
