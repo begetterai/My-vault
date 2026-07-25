@@ -116,6 +116,21 @@ def plain_llm(prompt):
     r.raise_for_status()
     return r.json()['choices'][0]['message'].get('content','').strip()
 
+def analyze_image(content, caption=''):
+    """Анализ фото через Claude vision (нужен ANTHROPIC_API_KEY)."""
+    import base64
+    b64 = base64.b64encode(content).decode()
+    q = caption or ('Ты контролируешь кафе «Ромашка». Опиши, что на фото, и отметь нарушения: '
+                    'чистота, перчатки, порядок, поведение персонала. Кратко, по делу.')
+    r = requests.post('https://api.anthropic.com/v1/messages',
+        headers={'x-api-key':ANTHRO_KEY,'anthropic-version':'2023-06-01','content-type':'application/json'},
+        json={'model':'claude-3-5-sonnet-20241022','max_tokens':500,
+              'messages':[{'role':'user','content':[
+                {'type':'image','source':{'type':'base64','media_type':'image/jpeg','data':b64}},
+                {'type':'text','text':q}]}]}, timeout=60)
+    r.raise_for_status()
+    return ''.join(b.get('text','') for b in r.json().get('content',[]) if b.get('type')=='text').strip()
+
 def handle_file(name, content, mime, caption=''):
     up = drive_upload(name, content, mime)
     link = up.get('webViewLink','')
@@ -255,6 +270,53 @@ def tool_list_violations(period='неделя', **_):
         items.append(f'• {d[5:]} {pt} {emp}: {desc}'.replace('  ',' '))
     return f'🚨 Нарушения ({period}):\n'+('\n'.join(items) if items else 'нет')
 
+# ── Google Workspace (Gmail + Календарь) через делегирование ──────────────────
+AGENT_GOOGLE_USER = os.environ.get('AGENT_GOOGLE_USER','').strip() or 'base@azizkhaidarov.com'
+_gws_cache = {}
+def gws(scopes):
+    key = ','.join(scopes)
+    if key in _gws_cache: return _gws_cache[key]
+    raw = os.environ.get('ROMASHKA_SA_JSON')
+    info = json.loads(raw) if raw else json.load(open(os.path.join(CRED,'romashka-drive.json')))
+    creds = service_account.Credentials.from_service_account_info(info, scopes=scopes, subject=AGENT_GOOGLE_USER)
+    sess = AuthorizedSession(creds); _gws_cache[key]=sess; return sess
+
+def tool_send_email(to, subject, body, **_):
+    import base64, email.message
+    m = email.message.EmailMessage()
+    m['To']=to; m['Subject']=subject; m.set_content(body)
+    raw = base64.urlsafe_b64encode(m.as_bytes()).decode()
+    s = gws(['https://www.googleapis.com/auth/gmail.send'])
+    r = s.post('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', json={'raw':raw}, timeout=30)
+    r.raise_for_status()
+    return f'✉️ Письмо отправлено: {to} — «{subject}»'
+
+def tool_list_events(date=None, **_):
+    d = date or str(datetime.date.today())
+    s = gws(['https://www.googleapis.com/auth/calendar.readonly'])
+    tmin=f'{d}T00:00:00Z'; tmax=f'{d}T23:59:59Z'
+    r = s.get('https://www.googleapis.com/calendar/v3/calendars/primary/events',
+              params={'timeMin':tmin,'timeMax':tmax,'singleEvents':'true','orderBy':'startTime'}, timeout=30)
+    r.raise_for_status()
+    evs = r.json().get('items',[])
+    if not evs: return f'📅 На {d}: событий нет'
+    out=[f'📅 {d}:']
+    for e in evs:
+        st=(e.get('start',{}).get('dateTime') or e.get('start',{}).get('date',''))[11:16]
+        out.append(f'{st} — {e.get("summary","(без названия)")}')
+    return '\n'.join(out)
+
+def tool_create_event(title, date, time='10:00', duration_min=60, **_):
+    s = gws(['https://www.googleapis.com/auth/calendar'])
+    start=f'{date}T{time}:00'
+    hh,mm=map(int,time.split(':')); end_min=hh*60+mm+int(duration_min)
+    end=f'{date}T{end_min//60:02d}:{end_min%60:02d}:00'
+    body={'summary':title,'start':{'dateTime':start,'timeZone':'Asia/Dushanbe'},
+          'end':{'dateTime':end,'timeZone':'Asia/Dushanbe'}}
+    r = s.post('https://www.googleapis.com/calendar/v3/calendars/primary/events', json=body, timeout=30)
+    r.raise_for_status()
+    return f'📅 Событие создано: {date} {time} — {title}'
+
 def tool_revenue_by_month(**_):
     rows=_sheet_rows()
     from collections import defaultdict
@@ -295,13 +357,20 @@ TOOLS_SPEC = [
    'parameters':{'type':'object','properties':{'period':{'type':'string','enum':['день','неделя','месяц']}},'required':['period']}}},
  {'type':'function','function':{'name':'revenue_by_month','description':'Динамика выручки по месяцам (последние 6). Для «динамика продаж», «выручка по месяцам», «за несколько месяцев».',
    'parameters':{'type':'object','properties':{},'required':[]}}},
+ {'type':'function','function':{'name':'send_email','description':'Отправить письмо (Gmail) от имени Азиза.',
+   'parameters':{'type':'object','properties':{'to':{'type':'string'},'subject':{'type':'string'},'body':{'type':'string'}},'required':['to','subject','body']}}},
+ {'type':'function','function':{'name':'list_events','description':'Показать события календаря на дату (по умолчанию сегодня).',
+   'parameters':{'type':'object','properties':{'date':{'type':'string','description':'YYYY-MM-DD'}},'required':[]}}},
+ {'type':'function','function':{'name':'create_event','description':'Создать событие в календаре.',
+   'parameters':{'type':'object','properties':{'title':{'type':'string'},'date':{'type':'string','description':'YYYY-MM-DD'},'time':{'type':'string','description':'HH:MM'},'duration_min':{'type':'integer'}},'required':['title','date']}}},
 ]
 TOOLS = {'add_task':tool_add_task,'add_violation':tool_add_violation,'get_revenue':tool_get_revenue,
          'poster_query':tool_poster_query,'capture_note':tool_capture_note,
-         'list_tasks':tool_list_tasks,'list_violations':tool_list_violations,'revenue_by_month':tool_revenue_by_month}
+         'list_tasks':tool_list_tasks,'list_violations':tool_list_violations,'revenue_by_month':tool_revenue_by_month,
+         'send_email':tool_send_email,'list_events':tool_list_events,'create_event':tool_create_event}
 
-# Инструменты, которые ЧТО-ТО ЗАПИСЫВАЮТ — требуют подтверждения. Чтение — сразу.
-WRITE_TOOLS = {'add_task','add_violation','capture_note'}
+# Инструменты, которые ЧТО-ТО ЗАПИСЫВАЮТ/ОТПРАВЛЯЮТ — требуют подтверждения. Чтение — сразу.
+WRITE_TOOLS = {'add_task','add_violation','capture_note','send_email','create_event'}
 PENDING = {}  # chat_id -> [(fn, args), ...] ожидают «да/нет»
 AFFIRM = {'да','ага','угу','подтверждаю','подтвердить','ок','окей','ok','yes','+','давай','верно','точно','да.','ок.'}
 DENY   = {'нет','не','отмена','отмени','отменить','no','неверно','не надо','нет.'}
@@ -316,6 +385,10 @@ def describe_action(fn, args):
         return f'🚨 Нарушение — {args.get("point","?")}{(" · "+emp) if emp else ""} · {cat}: {args.get("description","")}'
     if fn=='capture_note':
         return f'📝 Заметка: {args.get("text","")}'
+    if fn=='send_email':
+        return f'✉️ Письмо → {args.get("to","")}\nТема: {args.get("subject","")}\n{args.get("body","")[:300]}'
+    if fn=='create_event':
+        return f'📅 Событие: {args.get("date","")} {args.get("time","10:00")} — {args.get("title","")}'
     return f'{fn}({args})'
 
 SYSTEM = ('Ты — исполнительный ассистент Азиза, операционного директора сети кафе «Ромашка» '
@@ -401,7 +474,7 @@ def handle(msg):
             send(r); audit('file', doc.get('file_name',''), r[:400]); return
         except Exception as e:
             send(f'⚠️ Не смог обработать файл: {e}'); return
-    # Фото → Drive (анализ ИИ недоступен на Groq)
+    # Фото → Drive + анализ (Claude, если есть ключ)
     if 'photo' in msg:
         typing()
         try:
@@ -409,8 +482,12 @@ def handle(msg):
             up=drive_upload(f'photo-{datetime.datetime.now().strftime("%Y%m%d-%H%M%S")}.jpg', content, 'image/jpeg')
             cap=msg.get('caption','')
             r=f'🖼 Фото сохранил на Drive: <a href="{up.get("webViewLink","")}">открыть</a>'
-            if cap: r+='\n\n'+brain([{'role':'user','content':cap}])
-            else: r+='\n(добавь подпись — что сделать: записать нарушение, заметку и т.п.)'
+            if ANTHRO_KEY:
+                r+='\n\n'+analyze_image(content, cap)
+            elif cap:
+                r+='\n\n'+brain([{'role':'user','content':cap}])
+            else:
+                r+='\n(анализ фото ИИ выключен — нужен ключ Claude. Или добавь подпись с командой.)'
             send(r); audit('photo', cap, r[:300]); return
         except Exception as e:
             send(f'⚠️ Не смог сохранить фото: {e}'); return
