@@ -80,10 +80,31 @@ def drive_upload(name, content, mime):
 
 TEXT_EXT = ('.txt','.csv','.md','.log','.json')
 def extract_text(name, content, mime):
+    import io
     n = name.lower()
-    if n.endswith(TEXT_EXT) or (mime or '').startswith('text/'):
-        try: return content.decode('utf-8', errors='replace')[:6000]
-        except Exception: return ''
+    try:
+        if n.endswith(TEXT_EXT) or (mime or '').startswith('text/'):
+            return content.decode('utf-8', errors='replace')[:8000]
+        if n.endswith('.pdf'):
+            from pypdf import PdfReader
+            rd = PdfReader(io.BytesIO(content))
+            return '\n'.join((p.extract_text() or '') for p in rd.pages)[:8000]
+        if n.endswith('.docx'):
+            import docx
+            d = docx.Document(io.BytesIO(content))
+            return '\n'.join(p.text for p in d.paragraphs)[:8000]
+        if n.endswith(('.xlsx','.xlsm')):
+            import openpyxl
+            wb = openpyxl.load_workbook(io.BytesIO(content), data_only=True, read_only=True)
+            out=[]
+            for ws in wb.worksheets[:3]:
+                out.append(f'[Лист {ws.title}]')
+                for i,row in enumerate(ws.iter_rows(values_only=True)):
+                    if i>=40: break
+                    out.append(' | '.join('' if c is None else str(c) for c in row))
+            return '\n'.join(out)[:8000]
+    except Exception as e:
+        return f'(не смог прочитать содержимое: {e})'
     return ''
 
 def plain_llm(prompt):
