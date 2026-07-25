@@ -64,6 +64,48 @@ def send(text):
 def typing():
     tg('sendChatAction', chat_id=ALLOWED, action='typing')
 
+# ── Файлы: Telegram → Google Drive + обратная связь ───────────────────────────
+def _tg_download(file_id):
+    info = tg('getFile', file_id=file_id)
+    path = info['result']['file_path']
+    return requests.get(f'https://api.telegram.org/file/bot{TG_TOKEN}/{path}', timeout=120).content, path
+
+def drive_upload(name, content, mime):
+    folder = NIDS.get('drive_files')
+    meta = {'name': name, 'parents': [folder]} if folder else {'name': name}
+    files = {'data':('m', json.dumps(meta), 'application/json'), 'file':(name, content, mime)}
+    r = SHEETS.post('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&supportsAllDrives=true&fields=id,webViewLink',
+                    files=files, timeout=120)
+    r.raise_for_status(); return r.json()
+
+TEXT_EXT = ('.txt','.csv','.md','.log','.json')
+def extract_text(name, content, mime):
+    n = name.lower()
+    if n.endswith(TEXT_EXT) or (mime or '').startswith('text/'):
+        try: return content.decode('utf-8', errors='replace')[:6000]
+        except Exception: return ''
+    return ''
+
+def plain_llm(prompt):
+    """Чистый ответ LLM без инструментов — для анализа и обратной связи."""
+    r=requests.post('https://api.groq.com/openai/v1/chat/completions',
+        headers={'Authorization':f'Bearer {GROQ_KEY}','Content-Type':'application/json'},
+        json={'model':'llama-3.3-70b-versatile','temperature':0.3,
+              'messages':[{'role':'system','content':SYSTEM},{'role':'user','content':prompt}]},timeout=60)
+    r.raise_for_status()
+    return r.json()['choices'][0]['message'].get('content','').strip()
+
+def handle_file(name, content, mime, caption=''):
+    up = drive_upload(name, content, mime)
+    link = up.get('webViewLink','')
+    reply = f'📎 Сохранил на Drive: <a href="{link}">{name}</a>'
+    text = extract_text(name, content, mime)
+    if text:
+        prompt = (caption+'\n\n' if caption else 'Дай короткую деловую обратную связь: что важное, что настораживает.\n\n')+f'Файл «{name}»:\n{text}'
+        try: reply += '\n\n'+plain_llm(prompt)
+        except Exception as e: reply += f'\n(не смог разобрать содержимое: {e})'
+    return reply
+
 # ── Расшифровка голоса (Groq Whisper) ─────────────────────────────────────────
 # Словарь-подсказка Whisper — термины Ромашки, чтобы узнавал имена и жаргон
 WHISPER_PROMPT = ('Ромашка, ЗБ, ОВИР, Лохути, Турсунзода, Владимир, Дилчу, Азиз, Махмуд, '
@@ -328,7 +370,29 @@ def handle(msg):
     chat_id=str(msg['chat']['id'])
     if ALLOWED and chat_id!=ALLOWED:
         tg('sendMessage', chat_id=chat_id, text='⛔ Нет доступа.'); return
-    kind='text'; text=msg.get('text','')
+    kind='text'; text=msg.get('text','') or msg.get('caption','')
+    # Файл-документ → Drive + обратная связь
+    if 'document' in msg:
+        typing()
+        try:
+            doc=msg['document']; content,_=_tg_download(doc['file_id'])
+            r=handle_file(doc.get('file_name','файл'), content, doc.get('mime_type','application/octet-stream'), msg.get('caption',''))
+            send(r); audit('file', doc.get('file_name',''), r[:400]); return
+        except Exception as e:
+            send(f'⚠️ Не смог обработать файл: {e}'); return
+    # Фото → Drive (анализ ИИ недоступен на Groq)
+    if 'photo' in msg:
+        typing()
+        try:
+            ph=msg['photo'][-1]; content,path=_tg_download(ph['file_id'])
+            up=drive_upload(f'photo-{datetime.datetime.now().strftime("%Y%m%d-%H%M%S")}.jpg', content, 'image/jpeg')
+            cap=msg.get('caption','')
+            r=f'🖼 Фото сохранил на Drive: <a href="{up.get("webViewLink","")}">открыть</a>'
+            if cap: r+='\n\n'+brain([{'role':'user','content':cap}])
+            else: r+='\n(добавь подпись — что сделать: записать нарушение, заметку и т.п.)'
+            send(r); audit('photo', cap, r[:300]); return
+        except Exception as e:
+            send(f'⚠️ Не смог сохранить фото: {e}'); return
     if 'voice' in msg or 'audio' in msg:
         kind='voice'; typing()
         try:
