@@ -234,8 +234,9 @@ def tool_poster_query(metric='расходы', category=None, date_from=None, da
 BUDGET_SS = '1Cn3QwTy2AiW4Kjw2PLNniZuB_2LyQ2ES8nOCgHPKDIE'
 BUDGET_CATS = {'Машина','Кафе','Телефон','Здоровье','Курение','Магазин','Оплата кредита','Прочее'}
 def _budget_append(tab, row):
+    # RAW — чтобы дата и месяц остались текстом, а не превратились в числовые серии Sheets
     r = SHEETS.post(f'https://sheets.googleapis.com/v4/spreadsheets/{BUDGET_SS}/values/{tab}:append'
-        '?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS', json={'values':[row]}, timeout=30)
+        '?valueInputOption=RAW&insertDataOption=INSERT_ROWS', json={'values':[row]}, timeout=30)
     r.raise_for_status()
 _money = lambda n: f'{int(round(float(n))):,}'.replace(',',' ')
 

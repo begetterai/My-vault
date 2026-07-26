@@ -56,15 +56,12 @@ rows.append(['Остаток']+[f'=({c}3+{c}4)-{c}{tr}' for c in COLS]+[f'=SUM(B
 s.put(f'https://sheets.googleapis.com/v4/spreadsheets/{SID}/values/ПНЛ!A1?valueInputOption=USER_ENTERED',
       json={'values':rows})
 
-# ── Кредиты: журнал + баланс ──
-cred=[['КРЕДИТЫ — учёт долга','','','',''],
-      ['Всего получено','=SUMIF($B$7:$B$1000,"Получен",$D$7:$D$1000)','','',''],
-      ['Всего погашено','=SUMIF($B$7:$B$1000,"Погашение",$D$7:$D$1000)','','',''],
-      ['Текущий долг','=B2-B3','','',''],
-      ['','','','',''],
-      ['Дата','Операция','Кредит','Сумма','Комментарий']]
+# ── Кредиты: журнал (A:E, данные с row2) + сводка сбоку (G:H, full-column SUMIF) ──
+cred=[['Дата','Операция','Кредит','Сумма','Комментарий','','Всего получено','=SUMIF(B:B,"Получен",D:D)']]
 s.put(f'https://sheets.googleapis.com/v4/spreadsheets/{SID}/values/Кредиты!A1?valueInputOption=USER_ENTERED',
       json={'values':cred})
+s.put(f'https://sheets.googleapis.com/v4/spreadsheets/{SID}/values/Кредиты!G2?valueInputOption=USER_ENTERED',
+      json={'values':[['Всего погашено','=SUMIF(B:B,"Погашение",D:D)'],['Текущий долг','=H1-H2']]})
 
 # ── формат ──
 def bold(sheet,r,bg=None):
@@ -80,9 +77,7 @@ fmt=[
  bold(pnl,osr-1,{'red':0.95,'green':0.95,'blue':0.8}),# Остаток
  {'updateSheetProperties':{'properties':{'sheetId':pnl,'gridProperties':{'frozenRowCount':2,'frozenColumnCount':1}},'fields':'gridProperties.frozenRowCount,gridProperties.frozenColumnCount'}},
  {'updateDimensionProperties':{'range':{'sheetId':pnl,'dimension':'ROWS','startIndex':1,'endIndex':2},'properties':{'hiddenByUser':True},'fields':'hiddenByUser'}},
- bold(cr,0,{'red':0.98,'green':0.87,'blue':0.83}),
- bold(cr,3,{'red':0.95,'green':0.9,'blue':0.7}),       # Текущий долг
- bold(cr,5,{'red':0.9,'green':0.9,'blue':0.9}),        # шапка журнала
+ bold(cr,0,{'red':0.9,'green':0.9,'blue':0.9}),        # шапка журнала
 ]
 api('post',':batchUpdate',json={'requests':fmt})
 print('Бюджет с кредитами перестроен:', 'https://docs.google.com/spreadsheets/d/'+SID)
