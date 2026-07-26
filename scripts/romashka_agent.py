@@ -239,27 +239,37 @@ def _budget_append(tab, row):
         '?valueInputOption=RAW&insertDataOption=INSERT_ROWS', json={'values':[row]}, timeout=30)
     r.raise_for_status()
 _money = lambda n: f'{int(round(float(n))):,}'.replace(',',' ')
+def _resolve_date(date_str):
+    """Дата операции: переданная YYYY-MM-DD или сегодня. Возвращает (дата, месяц)."""
+    d = None
+    if date_str:
+        try: d = datetime.date.fromisoformat(str(date_str)[:10])
+        except Exception: d = None
+    d = d or datetime.date.today()
+    return str(d), d.strftime('%Y-%m')
 
-def tool_add_budget_entry(amount, category='Прочее', kind='расход', comment='', **_):
-    """Запись обычного дохода/расхода в ПНЛ (вкладка Операции)."""
+def tool_add_budget_entry(amount, category='Прочее', kind='расход', comment='', date=None, **_):
+    """Запись обычного дохода/расхода в ПНЛ (вкладка Операции). date опционально (задним числом)."""
     kind = 'доход' if str(kind).startswith('дох') else 'расход'
     cat = 'Доход' if kind=='доход' else (category if category in BUDGET_CATS else 'Прочее')
-    today = datetime.date.today()
-    _budget_append('Операции!A:F', [str(today), kind, cat, float(amount), comment, today.strftime('%Y-%m')])
-    return f'💵 {kind.capitalize()}: {_money(amount)} с · {cat}' + (f' · {comment}' if comment else '')
+    d, ym = _resolve_date(date)
+    _budget_append('Операции!A:F', [d, kind, cat, float(amount), comment, ym])
+    when = '' if d==str(datetime.date.today()) else f' ({d})'
+    return f'💵 {kind.capitalize()}: {_money(amount)} с · {cat}{when}' + (f' · {comment}' if comment else '')
 
-def tool_add_credit(amount, kind='получен', name='', comment='', **_):
-    """Кредит: 'получен' → доход + лист Кредиты; 'погашение' → расход «Оплата кредита» + лист Кредиты."""
+def tool_add_credit(amount, kind='получен', name='', comment='', date=None, **_):
+    """Кредит: 'получен' → доход + лист Кредиты; 'погашение' → расход «Оплата кредита». date опционально."""
     got = str(kind).startswith('получ')
-    today = datetime.date.today(); ym = today.strftime('%Y-%m'); amt=float(amount)
+    d, ym = _resolve_date(date); amt=float(amount)
+    when = '' if d==str(datetime.date.today()) else f' ({d})'
     if got:
-        _budget_append('Операции!A:F', [str(today),'доход','Кредит',amt, name or comment, ym])
-        _budget_append('Кредиты!A:E', [str(today),'Получен', name or '—', amt, comment])
-        return f'🏦 Кредит получен: {_money(amt)} с' + (f' · {name}' if name else '') + ' (в доходах + учтён в долге)'
+        _budget_append('Операции!A:F', [d,'доход','Кредит',amt, name or comment, ym])
+        _budget_append('Кредиты!A:E', [d,'Получен', name or '—', amt, comment])
+        return f'🏦 Кредит получен: {_money(amt)} с' + (f' · {name}' if name else '') + f'{when} (в доходах + долг)'
     else:
-        _budget_append('Операции!A:F', [str(today),'расход','Оплата кредита',amt, name or comment, ym])
-        _budget_append('Кредиты!A:E', [str(today),'Погашение', name or '—', amt, comment])
-        return f'🏦 Погашение кредита: {_money(amt)} с' + (f' · {name}' if name else '') + ' (расход + уменьшил долг)'
+        _budget_append('Операции!A:F', [d,'расход','Оплата кредита',amt, name or comment, ym])
+        _budget_append('Кредиты!A:E', [d,'Погашение', name or '—', amt, comment])
+        return f'🏦 Погашение кредита: {_money(amt)} с' + (f' · {name}' if name else '') + f'{when} (расход + минус долг)'
 
 def tool_capture_note(text, **_):
     """Заметка → база Входящие в Notion (не эфемерный диск)."""
@@ -384,10 +394,10 @@ TOOLS_SPEC = [
  {'type':'function','function':{'name':'add_budget_entry','description':'Записать личный доход/расход в бюджет-ПНЛ. Если в сообщении несколько трат — вызови для каждой отдельно. Определи категорию по смыслу (бензин/машина→Машина, сигареты→Курение, продукты/магазин→Магазин, врач/аптека/зал→Здоровье, связь/интернет→Телефон, кафе/ресторан/кино→Кафе, зарплата/поступление→доход).',
    'parameters':{'type':'object','properties':{
      'amount':{'type':'string','description':'сумма числом, например "160"'},'category':{'type':'string','enum':['Машина','Кафе','Телефон','Здоровье','Курение','Магазин','Оплата кредита','Прочее']},
-     'kind':{'type':'string','enum':['расход','доход']},'comment':{'type':'string'}},'required':['amount']}}},
+     'kind':{'type':'string','enum':['расход','доход']},'comment':{'type':'string'},'date':{'type':'string','description':'YYYY-MM-DD, если операция задним числом'}},'required':['amount']}}},
  {'type':'function','function':{'name':'add_credit','description':'Кредит/займ. Получение кредита (приходуется как доход) или погашение (расход). Для «взял кредит», «получил займ», «оплатил кредит», «погасил кредит».',
    'parameters':{'type':'object','properties':{
-     'amount':{'type':'string'},'kind':{'type':'string','enum':['получен','погашение']},'name':{'type':'string','description':'кто/название кредита'},'comment':{'type':'string'}},'required':['amount','kind']}}},
+     'amount':{'type':'string'},'kind':{'type':'string','enum':['получен','погашение']},'name':{'type':'string','description':'кто/название кредита'},'comment':{'type':'string'},'date':{'type':'string','description':'YYYY-MM-DD, если задним числом'}},'required':['amount','kind']}}},
  {'type':'function','function':{'name':'list_tasks','description':'ПОКАЗАТЬ существующие задачи (не создавать). Для вопросов «какие задачи», «что мне сделать».',
    'parameters':{'type':'object','properties':{'kind':{'type':'string','enum':['тактическая','стратегическая']}},'required':['kind']}}},
  {'type':'function','function':{'name':'list_violations','description':'ПОКАЗАТЬ нарушения за период (не создавать).',
@@ -438,7 +448,7 @@ SYSTEM = ('Ты — исполнительный ассистент Азиза, 
  'используй list_tasks/list_violations, НЕ создавай новые. add_task/add_violation — только когда явно просят добавить/записать. '
  'Если данных не хватает (например, на кого нарушение) — переспроси одним вопросом, не выдумывай. '
  'Отвечай кратко, по-деловому, на «ты». '
- 'Сегодня '+str(datetime.date.today())+'.')
+ 'Сегодня '+str(datetime.date.today())+'. Если сказано «вчера», «5 июля», «позавчера» — вычисли дату (YYYY-MM-DD) от сегодняшней и передай в параметр date.')
 
 # ── Мозг (Groq по умолчанию, OpenAI-совместимый tool-calling) ─────────────────
 def brain(history):
