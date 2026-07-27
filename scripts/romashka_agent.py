@@ -326,14 +326,14 @@ def tool_send_email(to, subject, body, **_):
     m = email.message.EmailMessage()
     m['To']=to; m['Subject']=subject; m.set_content(body)
     raw = base64.urlsafe_b64encode(m.as_bytes()).decode()
-    s = gws(['https://www.googleapis.com/auth/gmail.send'])
+    s = gws(['https://www.googleapis.com/auth/gmail.modify'])
     r = s.post('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', json={'raw':raw}, timeout=30)
     r.raise_for_status()
     return f'✉️ Письмо отправлено: {to} — «{subject}»'
 
 def tool_list_events(date=None, **_):
     d = date or str(datetime.date.today())
-    s = gws(['https://www.googleapis.com/auth/calendar.readonly'])
+    s = gws(['https://www.googleapis.com/auth/calendar'])
     tmin=f'{d}T00:00:00Z'; tmax=f'{d}T23:59:59Z'
     r = s.get('https://www.googleapis.com/calendar/v3/calendars/primary/events',
               params={'timeMin':tmin,'timeMax':tmax,'singleEvents':'true','orderBy':'startTime'}, timeout=30)
