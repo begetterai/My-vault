@@ -39,6 +39,9 @@ ANTHRO_KEY = os.environ.get('ANTHROPIC_API_KEY', '').strip() or _read('anthropic
 
 SS_ID = '1bTDELaAo8Ft9WIQqeWDFQQzp5rrDDHiRZ4VpFo-D4m8'
 AUDIT_TAB = 'Аудит_агента'
+TZ_OFFSET = datetime.timedelta(hours=5)  # Душанбе UTC+5 (сервер в UTC)
+def now_local():  return datetime.datetime.utcnow() + TZ_OFFSET
+def today_local(): return now_local().date()
 POSTER = {'ЗБ':'398711:8746917c4a23ea897774040e039dfb76',
           'ОВИР':'935215:79675564e3d086d7e03d5fd56b50c8df'}
 
@@ -178,7 +181,7 @@ def tool_add_task(title, kind='тактическая', assignee=None, due=None,
 
 def tool_add_violation(point, description, employee=None, category='Прочее', **_):
     props = {'Нарушение':{'title':[{'text':{'content':description}}]},
-             'Дата':{'date':{'start':str(datetime.date.today())}},
+             'Дата':{'date':{'start':str(today_local())}},
              'Точка':{'select':{'name':point}},
              'Категория':{'select':{'name':category}},
              'Статус':{'select':{'name':'Новое'}}}
@@ -193,7 +196,7 @@ def _sheet_rows():
 
 def tool_get_revenue(period='день', **_):
     rows = _sheet_rows()
-    today = datetime.date.today(); yday = today - datetime.timedelta(days=1)
+    today = today_local(); yday = today - datetime.timedelta(days=1)
     acc = {'ЗБ':0.0,'ОВИР':0.0}
     if period.startswith('нед'):
         keys = {str(yday-datetime.timedelta(days=i)) for i in range(7)}
@@ -214,8 +217,8 @@ def tool_get_revenue(period='день', **_):
             f'Сеть: {f(acc["ЗБ"]+acc["ОВИР"])} с')
 
 def tool_poster_query(metric='расходы', category=None, date_from=None, date_to=None, **_):
-    df = date_from or str(datetime.date.today().replace(day=1))
-    dt = date_to or str(datetime.date.today())
+    df = date_from or str(today_local().replace(day=1))
+    dt = date_to or str(today_local())
     out=[]
     for loc,tok in POSTER.items():
         url=f'https://joinposter.com/api/finance.getTransactions?{urllib.parse.urlencode(dict(token=tok,dateFrom=df,dateTo=dt))}'
@@ -245,7 +248,7 @@ def _resolve_date(date_str):
     if date_str:
         try: d = datetime.date.fromisoformat(str(date_str)[:10])
         except Exception: d = None
-    d = d or datetime.date.today()
+    d = d or today_local()
     return str(d), d.strftime('%Y-%m')
 
 def tool_add_budget_entry(amount, category='Прочее', kind='расход', comment='', date=None, **_):
@@ -254,14 +257,14 @@ def tool_add_budget_entry(amount, category='Прочее', kind='расход', 
     cat = 'Доход' if kind=='доход' else (category if category in BUDGET_CATS else 'Прочее')
     d, ym = _resolve_date(date)
     _budget_append('Операции!A:F', [d, kind, cat, float(amount), comment, ym])
-    when = '' if d==str(datetime.date.today()) else f' ({d})'
+    when = '' if d==str(today_local()) else f' ({d})'
     return f'💵 {kind.capitalize()}: {_money(amount)} с · {cat}{when}' + (f' · {comment}' if comment else '')
 
 def tool_add_credit(amount, kind='получен', name='', comment='', date=None, **_):
     """Кредит: 'получен' → доход + лист Кредиты; 'погашение' → расход «Оплата кредита». date опционально."""
     got = str(kind).startswith('получ')
     d, ym = _resolve_date(date); amt=float(amount)
-    when = '' if d==str(datetime.date.today()) else f' ({d})'
+    when = '' if d==str(today_local()) else f' ({d})'
     if got:
         _budget_append('Операции!A:F', [d,'доход','Кредит',amt, name or comment, ym])
         _budget_append('Кредиты!A:E', [d,'Получен', name or '—', amt, comment])
@@ -275,7 +278,7 @@ def tool_capture_note(text, **_):
     """Заметка → база Входящие в Notion (не эфемерный диск)."""
     _notion_post('pages', {'parent':{'database_id':NIDS.get('inbox')},'properties':{
         'Заметка':{'title':[{'text':{'content':text}}]},
-        'Дата':{'date':{'start':str(datetime.date.today())}},
+        'Дата':{'date':{'start':str(today_local())}},
         'Статус':{'select':{'name':'Новое'}}}})
     return f'📝 Записал во входящие: {text}'
 
@@ -297,7 +300,7 @@ def tool_list_tasks(kind='тактическая', **_):
     return hdr+'\n'+('\n'.join(items) if items else 'пусто')
 
 def tool_list_violations(period='неделя', **_):
-    today=datetime.date.today()
+    today=today_local()
     since = today - datetime.timedelta(days=1 if period.startswith('дн') else 7 if period.startswith('нед') else 30)
     items=[]
     for p in _notion_query(NIDS.get('vdb')):
@@ -332,7 +335,7 @@ def tool_send_email(to, subject, body, **_):
     return f'✉️ Письмо отправлено: {to} — «{subject}»'
 
 def tool_list_events(date=None, **_):
-    d = date or str(datetime.date.today())
+    d = date or str(today_local())
     s = gws(['https://www.googleapis.com/auth/calendar'])
     tmin=f'{d}T00:00:00Z'; tmax=f'{d}T23:59:59Z'
     r = s.get('https://www.googleapis.com/calendar/v3/calendars/primary/events',
@@ -448,7 +451,7 @@ SYSTEM = ('Ты — исполнительный ассистент Азиза, 
  'используй list_tasks/list_violations, НЕ создавай новые. add_task/add_violation — только когда явно просят добавить/записать. '
  'Если данных не хватает (например, на кого нарушение) — переспроси одним вопросом, не выдумывай. '
  'Отвечай кратко, по-деловому, на «ты». '
- 'Сегодня '+str(datetime.date.today())+'. Если сказано «вчера», «5 июля», «позавчера» — вычисли дату (YYYY-MM-DD) от сегодняшней и передай в параметр date.')
+ 'Сегодня '+str(today_local())+'. Если сказано «вчера», «5 июля», «позавчера» — вычисли дату (YYYY-MM-DD) от сегодняшней и передай в параметр date.')
 
 # ── Мозг (Groq по умолчанию, OpenAI-совместимый tool-calling) ─────────────────
 def brain(history):
@@ -517,7 +520,7 @@ def audit(kind, text, result):
     try:
         SHEETS.post(f'https://sheets.googleapis.com/v4/spreadsheets/{SS_ID}/values/{AUDIT_TAB}!A:D:append'
             '?valueInputOption=RAW&insertDataOption=INSERT_ROWS',
-            json={'values':[[datetime.datetime.now().strftime('%Y-%m-%d %H:%M'),kind,text[:400],result[:400]]]},timeout=20)
+            json={'values':[[now_local().strftime('%Y-%m-%d %H:%M'),kind,text[:400],result[:400]]]},timeout=20)
     except Exception as e:
         log.warning(f'audit fail: {e}')
 
@@ -541,7 +544,7 @@ def handle(msg):
         typing()
         try:
             ph=msg['photo'][-1]; content,path=_tg_download(ph['file_id'])
-            up=drive_upload(f'photo-{datetime.datetime.now().strftime("%Y%m%d-%H%M%S")}.jpg', content, 'image/jpeg')
+            up=drive_upload(f'photo-{now_local().strftime("%Y%m%d-%H%M%S")}.jpg', content, 'image/jpeg')
             cap=msg.get('caption','')
             r=f'🖼 Фото сохранил на Drive: <a href="{up.get("webViewLink","")}">открыть</a>'
             if ANTHRO_KEY:
