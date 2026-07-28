@@ -260,6 +260,29 @@ def tool_add_budget_entry(amount, category='Прочее', kind='расход', 
     when = '' if d==str(today_local()) else f' ({d})'
     return f'💵 {kind.capitalize()}: {_money(amount)} с · {cat}{when}' + (f' · {comment}' if comment else '')
 
+# ── Контакты и отправка людям в Telegram ──────────────────────────────────────
+def _contacts():
+    r = SHEETS.get(f'https://sheets.googleapis.com/v4/spreadsheets/{SS_ID}/values/Контакты!A2:C', timeout=20)
+    out={}
+    for row in (r.json().get('values',[]) if r.status_code==200 else []):
+        if len(row)>=2 and row[0].strip(): out[row[0].strip().lower()] = (row[1], row[0])
+    return out
+
+def _contact_add(name, chat_id, username):
+    SHEETS.post(f'https://sheets.googleapis.com/v4/spreadsheets/{SS_ID}/values/Контакты!A:D:append'
+        '?valueInputOption=RAW&insertDataOption=INSERT_ROWS',
+        json={'values':[[name, str(chat_id), username, str(today_local())]]}, timeout=20)
+
+def tool_send_telegram(name, text, **_):
+    """Отправить сообщение человеку из контактов (он должен был стартовать бота)."""
+    c=_contacts(); key=str(name).strip().lower()
+    match = c.get(key) or next((v for k,v in c.items() if key in k or k in key), None)
+    if not match:
+        return f'⚠️ Нет контакта «{name}». Пусть он напишет боту /start, тогда добавится.'
+    cid, real = match
+    tg('sendMessage', chat_id=cid, text=text)
+    return f'📨 Отправлено {real}: {text[:120]}'
+
 def tool_add_credit(amount, kind='получен', name='', comment='', date=None, **_):
     """Кредит: 'получен' → доход + лист Кредиты; 'погашение' → расход «Оплата кредита». date опционально."""
     got = str(kind).startswith('получ')
@@ -394,6 +417,8 @@ TOOLS_SPEC = [
      'category':{'type':'string'},'date_from':{'type':'string'},'date_to':{'type':'string'}},'required':['metric']}}},
  {'type':'function','function':{'name':'capture_note','description':'Сохранить мысль/заметку во входящие.',
    'parameters':{'type':'object','properties':{'text':{'type':'string'}},'required':['text']}}},
+ {'type':'function','function':{'name':'send_telegram','description':'Отправить сообщение человеку в Telegram (Владимиру, Дилчу, поставщику и т.п.). Только тем, кто уже писал боту.',
+   'parameters':{'type':'object','properties':{'name':{'type':'string','description':'имя получателя из контактов'},'text':{'type':'string'}},'required':['name','text']}}},
  {'type':'function','function':{'name':'add_budget_entry','description':'Записать личный доход/расход в бюджет-ПНЛ. Если в сообщении несколько трат — вызови для каждой отдельно. Определи категорию по смыслу (бензин/машина→Машина, сигареты→Курение, продукты/магазин→Магазин, врач/аптека/зал→Здоровье, связь/интернет→Телефон, кафе/ресторан/кино→Кафе, зарплата/поступление→доход).',
    'parameters':{'type':'object','properties':{
      'amount':{'type':'string','description':'сумма числом, например "160"'},'category':{'type':'string','enum':['Машина','Кафе','Телефон','Здоровье','Курение','Магазин','Оплата кредита','Прочее']},
@@ -415,12 +440,12 @@ TOOLS_SPEC = [
    'parameters':{'type':'object','properties':{'title':{'type':'string'},'date':{'type':'string','description':'YYYY-MM-DD'},'time':{'type':'string','description':'HH:MM'},'duration_min':{'type':'string'}},'required':['title','date']}}},
 ]
 TOOLS = {'add_task':tool_add_task,'add_violation':tool_add_violation,'get_revenue':tool_get_revenue,
-         'poster_query':tool_poster_query,'capture_note':tool_capture_note,'add_budget_entry':tool_add_budget_entry,'add_credit':tool_add_credit,
+         'poster_query':tool_poster_query,'capture_note':tool_capture_note,'send_telegram':tool_send_telegram,'add_budget_entry':tool_add_budget_entry,'add_credit':tool_add_credit,
          'list_tasks':tool_list_tasks,'list_violations':tool_list_violations,'revenue_by_month':tool_revenue_by_month,
          'send_email':tool_send_email,'list_events':tool_list_events,'create_event':tool_create_event}
 
 # Инструменты, которые ЧТО-ТО ЗАПИСЫВАЮТ/ОТПРАВЛЯЮТ — требуют подтверждения. Чтение — сразу.
-WRITE_TOOLS = {'add_task','add_violation','capture_note','send_email','create_event','add_budget_entry','add_credit'}
+WRITE_TOOLS = {'add_task','add_violation','capture_note','send_email','create_event','add_budget_entry','add_credit','send_telegram'}
 PENDING = {}  # chat_id -> [(fn, args), ...] ожидают «да/нет»
 AFFIRM = {'да','ага','угу','подтверждаю','подтвердить','ок','окей','ok','yes','+','давай','верно','точно','да.','ок.'}
 DENY   = {'нет','не','отмена','отмени','отменить','no','неверно','не надо','нет.'}
@@ -437,6 +462,8 @@ def describe_action(fn, args):
         return f'📝 Заметка: {args.get("text","")}'
     if fn=='add_budget_entry':
         return f'💵 {args.get("kind","расход")}: {args.get("amount",0)} с · {args.get("category","Прочее")}'+(' · '+args.get('comment','') if args.get('comment') else '')
+    if fn=='send_telegram':
+        return f'📨 Написать {args.get("name","")}: {args.get("text","")[:200]}'
     if fn=='add_credit':
         return f'🏦 Кредит {args.get("kind","получен")}: {args.get("amount",0)} с'+(' · '+args.get('name','') if args.get('name') else '')
     if fn=='send_email':
@@ -528,7 +555,18 @@ def audit(kind, text, result):
 def handle(msg):
     chat_id=str(msg['chat']['id'])
     if ALLOWED and chat_id!=ALLOWED:
-        tg('sendMessage', chat_id=chat_id, text='⛔ Нет доступа.'); return
+        # Чужой: команды не выполняем, но захватываем контакт, чтобы Азиз мог ему писать
+        frm=msg.get('from',{})
+        fname=' '.join(x for x in [frm.get('first_name'),frm.get('last_name')] if x) or 'Без имени'
+        uname='@'+frm.get('username') if frm.get('username') else ''
+        try:
+            known = str(chat_id) in [v[0] for v in _contacts().values()]
+            if not known:
+                _contact_add(fname, chat_id, uname)
+                send(f'📇 Новый контакт написал боту: <b>{fname}</b> {uname} (id {chat_id}). Теперь можешь: «напиши {fname.split()[0]} …»')
+        except Exception as e:
+            log.warning(f'contact capture: {e}')
+        tg('sendMessage', chat_id=chat_id, text='Это бот Азиза. Он получит ваш контакт и свяжется.'); return
     kind='text'; text=msg.get('text','') or msg.get('caption','')
     # Файл-документ → Drive + обратная связь
     if 'document' in msg:
