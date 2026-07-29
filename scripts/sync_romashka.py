@@ -54,32 +54,37 @@ def poster_get(token, method, params=None, retries=4):
                 raise
             time.sleep(2 ** attempt)
 
-# Категории п/ф — это НЕ выручка, а продажа полуфабрикатов другой точке (СНБЖ).
-# Исключаем их из выручки. Сравнение регистронезависимое.
-EXCLUDE_CATEGORIES = {'полуфабрикаты', 'соуса п/ф'}
+def _tx_list(resp):
+    if isinstance(resp, dict) and 'data' in resp: return resp['data']
+    return resp if isinstance(resp, list) else []
 
 def fetch_day(token, date_str):
-    """Fetch analytics for one day. Revenue считается БЕЗ п/ф-категорий (СНБЖ)."""
+    """Разбор по чекам: розничная выручка по каналам + СНБЖ отдельно.
+    Каналы: 1=В заведении, 2=Навынос, 3=Доставка. СНБЖ = чек с меткой «Снбж» в комментарии."""
     d = date_str.replace('-', '')
-    data = poster_get(token, 'dash.getAnalytics', {'dateFrom': d, 'dateTo': d})
-    c = data.get('response', {}).get('counters', {})
+    an = poster_get(token, 'dash.getAnalytics', {'dateFrom': d, 'dateTo': d}).get('response', {}).get('counters', {})
+    rows = _tx_list(poster_get(token, 'dash.getTransactions', {'dateFrom': d, 'dateTo': d}).get('response'))
 
-    # Выручка из категорий, за вычетом п/ф (getCategoriesSales отдаёт в копейках)
-    cats = poster_get(token, 'dash.getCategoriesSales', {'dateFrom': d, 'dateTo': d})
-    rows = cats.get('response', []) or []
-    if rows:
-        clean_kop = sum(float(x.get('revenue', 0)) for x in rows
-                        if x.get('category_name', '').strip().lower() not in EXCLUDE_CATEGORIES)
-        revenue = round(clean_kop / 100, 2)
-    else:
-        # фолбэк — общая выручка, если категории недоступны
-        revenue = round(float(c.get('revenue', 0)), 2)
+    ch = {'1': 0.0, '2': 0.0, '3': 0.0}
+    snbzh = 0.0; retail = 0.0; retail_tx = 0
+    for r in rows:
+        amt = float(r.get('payed_sum', 0)) / 100
+        if 'снбж' in str(r.get('transaction_comment', '')).lower():
+            snbzh += amt
+            continue
+        sm = str(r.get('service_mode'))
+        if sm in ch: ch[sm] += amt
+        retail += amt; retail_tx += 1
 
     return {
-        'revenue':      revenue,
-        'visitors':     int(c.get('visitors', 0)),
-        'transactions': int(c.get('transactions', 0)),
-        'avg_check':    round(float(c.get('average_receipt', 0)), 2),
+        'revenue':      round(retail, 2),                       # розница = без СНБЖ
+        'visitors':     int(an.get('visitors', 0)),
+        'transactions': retail_tx,
+        'avg_check':    round(retail / retail_tx, 2) if retail_tx else 0,
+        'dine_in':      round(ch['1'], 2),                      # В заведении
+        'takeaway':     round(ch['2'], 2),                      # Навынос
+        'delivery':     round(ch['3'], 2),                      # Доставка
+        'snbzh':        round(snbzh, 2),                        # СНБЖ (передачи п/ф)
     }
 
 # ── Sheets helpers ────────────────────────────────────────────────────────────
@@ -162,14 +167,15 @@ def main():
                 continue
             try:
                 d = fetch_day(token, date_str)
-                row = [date_str, loc, d['revenue'], d['visitors'], d['transactions'], d['avg_check'], now_str]
+                row = [date_str, loc, d['revenue'], d['visitors'], d['transactions'], d['avg_check'], now_str,
+                       d['dine_in'], d['takeaway'], d['delivery'], d['snbzh']]
                 new_rows.append(row)
                 print(f'  ✓ {date_str} {loc}: {d["revenue"]} с, {d["visitors"]} гостей')
             except Exception as e:
                 print(f'  ✗ {date_str} {loc}: {e}')
 
     if new_rows:
-        sheets_append(session, 'Данные_Poster!A:G', new_rows)
+        sheets_append(session, 'Данные_Poster!A:K', new_rows)
         print(f'\n✅ Добавлено {len(new_rows)} строк в Данные_Poster')
     else:
         print('\nНовых данных нет — всё актуально')
