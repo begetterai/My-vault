@@ -238,10 +238,11 @@ BUDGET_SS = '1Cn3QwTy2AiW4Kjw2PLNniZuB_2LyQ2ES8nOCgHPKDIE'
 BUDGET_CATS = {'Дом','Машина','Гаджеты','Подписки','Кафе','Продукты','Здоровье','Курение','Одежда/Обувь','Развлечение','Обучение','Семья','Подарки','Оплата кредита','Путешествие','Прочее'}
 INCOME_CATS = {'Зарплата','Прочий доход'}
 def _budget_append(tab, row):
-    # RAW — чтобы дата и месяц остались текстом, а не превратились в числовые серии Sheets
+    # USER_ENTERED — дата (ISO) становится настоящей датой, суммы числами; месяца-колонки больше нет
     r = SHEETS.post(f'https://sheets.googleapis.com/v4/spreadsheets/{BUDGET_SS}/values/{tab}:append'
-        '?valueInputOption=RAW&insertDataOption=INSERT_ROWS', json={'values':[row]}, timeout=30)
+        '?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS', json={'values':[row]}, timeout=30)
     r.raise_for_status()
+_cap = lambda x: (x[:1].upper()+x[1:]) if x else x
 _money = lambda n: f'{int(round(float(n))):,}'.replace(',',' ')
 def _resolve_date(date_str):
     """Дата операции: переданная YYYY-MM-DD или сегодня. Возвращает (дата, месяц)."""
@@ -253,13 +254,15 @@ def _resolve_date(date_str):
     return str(d), d.strftime('%Y-%m')
 
 def tool_add_budget_entry(amount, category='Прочее', kind='расход', comment='', date=None, **_):
-    """Запись обычного дохода/расхода в ПНЛ (вкладка Операции). date опционально (задним числом)."""
-    kind = 'доход' if str(kind).startswith('дох') else 'расход'
-    cat = (category if category in INCOME_CATS else 'Зарплата') if kind=='доход' else (category if category in BUDGET_CATS else 'Прочее')
-    d, ym = _resolve_date(date)
-    _budget_append('Операции!A:F', [d, kind, cat, float(amount), comment, ym])
+    """Запись дохода/расхода в бюджет (лист Operations). Тип с заглавной, комментарий обязателен."""
+    is_income = str(kind).lower().startswith('дох')
+    typ = 'Доход' if is_income else 'Расход'
+    cat = (category if category in INCOME_CATS else 'Зарплата') if is_income else (category if category in BUDGET_CATS else 'Прочее')
+    d, _ = _resolve_date(date)
+    com = _cap((comment or '').strip())
+    _budget_append('Operations!A:E', [d, typ, cat, float(amount), com])
     when = '' if d==str(today_local()) else f' ({d})'
-    return f'💵 {kind.capitalize()}: {_money(amount)} с · {cat}{when}' + (f' · {comment}' if comment else '')
+    return f'💵 {typ}: {_money(amount)} с · {cat}{when}' + (f' · {com}' if com else '')
 
 # ── Контакты и отправка людям в Telegram ──────────────────────────────────────
 def _contacts():
@@ -316,16 +319,17 @@ def tool_send_telegram(name, text, **_):
 def tool_add_credit(amount, kind='получен', name='', comment='', date=None, **_):
     """Кредит: 'получен' → доход + лист Кредиты; 'погашение' → расход «Оплата кредита». date опционально."""
     got = str(kind).startswith('получ')
-    d, ym = _resolve_date(date); amt=float(amount)
+    d, _ = _resolve_date(date); amt=float(amount)
     when = '' if d==str(today_local()) else f' ({d})'
+    nm=_cap((name or '').strip()) or '—'; com=_cap((comment or '').strip())
     if got:
-        _budget_append('Операции!A:F', [d,'доход','Кредит',amt, name or comment, ym])
-        _budget_append('Кредиты!A:E', [d,'Получен', name or '—', amt, comment])
-        return f'🏦 Кредит получен: {_money(amt)} с' + (f' · {name}' if name else '') + f'{when} (в доходах + долг)'
+        _budget_append('Operations!A:E', [d,'Доход','Кредит',amt, nm if nm!='—' else com])
+        _budget_append('Loans!A:E', [d,'Получен', nm, amt, com])
+        return f'🏦 Кредит получен: {_money(amt)} с' + (f' · {nm}' if nm!='—' else '') + f'{when} (в доходах + долг)'
     else:
-        _budget_append('Операции!A:F', [d,'расход','Оплата кредита',amt, name or comment, ym])
-        _budget_append('Кредиты!A:E', [d,'Погашение', name or '—', amt, comment])
-        return f'🏦 Погашение кредита: {_money(amt)} с' + (f' · {name}' if name else '') + f'{when} (расход + минус долг)'
+        _budget_append('Operations!A:E', [d,'Расход','Оплата кредита',amt, nm if nm!='—' else com])
+        _budget_append('Loans!A:E', [d,'Погашение', nm, amt, com])
+        return f'🏦 Погашение кредита: {_money(amt)} с' + (f' · {nm}' if nm!='—' else '') + f'{when} (расход + минус долг)'
 
 def tool_capture_note(text, **_):
     """Заметка → база Входящие в Notion (не эфемерный диск)."""
@@ -451,10 +455,10 @@ TOOLS_SPEC = [
    'parameters':{'type':'object','properties':{'date':{'type':'string','description':'YYYY-MM-DD, по умолчанию вчера'}},'required':[]}}},
  {'type':'function','function':{'name':'send_telegram','description':'Отправить сообщение человеку ИЛИ в группу в Telegram (Владимиру, Дилчу, поставщику, рабочий чат). Для «напиши X», «запости в группу Y», «объяви команде».',
    'parameters':{'type':'object','properties':{'name':{'type':'string','description':'имя человека или название группы из контактов'},'text':{'type':'string'}},'required':['name','text']}}},
- {'type':'function','function':{'name':'add_budget_entry','description':'Записать личный доход/расход в бюджет-ПНЛ. Если в сообщении несколько трат — вызови для каждой отдельно. Категорию бери СТРОГО из enum. Правила: аренда/коммуналка/дом→Дом; бензин/ремонт авто/мойка→Машина; покупка или ремонт техники/наушников/чехол/ламинат/стекло/аксессуар→Гаджеты; ОПЛАТА телефона/интернета/связь/Claude/любая подписка→Подписки; кафе/ресторан/кофе→Кафе; продукты/базар→Продукты; врач/аптека/зубы/зал→Здоровье; сигареты→Курение; одежда/обувь→Одежда/Обувь; кино/отдых/свидание/хобби→Развлечение; курс/книга/учёба→Обучение; родители/помощь родным→Семья; подарок→Подарки; погашение кредита→Оплата кредита; поездка/билеты/отель→Путешествие; непонятно→Прочее. Доход: зарплата→Зарплата, иной приход→Прочий доход.',
+ {'type':'function','function':{'name':'add_budget_entry','description':'Записать личный доход/расход в бюджет-ПНЛ. Если в сообщении несколько трат — вызови для каждой отдельно. Категорию бери СТРОГО из enum. Правила: аренда/коммуналка/дом→Дом; бензин/ремонт авто/мойка→Машина; покупка или ремонт техники/наушников/чехол/ламинат/стекло/аксессуар→Гаджеты; ОПЛАТА телефона/интернета/связь/Claude/любая подписка→Подписки; кафе/ресторан/кофе→Кафе; продукты/базар→Продукты; врач/аптека/зубы/зал→Здоровье; сигареты→Курение; одежда/обувь→Одежда/Обувь; кино/отдых/свидание/хобби→Развлечение; курс/книга/учёба→Обучение; родители/помощь родным→Семья; подарок→Подарки; погашение кредита→Оплата кредита; поездка/билеты/отель→Путешествие; непонятно→Прочее. Доход: зарплата→Зарплата, иной приход→Прочий доход. ВСЕГДА заполняй comment — краткое описание траты из сообщения (что купил/на что), напр. «кофе 50 в старбаксе»→comment="кофе в старбаксе"; «продукты 800»→comment="продукты". Если в сообщении вообще нет описания (только сумма) — оставь comment пустым.',
    'parameters':{'type':'object','properties':{
      'amount':{'type':'string','description':'сумма числом, например "160"'},'category':{'type':'string','enum':['Дом','Машина','Гаджеты','Подписки','Кафе','Продукты','Здоровье','Курение','Одежда/Обувь','Развлечение','Обучение','Семья','Подарки','Оплата кредита','Путешествие','Прочее','Зарплата','Прочий доход']},
-     'kind':{'type':'string','enum':['расход','доход']},'comment':{'type':'string'},'date':{'type':'string','description':'YYYY-MM-DD, если операция задним числом'}},'required':['amount']}}},
+     'kind':{'type':'string','enum':['расход','доход']},'comment':{'type':'string'},'date':{'type':'string','description':'YYYY-MM-DD, если операция задним числом'}},'required':['amount','comment']}}},
  {'type':'function','function':{'name':'add_credit','description':'Кредит/займ. Получение кредита (приходуется как доход) или погашение (расход). Для «взял кредит», «получил займ», «оплатил кредит», «погасил кредит».',
    'parameters':{'type':'object','properties':{
      'amount':{'type':'string'},'kind':{'type':'string','enum':['получен','погашение']},'name':{'type':'string','description':'кто/название кредита'},'comment':{'type':'string'},'date':{'type':'string','description':'YYYY-MM-DD, если задним числом'}},'required':['amount','kind']}}},
@@ -493,7 +497,7 @@ def describe_action(fn, args):
     if fn=='capture_note':
         return f'📝 Заметка: {args.get("text","")}'
     if fn=='add_budget_entry':
-        k = 'доход' if str(args.get('kind','расход')).startswith('дох') else 'расход'
+        k = 'Доход' if str(args.get('kind','расход')).lower().startswith('дох') else 'Расход'
         c = args.get('category','Прочее')
         c = (c if c in INCOME_CATS else 'Зарплата') if k=='доход' else (c if c in BUDGET_CATS else 'Прочее')
         return f'💵 {k}: {args.get("amount",0)} с · {c}'+(' · '+args.get('comment','') if args.get('comment') else '')
@@ -549,6 +553,9 @@ def _run_calls(calls):
     """Чтение — сразу. Запись — откладываем в PENDING и просим подтвердить."""
     reads=[]; writes=[]
     for fn,args in calls:
+        # комментарий обязателен для трат/доходов — если пусто, просим уточнить
+        if fn=='add_budget_entry' and not str(args.get('comment','')).strip():
+            return f'✍️ На что именно {int(float(args.get("amount",0)))} с? Добавь описание — комментарий обязателен (например: «{int(float(args.get("amount",0)))} продукты вода»).'
         if fn in WRITE_TOOLS: writes.append((fn,args))
         else:
             try: reads.append(TOOLS[fn](**args))
