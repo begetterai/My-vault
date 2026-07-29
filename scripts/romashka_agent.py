@@ -119,6 +119,27 @@ def plain_llm(prompt):
     r.raise_for_status()
     return r.json()['choices'][0]['message'].get('content','').strip()
 
+def analyze_receipt(content):
+    """Читает фото чека через Claude vision → {total, merchant, category, summary}. Нужен ANTHROPIC_API_KEY."""
+    import base64
+    b64 = base64.b64encode(content).decode()
+    cats = "Дом,Машина,Гаджеты,Подписки,Кафе,Продукты,Здоровье,Курение,Одежда/Обувь,Развлечение,Обучение,Семья,Подарки,Путешествие,Прочее"
+    q = ('Это фото чека/квитанции. Верни СТРОГО JSON без пояснений: '
+         '{"total": число_итого, "merchant": "магазин/место", '
+         f'"category": "одна из: {cats}", "summary": "кратко что куплено"}}. '
+         'Если сумма не видна — total:0.')
+    r = requests.post('https://api.anthropic.com/v1/messages',
+        headers={'x-api-key':ANTHRO_KEY,'anthropic-version':'2023-06-01','content-type':'application/json'},
+        json={'model':'claude-3-5-sonnet-20241022','max_tokens':400,
+              'messages':[{'role':'user','content':[
+                {'type':'image','source':{'type':'base64','media_type':'image/jpeg','data':b64}},
+                {'type':'text','text':q}]}]}, timeout=60)
+    r.raise_for_status()
+    txt=''.join(b.get('text','') for b in r.json().get('content',[]) if b.get('type')=='text')
+    import re
+    m=re.search(r'\{.*\}', txt, re.S)
+    return json.loads(m.group(0)) if m else {}
+
 def analyze_image(content, caption=''):
     """Анализ фото через Claude vision (нужен ANTHROPIC_API_KEY)."""
     import base64
@@ -652,7 +673,21 @@ def handle(msg):
             ph=msg['photo'][-1]; content,path=_tg_download(ph['file_id'])
             up=drive_upload(f'photo-{now_local().strftime("%Y%m%d-%H%M%S")}.jpg', content, 'image/jpeg')
             cap=msg.get('caption','')
-            r=f'🖼 Фото сохранил на Drive: <a href="{up.get("webViewLink","")}">открыть</a>'
+            link=up.get("webViewLink","")
+            # Чек → читаем и предлагаем запись в бюджет
+            is_receipt = any(w in cap.lower() for w in ('чек','квитанц','receipt','покупк'))
+            if is_receipt:
+                if not ANTHRO_KEY:
+                    send(f'🧾 Чек сохранил: <a href="{link}">открыть</a>\n(чтение чеков требует ключ Claude — добавь ANTHROPIC_API_KEY)'); return
+                rc=analyze_receipt(content)
+                total=float(rc.get('total') or 0)
+                if total<=0:
+                    send(f'🧾 Чек сохранил, но сумму не разобрал: <a href="{link}">открыть</a>\nНапиши сумму текстом.'); return
+                cat=rc.get('category') if rc.get('category') in BUDGET_CATS else 'Прочее'
+                com=_cap((rc.get('merchant') or rc.get('summary') or 'чек').strip())
+                PENDING[ALLOWED]=[('add_budget_entry',{'amount':str(int(total)),'category':cat,'kind':'расход','comment':com})]
+                send(f'🧾 Чек прочитан: <a href="{link}">фото</a>\n❓ Подтверди:\n💵 Расход: {_money(total)} с · {cat} · {com}\n\nОтветь «да» или «нет».'); return
+            r=f'🖼 Фото сохранил на Drive: <a href="{link}">открыть</a>'
             if ANTHRO_KEY:
                 r+='\n\n'+analyze_image(content, cap)
             elif cap:
