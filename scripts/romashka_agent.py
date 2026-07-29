@@ -212,8 +212,30 @@ def tool_add_violation(point, description, employee=None, category='Прочее
     return f'🚨 Нарушение записано — {point}{who}: {description}'
 
 def _sheet_rows():
-    r = SHEETS.get(f'https://sheets.googleapis.com/v4/spreadsheets/{SS_ID}/values/Данные_Poster!A2:G', timeout=30)
+    r = SHEETS.get(f'https://sheets.googleapis.com/v4/spreadsheets/{SS_ID}/values/Данные_Poster!A2:K', timeout=30)
     r.raise_for_status(); return r.json().get('values',[])
+
+def tool_revenue_channels(period='месяц', **_):
+    """Разбивка выручки по каналам (В заведении/Навынос/Доставка) + СНБЖ за период."""
+    rows=_sheet_rows(); today=today_local(); yday=today-datetime.timedelta(days=1)
+    if period.startswith('нед'):
+        keys={str(yday-datetime.timedelta(days=i)) for i in range(7)}; sel=lambda d:d in keys; lab='за 7 дней'
+    elif period.startswith('год'):
+        sel=lambda d:d.startswith(str(today.year)); lab='за год'
+    elif period.startswith('дн') or period.startswith('вчер'):
+        sel=lambda d:d==str(yday); lab=f'за вчера ({yday.strftime("%d.%m")})'
+    else:
+        sel=lambda d:d.startswith(today.strftime('%Y-%m')); lab='за месяц'
+    acc={'зал':0.0,'навынос':0.0,'доставка':0.0,'снбж':0.0}
+    for r in rows:
+        if len(r)<11 or not sel(r[0]): continue
+        for i,n in [(7,'зал'),(8,'навынос'),(9,'доставка'),(10,'снбж')]:
+            try: acc[n]+=float(r[i] or 0)
+            except: pass
+    f=lambda n: f'{int(round(n)):,}'.replace(',',' ')
+    retail=acc['зал']+acc['навынос']+acc['доставка']
+    return (f'📊 Каналы {lab}:\n🍽 В заведении: {f(acc["зал"])} с\n🥡 Навынос: {f(acc["навынос"])} с\n'
+            f'🛵 Доставка: {f(acc["доставка"])} с\n— Розница: {f(retail)} с\n🔄 СНБЖ (не в выручке): {f(acc["снбж"])} с')
 
 def tool_get_revenue(period='день', **_):
     rows = _sheet_rows()
@@ -487,6 +509,8 @@ TOOLS_SPEC = [
    'parameters':{'type':'object','properties':{'kind':{'type':'string','enum':['тактическая','стратегическая']}},'required':['kind']}}},
  {'type':'function','function':{'name':'list_violations','description':'ПОКАЗАТЬ нарушения за период (не создавать).',
    'parameters':{'type':'object','properties':{'period':{'type':'string','enum':['день','неделя','месяц']}},'required':['period']}}},
+ {'type':'function','function':{'name':'revenue_channels','description':'Разбивка выручки по каналам: в заведении, навынос, доставка + СНБЖ отдельно. Для «сколько навынос», «доля доставки», «сколько СНБЖ», «каналы продаж».',
+   'parameters':{'type':'object','properties':{'period':{'type':'string','enum':['день','неделя','месяц','год']}},'required':[]}}},
  {'type':'function','function':{'name':'revenue_by_month','description':'Динамика выручки по месяцам (последние 6). Для «динамика продаж», «выручка по месяцам», «за несколько месяцев».',
    'parameters':{'type':'object','properties':{},'required':[]}}},
  {'type':'function','function':{'name':'send_email','description':'Отправить письмо (Gmail) от имени Азиза.',
@@ -498,7 +522,7 @@ TOOLS_SPEC = [
 ]
 TOOLS = {'add_task':tool_add_task,'add_violation':tool_add_violation,'get_revenue':tool_get_revenue,
          'poster_query':tool_poster_query,'capture_note':tool_capture_note,'send_telegram':tool_send_telegram,'shift_report':tool_shift_report,'add_budget_entry':tool_add_budget_entry,'add_credit':tool_add_credit,
-         'list_tasks':tool_list_tasks,'list_violations':tool_list_violations,'revenue_by_month':tool_revenue_by_month,
+         'list_tasks':tool_list_tasks,'list_violations':tool_list_violations,'revenue_by_month':tool_revenue_by_month,'revenue_channels':tool_revenue_channels,
          'send_email':tool_send_email,'list_events':tool_list_events,'create_event':tool_create_event}
 
 # Инструменты, которые ЧТО-ТО ЗАПИСЫВАЮТ/ОТПРАВЛЯЮТ — требуют подтверждения. Чтение — сразу.
