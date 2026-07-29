@@ -417,8 +417,8 @@ TOOLS_SPEC = [
      'category':{'type':'string'},'date_from':{'type':'string'},'date_to':{'type':'string'}},'required':['metric']}}},
  {'type':'function','function':{'name':'capture_note','description':'Сохранить мысль/заметку во входящие.',
    'parameters':{'type':'object','properties':{'text':{'type':'string'}},'required':['text']}}},
- {'type':'function','function':{'name':'send_telegram','description':'Отправить сообщение человеку в Telegram (Владимиру, Дилчу, поставщику и т.п.). Только тем, кто уже писал боту.',
-   'parameters':{'type':'object','properties':{'name':{'type':'string','description':'имя получателя из контактов'},'text':{'type':'string'}},'required':['name','text']}}},
+ {'type':'function','function':{'name':'send_telegram','description':'Отправить сообщение человеку ИЛИ в группу в Telegram (Владимиру, Дилчу, поставщику, рабочий чат). Для «напиши X», «запости в группу Y», «объяви команде».',
+   'parameters':{'type':'object','properties':{'name':{'type':'string','description':'имя человека или название группы из контактов'},'text':{'type':'string'}},'required':['name','text']}}},
  {'type':'function','function':{'name':'add_budget_entry','description':'Записать личный доход/расход в бюджет-ПНЛ. Если в сообщении несколько трат — вызови для каждой отдельно. Определи категорию по смыслу (бензин/машина→Машина, сигареты→Курение, продукты/магазин→Магазин, врач/аптека/зал→Здоровье, связь/интернет→Телефон, кафе/ресторан/кино→Кафе, зарплата/поступление→доход).',
    'parameters':{'type':'object','properties':{
      'amount':{'type':'string','description':'сумма числом, например "160"'},'category':{'type':'string','enum':['Машина','Кафе','Телефон','Здоровье','Курение','Магазин','Оплата кредита','Прочее']},
@@ -553,15 +553,24 @@ def audit(kind, text, result):
 
 # ── Основной цикл ─────────────────────────────────────────────────────────────
 def handle(msg):
-    chat_id=str(msg['chat']['id'])
+    chat=msg.get('chat',{}); chat_id=str(chat['id']); ctype=chat.get('type','private')
+    # Группа: захватываем как контакт (по названию), чтобы Азиз мог постить в неё
+    if ctype in ('group','supergroup'):
+        title=chat.get('title','Группа')
+        try:
+            if str(chat_id) not in [v[0] for v in _contacts().values()]:
+                _contact_add(title, chat_id, 'группа')
+                send(f'👥 Бот добавлен в группу: <b>{title}</b> (id {chat_id}). Теперь: «запости в {title} …»')
+        except Exception as e:
+            log.warning(f'group capture: {e}')
+        return
     if ALLOWED and chat_id!=ALLOWED:
-        # Чужой: команды не выполняем, но захватываем контакт, чтобы Азиз мог ему писать
+        # Чужой в личке: команды не выполняем, но захватываем контакт
         frm=msg.get('from',{})
         fname=' '.join(x for x in [frm.get('first_name'),frm.get('last_name')] if x) or 'Без имени'
         uname='@'+frm.get('username') if frm.get('username') else ''
         try:
-            known = str(chat_id) in [v[0] for v in _contacts().values()]
-            if not known:
+            if str(chat_id) not in [v[0] for v in _contacts().values()]:
                 _contact_add(fname, chat_id, uname)
                 send(f'📇 Новый контакт написал боту: <b>{fname}</b> {uname} (id {chat_id}). Теперь можешь: «напиши {fname.split()[0]} …»')
         except Exception as e:
@@ -632,12 +641,22 @@ def run():
     offset=0
     while True:
         try:
-            res=tg('getUpdates', offset=offset, timeout=25, allowed_updates=['message'])
+            res=tg('getUpdates', offset=offset, timeout=25, allowed_updates=['message','my_chat_member'])
             for upd in res.get('result') or []:
                 offset=upd['update_id']+1
                 if 'message' in upd:
                     try: handle(upd['message'])
                     except Exception as e: log.error(f'handle: {e}')
+                elif 'my_chat_member' in upd:
+                    # бота добавили/удалили из группы
+                    try:
+                        cm=upd['my_chat_member']; chat=cm.get('chat',{})
+                        if chat.get('type') in ('group','supergroup') and cm.get('new_chat_member',{}).get('status') in ('member','administrator'):
+                            title=chat.get('title','Группа'); cid=str(chat['id'])
+                            if cid not in [v[0] for v in _contacts().values()]:
+                                _contact_add(title, cid, 'группа')
+                                send(f'👥 Бот добавлен в группу: <b>{title}</b>. Теперь: «запости в {title} …»')
+                    except Exception as e: log.error(f'my_chat_member: {e}')
         except requests.RequestException as e:
             log.warning(f'net: {e}'); time.sleep(5)
         except Exception as e:
