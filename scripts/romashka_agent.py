@@ -273,6 +273,35 @@ def _contact_add(name, chat_id, username):
         '?valueInputOption=RAW&insertDataOption=INSERT_ROWS',
         json={'values':[[name, str(chat_id), username, str(today_local())]]}, timeout=20)
 
+_BOT_ID=[None]
+def _bot_id():
+    if _BOT_ID[0] is None:
+        try: _BOT_ID[0]=tg('getMe').get('result',{}).get('id')
+        except Exception: _BOT_ID[0]=0
+    return _BOT_ID[0]
+
+def _shift_log(group, author, kind, content):
+    SHEETS.post(f'https://sheets.googleapis.com/v4/spreadsheets/{SS_ID}/values/Смены!A:F:append'
+        '?valueInputOption=RAW&insertDataOption=INSERT_ROWS',
+        json={'values':[[str(today_local()), now_local().strftime('%H:%M'), group, author, kind, content]]}, timeout=20)
+
+def tool_shift_report(date=None, **_):
+    """Сводка со смен (сообщения и фото из групп) за день. По умолчанию — вчера."""
+    d = date or str(today_local()-datetime.timedelta(days=1))
+    r=SHEETS.get(f'https://sheets.googleapis.com/v4/spreadsheets/{SS_ID}/values/Смены!A2:F',timeout=30)
+    rows=[x for x in (r.json().get('values',[]) if r.status_code==200 else []) if x and x[0]==d]
+    if not rows: return f'📋 Со смен за {d}: ничего не поступало'
+    from collections import defaultdict
+    byg=defaultdict(list)
+    for x in rows:
+        g=x[2] if len(x)>2 else '?'; kind=x[4] if len(x)>4 else ''; cont=x[5] if len(x)>5 else ''
+        byg[g].append(f'  {"🖼" if kind=="фото" else "•"} {cont[:120]}')
+    out=[f'📋 Закрытие смен за {d}:']
+    for g,items in byg.items():
+        out.append(f'\n<b>{g}</b>')
+        out+=items
+    return '\n'.join(out)
+
 def tool_send_telegram(name, text, **_):
     """Отправить сообщение человеку из контактов (он должен был стартовать бота)."""
     c=_contacts(); key=str(name).strip().lower()
@@ -417,6 +446,8 @@ TOOLS_SPEC = [
      'category':{'type':'string'},'date_from':{'type':'string'},'date_to':{'type':'string'}},'required':['metric']}}},
  {'type':'function','function':{'name':'capture_note','description':'Сохранить мысль/заметку во входящие.',
    'parameters':{'type':'object','properties':{'text':{'type':'string'}},'required':['text']}}},
+ {'type':'function','function':{'name':'shift_report','description':'Сводка со смен: что персонал скидывал в группы (остатки, фото закрытия, заметки) за день. Для «отчёт по сменам», «что со смен вчера».',
+   'parameters':{'type':'object','properties':{'date':{'type':'string','description':'YYYY-MM-DD, по умолчанию вчера'}},'required':[]}}},
  {'type':'function','function':{'name':'send_telegram','description':'Отправить сообщение человеку ИЛИ в группу в Telegram (Владимиру, Дилчу, поставщику, рабочий чат). Для «напиши X», «запости в группу Y», «объяви команде».',
    'parameters':{'type':'object','properties':{'name':{'type':'string','description':'имя человека или название группы из контактов'},'text':{'type':'string'}},'required':['name','text']}}},
  {'type':'function','function':{'name':'add_budget_entry','description':'Записать личный доход/расход в бюджет-ПНЛ. Если в сообщении несколько трат — вызови для каждой отдельно. Определи категорию по смыслу (бензин/машина→Машина, сигареты→Курение, продукты/магазин→Магазин, врач/аптека/зал→Здоровье, связь/интернет→Телефон, кафе/ресторан/кино→Кафе, зарплата/поступление→доход).',
@@ -440,7 +471,7 @@ TOOLS_SPEC = [
    'parameters':{'type':'object','properties':{'title':{'type':'string'},'date':{'type':'string','description':'YYYY-MM-DD'},'time':{'type':'string','description':'HH:MM'},'duration_min':{'type':'string'}},'required':['title','date']}}},
 ]
 TOOLS = {'add_task':tool_add_task,'add_violation':tool_add_violation,'get_revenue':tool_get_revenue,
-         'poster_query':tool_poster_query,'capture_note':tool_capture_note,'send_telegram':tool_send_telegram,'add_budget_entry':tool_add_budget_entry,'add_credit':tool_add_credit,
+         'poster_query':tool_poster_query,'capture_note':tool_capture_note,'send_telegram':tool_send_telegram,'shift_report':tool_shift_report,'add_budget_entry':tool_add_budget_entry,'add_credit':tool_add_credit,
          'list_tasks':tool_list_tasks,'list_violations':tool_list_violations,'revenue_by_month':tool_revenue_by_month,
          'send_email':tool_send_email,'list_events':tool_list_events,'create_event':tool_create_event}
 
@@ -554,15 +585,32 @@ def audit(kind, text, result):
 # ── Основной цикл ─────────────────────────────────────────────────────────────
 def handle(msg):
     chat=msg.get('chat',{}); chat_id=str(chat['id']); ctype=chat.get('type','private')
-    # Группа: захватываем как контакт (по названию), чтобы Азиз мог постить в неё
+    # Группа: регистрируем + собираем содержимое смен (сообщения, фото)
     if ctype in ('group','supergroup'):
         title=chat.get('title','Группа')
         try:
             if str(chat_id) not in [v[0] for v in _contacts().values()]:
                 _contact_add(title, chat_id, 'группа')
-                send(f'👥 Бот добавлен в группу: <b>{title}</b> (id {chat_id}). Теперь: «запости в {title} …»')
+                send(f'👥 Бот добавлен в группу: <b>{title}</b>. Собираю сообщения и фото; постить: «запости в {title} …»')
         except Exception as e:
             log.warning(f'group capture: {e}')
+        # если бот сам постил — не логируем
+        if str(msg.get('from',{}).get('id'))==str(_bot_id()): return
+        author=' '.join(x for x in [msg.get('from',{}).get('first_name'),msg.get('from',{}).get('last_name')] if x) or 'Аноним'
+        try:
+            if 'photo' in msg:
+                content,_=_tg_download(msg['photo'][-1]['file_id'])
+                folder=NIDS.get('shift_photos')
+                nm=f'{title}-{now_local().strftime("%Y%m%d-%H%M%S")}.jpg'
+                meta={'name':nm,'parents':[folder]} if folder else {'name':nm}
+                up=SHEETS.post('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&supportsAllDrives=true&fields=webViewLink',
+                    files={'data':('m',json.dumps(meta),'application/json'),'file':(nm,content,'image/jpeg')},timeout=120).json()
+                cap=msg.get('caption','')
+                _shift_log(title, author, 'фото', (cap+' ' if cap else '')+up.get('webViewLink',''))
+            elif msg.get('text'):
+                _shift_log(title, author, 'текст', msg['text'])
+        except Exception as e:
+            log.warning(f'shift log: {e}')
         return
     if ALLOWED and chat_id!=ALLOWED:
         # Чужой в личке: команды не выполняем, но захватываем контакт
