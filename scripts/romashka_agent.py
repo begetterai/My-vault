@@ -235,7 +235,8 @@ def tool_poster_query(metric='расходы', category=None, date_from=None, da
     return f'📊 {metric.capitalize()}{cat_lbl} {df}…{dt}:\n'+'\n'.join(out)
 
 BUDGET_SS = '1Cn3QwTy2AiW4Kjw2PLNniZuB_2LyQ2ES8nOCgHPKDIE'
-BUDGET_CATS = {'Машина','Кафе','Телефон','Здоровье','Курение','Магазин','Оплата кредита','Прочее'}
+BUDGET_CATS = {'Дом','Машина','Гаджеты','Подписки','Кафе','Продукты','Здоровье','Курение','Одежда/Обувь','Развлечение','Обучение','Семья','Подарки','Оплата кредита','Путешествие','Прочее'}
+INCOME_CATS = {'Зарплата','Прочий доход'}
 def _budget_append(tab, row):
     # RAW — чтобы дата и месяц остались текстом, а не превратились в числовые серии Sheets
     r = SHEETS.post(f'https://sheets.googleapis.com/v4/spreadsheets/{BUDGET_SS}/values/{tab}:append'
@@ -254,7 +255,7 @@ def _resolve_date(date_str):
 def tool_add_budget_entry(amount, category='Прочее', kind='расход', comment='', date=None, **_):
     """Запись обычного дохода/расхода в ПНЛ (вкладка Операции). date опционально (задним числом)."""
     kind = 'доход' if str(kind).startswith('дох') else 'расход'
-    cat = 'Доход' if kind=='доход' else (category if category in BUDGET_CATS else 'Прочее')
+    cat = (category if category in INCOME_CATS else 'Зарплата') if kind=='доход' else (category if category in BUDGET_CATS else 'Прочее')
     d, ym = _resolve_date(date)
     _budget_append('Операции!A:F', [d, kind, cat, float(amount), comment, ym])
     when = '' if d==str(today_local()) else f' ({d})'
@@ -452,7 +453,7 @@ TOOLS_SPEC = [
    'parameters':{'type':'object','properties':{'name':{'type':'string','description':'имя человека или название группы из контактов'},'text':{'type':'string'}},'required':['name','text']}}},
  {'type':'function','function':{'name':'add_budget_entry','description':'Записать личный доход/расход в бюджет-ПНЛ. Если в сообщении несколько трат — вызови для каждой отдельно. Определи категорию по смыслу (бензин/машина→Машина, сигареты→Курение, продукты/магазин→Магазин, врач/аптека/зал→Здоровье, связь/интернет→Телефон, кафе/ресторан/кино→Кафе, зарплата/поступление→доход).',
    'parameters':{'type':'object','properties':{
-     'amount':{'type':'string','description':'сумма числом, например "160"'},'category':{'type':'string','enum':['Машина','Кафе','Телефон','Здоровье','Курение','Магазин','Оплата кредита','Прочее']},
+     'amount':{'type':'string','description':'сумма числом, например "160"'},'category':{'type':'string','enum':['Дом','Машина','Гаджеты','Подписки','Кафе','Продукты','Здоровье','Курение','Одежда/Обувь','Развлечение','Обучение','Семья','Подарки','Оплата кредита','Путешествие','Прочее','Зарплата','Прочий доход']},
      'kind':{'type':'string','enum':['расход','доход']},'comment':{'type':'string'},'date':{'type':'string','description':'YYYY-MM-DD, если операция задним числом'}},'required':['amount']}}},
  {'type':'function','function':{'name':'add_credit','description':'Кредит/займ. Получение кредита (приходуется как доход) или погашение (расход). Для «взял кредит», «получил займ», «оплатил кредит», «погасил кредит».',
    'parameters':{'type':'object','properties':{
