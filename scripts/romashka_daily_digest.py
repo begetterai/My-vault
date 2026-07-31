@@ -40,7 +40,7 @@ def get_poster_rows():
     for attempt in range(5):
         r = session.get(
             f'https://sheets.googleapis.com/v4/spreadsheets/{ROMASHKA_SS_ID}/values/'
-            'Данные_Poster!A2:G', timeout=30)
+            'Данные_Poster!A2:K', timeout=30)
         if r.status_code >= 500 and attempt < 4:
             time.sleep(2 ** attempt)
             continue
@@ -64,26 +64,28 @@ def build_message(rows, target_date, today):
     month_str = target_date.strftime('%Y-%m')
     mon_name  = MONTHS_RU.get(target_date.strftime('%m'), '')
 
-    yday  = {}   # {loc: {rev, vis, avck}}
-    month = {}   # {loc: {rev, vis, days}}
+    yday  = {}   # {loc: {rev, vis, avck, snbzh}}
+    month = {}   # {loc: {rev, vis, days, snbzh}}
 
     for row in rows:
         if len(row) < 3:
             continue
         date, loc = row[0], row[1]
-        rev  = float(row[2] or 0)
-        vis  = int(row[3] or 0) if len(row) > 3 else 0
-        avck = float(row[5] or 0) if len(row) > 5 else 0
+        rev   = float(row[2] or 0)
+        vis   = int(row[3] or 0) if len(row) > 3 else 0
+        avck  = float(row[5] or 0) if len(row) > 5 else 0
+        snbzh = float(row[10] or 0) if len(row) > 10 else 0
 
         if date == yday_str:
-            yday[loc] = {'rev': rev, 'vis': vis, 'avck': avck}
+            yday[loc] = {'rev': rev, 'vis': vis, 'avck': avck, 'snbzh': snbzh}
 
         if date.startswith(month_str):
             if loc not in month:
-                month[loc] = {'rev': 0, 'vis': 0, 'days': 0}
-            month[loc]['rev']  += rev
-            month[loc]['vis']  += vis
-            month[loc]['days'] += 1
+                month[loc] = {'rev': 0, 'vis': 0, 'days': 0, 'snbzh': 0}
+            month[loc]['rev']   += rev
+            month[loc]['vis']   += vis
+            month[loc]['days']  += 1
+            month[loc]['snbzh'] += snbzh
 
     lines = [f'🌸 <b>Ромашка — {target_date.strftime("%d.%m.%Y")}</b>\n']
 
@@ -101,7 +103,12 @@ def build_message(rows, target_date, today):
         lines.append('')
 
     if total_yday:
-        lines.append(f'💰 Вчера сеть: <b>{fmt(total_yday)} с</b>\n')
+        lines.append(f'💰 Вчера сеть: <b>{fmt(total_yday)} с</b> <i>(без СНБЖ)</i>\n')
+
+    # СНБЖ — внутренний товарооборот, НЕ выручка (отдельно снизу)
+    snbzh_yday = sum(d.get('snbzh', 0) for d in yday.values())
+    if snbzh_yday:
+        lines.append(f'🔄 СНБЖ вчера: {fmt(snbzh_yday)} с <i>(внутренний оборот, не выручка)</i>\n')
 
     # Month to date
     days_in = max((month.get(l, {}).get('days', 0) for l in ['ЗБ', 'ОВИР']), default=0)
@@ -114,7 +121,10 @@ def build_message(rows, target_date, today):
                 net_month += md['rev']
                 lines.append(f'   {loc}: {fmt(md["rev"])} с')
         if net_month:
-            lines.append(f'   <b>Сеть: {fmt(net_month)} с</b>')
+            lines.append(f'   <b>Сеть: {fmt(net_month)} с</b> <i>(без СНБЖ)</i>')
+        snbzh_month = sum(m.get('snbzh', 0) for m in month.values())
+        if snbzh_month:
+            lines.append(f'   🔄 СНБЖ: {fmt(snbzh_month)} с')
 
     lines.append(f'\n<a href="{DASHBOARD_URL}">📈 Открыть полный дашборд</a>')
     return '\n'.join(lines)
