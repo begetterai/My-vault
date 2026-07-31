@@ -1,125 +1,106 @@
 #!/usr/bin/env python3
-"""Личный бюджет: Operations + PnL + Loans (англ. вкладки, даты, фильтр, свод по категориям)."""
-import os
+"""Личный бюджет: Operations + PnL (блоки, переходящий остаток) + Loans.
+Стиль: Times New Roman 13, без цветовой заливки (правило оформления Азиза)."""
+import os, re
 os.environ['REQUESTS_CA_BUNDLE']='/etc/ssl/certs/ca-certificates.crt'
 from google.oauth2 import service_account
 from google.auth.transport.requests import AuthorizedSession
 
 SID='1Cn3QwTy2AiW4Kjw2PLNniZuB_2LyQ2ES8nOCgHPKDIE'
+FONT='Times New Roman'; SIZE=13
 creds=service_account.Credentials.from_service_account_file(
     '/home/user/My-vault/scripts/credentials/romashka-drive.json',
     scopes=['https://www.googleapis.com/auth/spreadsheets'])
 s=AuthorizedSession(creds)
 
-INCOME=['Зарплата','Прочий доход']
-EXP=['Дом','Машина','Гаджеты','Подписки','Кафе','Продукты','Здоровье','Курение',
-     'Одежда/Обувь','Развлечение','Обучение','Семья','Подарки','Оплата кредита','Путешествие','Прочее']
 MON=['Янв','Фев','Мар','Апр','Май','Июн','Июл','Авг','Сен','Окт','Ноя','Дек']
-COLS='BCDEFGHIJKLM'
-CAP=lambda x:(x[:1].upper()+x[1:]) if x else x
-MIGRATE={'магазин':'Продукты'}  # старые→новые категории
-import re
-def iso(d):
-    d=(d or '').strip()
-    if re.match(r'^\d{4}-\d{2}-\d{2}$',d): return d
-    m=re.match(r'^(\d{1,2})[.\-/](\d{1,2})[.\-/](\d{4})$',d)  # dd.mm.yyyy
-    if m: return f'{m.group(3)}-{int(m.group(2)):02d}-{int(m.group(1)):02d}'
-    return d
-
+COLS='BCDEFGHIJKLM'  # 12 месяцев
 def api(m,path,**kw):
     r=getattr(s,m)(f'https://sheets.googleapis.com/v4/spreadsheets/{SID}{path}',**kw); r.raise_for_status()
     return r.json() if r.text else {}
-def get(rng): return s.get(f'https://sheets.googleapis.com/v4/spreadsheets/{SID}/values/{rng}',timeout=30).json().get('values',[])
-def put(rng,vals,ue=True):
-    s.put(f'https://sheets.googleapis.com/v4/spreadsheets/{SID}/values/{rng}?valueInputOption={"USER_ENTERED" if ue else "RAW"}',json={'values':vals},timeout=30).raise_for_status()
+def put(rng,vals):
+    s.put(f'https://sheets.googleapis.com/v4/spreadsheets/{SID}/values/{rng}?valueInputOption=USER_ENTERED',json={'values':vals},timeout=30).raise_for_status()
 
-# ── прочитать и мигрировать старые данные ──
-old_ops=get('Операции!A2:F') or get('Operations!A2:E')
-ops=[]
-for r in old_ops:
-    if len(r)<4: continue
-    d=iso(r[0]); typ=CAP((r[1] or '').strip()); cat=r[2].strip();
-    cat=MIGRATE.get(cat.lower(),cat)
-    try: amt=float(r[3])
-    except: continue
-    com=CAP((r[4] if len(r)>4 else '').strip())
-    ops.append([d,typ,cat,amt,com])
-old_loans=get('Кредиты!A2:E') or get('Loans!A2:E')
-loans=[[iso(r[0]),CAP(r[1]) if len(r)>1 else '',r[2] if len(r)>2 else '', float(r[3]) if len(r)>3 and r[3] else 0, (r[4] if len(r)>4 else '')] for r in old_loans if r and len(r)>=3]
-
-# ── переименовать листы в англ. ──
-meta=api('get','?fields=sheets.properties')
-byid={sh['properties']['title']:sh['properties']['sheetId'] for sh in meta['sheets']}
-rename={'Операции':'Operations','ПНЛ':'PnL','Кредиты':'Loans'}
-reqs=[{'updateSheetProperties':{'properties':{'sheetId':byid[ru],'title':en},'fields':'title'}} for ru,en in rename.items() if ru in byid]
-if reqs: api('post',':batchUpdate',json={'requests':reqs})
-meta=api('get','?fields=sheets.properties')
-ids={sh['properties']['title']:sh['properties']['sheetId'] for sh in meta['sheets']}
-
-# ── Operations: A-E, даты, фильтр ──
-api('post',f'/values/Operations!A:F:clear' if False else ':batchUpdate',json={'requests':[]}) if False else None
-s.post(f'https://sheets.googleapis.com/v4/spreadsheets/{SID}/values/Operations!A:Z:clear',timeout=30)
-put('Operations!A1',[['Дата','Тип','Категория','Сумма','Комментарий']])
-if ops: put('Operations!A2',ops)  # USER_ENTERED → даты станут датами
-opid=ids['Operations']
-api('post',':batchUpdate',json={'requests':[
-    # формат колонки Дата
-    {'repeatCell':{'range':{'sheetId':opid,'startRowIndex':1,'startColumnIndex':0,'endColumnIndex':1},
-      'cell':{'userEnteredFormat':{'numberFormat':{'type':'DATE','pattern':'dd.mm.yyyy'}}},'fields':'userEnteredFormat.numberFormat'}},
-    # шапка жирная + заморозка
-    {'repeatCell':{'range':{'sheetId':opid,'startRowIndex':0,'endRowIndex':1},'cell':{'userEnteredFormat':{'textFormat':{'bold':True},'backgroundColor':{'red':0.85,'green':0.9,'blue':0.98}}},'fields':'userEnteredFormat'}},
-    {'updateSheetProperties':{'properties':{'sheetId':opid,'gridProperties':{'frozenRowCount':1}},'fields':'gridProperties.frozenRowCount'}},
-    # ФИЛЬТР на A1:E
-    {'setBasicFilter':{'filter':{'range':{'sheetId':opid,'startRowIndex':0,'startColumnIndex':0,'endColumnIndex':5}}}},
-]})
-
-# ── PnL: свод по категориям, SUMIFS по диапазону дат ──
-def sifm(col_m, kind, cat):
-    return (f'=SUMIFS(Operations!$D:$D,Operations!$A:$A,">="&DATE(2026,{col_m},1),'
-            f'Operations!$A:$A,"<"&DATE(2026,{col_m}+1,1),Operations!$B:$B,"{kind}",Operations!$C:$C,"{cat}")')
-def sifmr(col_m, kind, row):
-    return (f'=SUMIFS(Operations!$D:$D,Operations!$A:$A,">="&DATE(2026,{col_m},1),'
-            f'Operations!$A:$A,"<"&DATE(2026,{col_m}+1,1),Operations!$B:$B,"{kind}",Operations!$C:$C,$A{row})')
-rows=[['Категория']+MON+['Итого год']]
-r=2; inc_rows=[]
-for name in INCOME:
-    rows.append([name]+[sifm(m,'Доход',name) for m in range(1,13)]+[f'=SUM(B{r}:M{r})']); inc_rows.append(r); r+=1
-rows.append(['Кредиты получено']+[sifm(m,'Доход','Кредит') for m in range(1,13)]+[f'=SUM(B{r}:M{r})']); inc_rows.append(r); r+=1
-income_row=r
-rows.append(['ИТОГО доход']+['='+'+'.join(f'{c}{x}' for x in inc_rows) for c in COLS]+[f'=SUM(B{r}:M{r})']); r+=1
-rows.append(['РАСХОДЫ']+['']*13); r+=1
-first_exp=r
-for e in EXP:
-    rows.append([e]+[sifmr(m,'Расход',r) for m in range(1,13)]+[f'=SUM(B{r}:M{r})']); r+=1
-last_exp=r-1
-rows.append(['Итого расходы']+[f'=SUM({c}{first_exp}:{c}{last_exp})' for c in COLS]+[f'=SUM(B{r}:M{r})']); tr=r; r+=1
-rows.append(['Остаток']+[f'={c}{income_row}-{c}{tr}' for c in COLS]+[f'=SUM(B{r}:M{r})']); osr=r
-put('PnL!A1',rows)
+ids={sh['properties']['title']:sh['properties']['sheetId'] for sh in api('get','?fields=sheets.properties')['sheets']}
 pnl=ids['PnL']
-def bold(sheet,row,bg=None):
-    f={'textFormat':{'bold':True}}; fields='userEnteredFormat.textFormat.bold'
-    if bg: f['backgroundColor']=bg; fields+=',userEnteredFormat.backgroundColor'
-    return {'repeatCell':{'range':{'sheetId':sheet,'startRowIndex':row,'endRowIndex':row+1},'cell':{'userEnteredFormat':f},'fields':fields}}
-api('post',':batchUpdate',json={'requests':[
-    bold(pnl,0,{'red':0.85,'green':0.9,'blue':0.98}),
-    bold(pnl,income_row-1,{'red':0.82,'green':0.94,'blue':0.82}),
-    bold(pnl,first_exp-2,{'red':0.98,'green':0.87,'blue':0.83}),  # РАСХОДЫ
-    bold(pnl,tr-1),
-    bold(pnl,osr-1,{'red':0.95,'green':0.95,'blue':0.8}),
-    {'updateSheetProperties':{'properties':{'sheetId':pnl,'gridProperties':{'frozenRowCount':1,'frozenColumnCount':1}},'fields':'gridProperties.frozenRowCount,gridProperties.frozenColumnCount'}},
-    # форсируем ЧИСЛОВОЙ формат на весь свод (иначе Sheets красит формулы с DATE() как даты)
-    {'repeatCell':{'range':{'sheetId':pnl,'startRowIndex':1,'startColumnIndex':1,'endColumnIndex':14},
-      'cell':{'userEnteredFormat':{'numberFormat':{'type':'NUMBER','pattern':'#,##0.##'}}},'fields':'userEnteredFormat.numberFormat'}},
-]})
 
-# ── Loans ──
-s.post(f'https://sheets.googleapis.com/v4/spreadsheets/{SID}/values/Loans!A:Z:clear',timeout=30)
-put('Loans!A1',[['Дата','Операция','Кредит','Сумма','Комментарий','','Всего получено','=SUMIF(B:B,"Получен",D:D)']])
-put('Loans!G2',[['Всего погашено','=SUMIF(B:B,"Погашение",D:D)'],['Текущий долг','=H1-H2']])
-if loans: put('Loans!A2',loans)
-lid=ids['Loans']
-api('post',':batchUpdate',json={'requests':[
-    {'repeatCell':{'range':{'sheetId':lid,'startRowIndex':1,'startColumnIndex':0,'endColumnIndex':1},'cell':{'userEnteredFormat':{'numberFormat':{'type':'DATE','pattern':'dd.mm.yyyy'}}},'fields':'userEnteredFormat.numberFormat'}},
-    bold(lid,0,{'red':0.9,'green':0.9,'blue':0.9}),
-]})
-print('Готово: Operations / PnL / Loans, мигрировано операций:', len(ops))
+# ── SUMIFS по диапазону дат ──
+def sif(m, kind, cat):
+    return (f'=SUMIFS(Operations!$D:$D,Operations!$A:$A,">="&DATE(2026,{m},1),'
+            f'Operations!$A:$A,"<"&DATE(2026,{m}+1,1),Operations!$B:$B,"{kind}",Operations!$C:$C,"{cat}")')
+
+# порядок расходов по номерам 1-16
+EXP=[(1,'Дом'),(2,'Машина'),(3,'Одежда/Обувь'),(4,'Семья'),(5,'Гаджеты'),(6,'Подписки'),(7,'Подарки'),
+     (8,'Продукты'),(9,'Кафе'),(10,'Развлечение'),(11,'Здоровье'),(12,'Обучение'),
+     (13,'Курение'),(14,'Оплата кредита'),(15,'Путешествие'),(16,'Прочее')]
+BLOCKS=[(1,7),(8,10),(11,12)]  # блоки с итогом; 13-16 отдельно
+
+rows=[['Категория']+MON+['Итого год']]
+r=1
+def add(label, cells, year):
+    global r; rows.append([label]+cells+[year]); r=len(rows); return r
+# доход
+r_prev = add('Остаток с предыдущего месяца', ['']*12, '')          # заполним формулами ниже
+r_zp   = add('Зарплата',        [sif(m,'Доход','Зарплата') for m in range(1,13)], '=SUM(B{r}:M{r})'.format(r=len(rows)+1))
+r_oth  = add('Прочий доход',     [sif(m,'Доход','Прочий доход') for m in range(1,13)], '=SUM(B{r}:M{r})'.format(r=len(rows)+1))
+r_cred = add('Кредиты получено', [sif(m,'Доход','Кредит') for m in range(1,13)], '=SUM(B{r}:M{r})'.format(r=len(rows)+1))
+r_inc  = add('ИТОГО доход', [f'={c}{r_prev}+{c}{r_zp}+{c}{r_oth}+{c}{r_cred}' for c in COLS], f'=N{r_zp}+N{r_oth}+N{r_cred}')
+add('', ['']*12, '')
+r_exphdr = add('РАСХОДЫ', ['']*12, '')
+
+# расходы по блокам
+cat_rows={}; block_subtotals=[]; standalone=[]
+i=0
+def cat_year(rr): return f'=SUM(B{rr}:M{rr})'
+while i < len(EXP):
+    num,name=EXP[i]
+    # начало блока?
+    blk=next((b for b in BLOCKS if b[0]==num),None)
+    if blk:
+        start_row=len(rows)+1
+        for n2 in range(blk[0],blk[1]+1):
+            nm=dict(EXP)[n2]
+            rr=add(f'{n2}. {nm}', [sif(m,'Расход',nm) for m in range(1,13)], '')
+            rows[-1][-1]=cat_year(rr); cat_rows[nm]=rr
+        end_row=len(rows)
+        sub=add(f'Итого блок {blk[0]}–{blk[1]}',
+                [f'=SUM({c}{start_row}:{c}{end_row})' for c in COLS],
+                f'=SUM(N{start_row}:N{end_row})')
+        block_subtotals.append(sub)
+        i += (blk[1]-blk[0]+1)
+    else:
+        rr=add(f'{num}. {name}', [sif(m,'Расход',name) for m in range(1,13)], '')
+        rows[-1][-1]=cat_year(rr); cat_rows[name]=rr; standalone.append(rr)
+        i+=1
+
+# итого расходы = сумма подытогов блоков + одиночных
+parts = block_subtotals + standalone
+r_exp = add('Итого расходы', ['='+'+'.join(f'{c}{p}' for p in parts) for c in COLS],
+            '='+'+'.join(f'N{p}' for p in parts))
+r_bal = add('Остаток', [f'={c}{r_inc}-{c}{r_exp}' for c in COLS], f'=N{r_inc}-N{r_exp}')
+
+# переходящий остаток: B=0, каждый след. месяц = остаток прошлого
+carry=['0']+[f'={COLS[k]}{r_bal}' for k in range(11)]  # B..L предыдущего → C..M текущего
+put('PnL!B{0}:M{0}'.format(r_prev),[carry])
+
+put('PnL!A1',rows)
+
+# ── формат: Times New Roman 13, без цвета; жирные — заголовки/итоги ──
+def whole(sheet):
+    return {'repeatCell':{'range':{'sheetId':sheet},
+        'cell':{'userEnteredFormat':{'textFormat':{'fontFamily':FONT,'fontSize':SIZE,'bold':False},
+                'backgroundColor':{'red':1,'green':1,'blue':1}}},
+        'fields':'userEnteredFormat.textFormat.fontFamily,userEnteredFormat.textFormat.fontSize,userEnteredFormat.textFormat.bold,userEnteredFormat.backgroundColor'}}
+def boldrow(sheet,r0):
+    return {'repeatCell':{'range':{'sheetId':sheet,'startRowIndex':r0-1,'endRowIndex':r0},
+        'cell':{'userEnteredFormat':{'textFormat':{'bold':True}}},'fields':'userEnteredFormat.textFormat.bold'}}
+reqs=[whole(pnl)]
+for rr in [1, r_inc, r_exphdr, r_exp, r_bal]+block_subtotals:
+    reqs.append(boldrow(pnl,rr))
+reqs.append({'updateSheetProperties':{'properties':{'sheetId':pnl,'gridProperties':{'frozenRowCount':1,'frozenColumnCount':1}},'fields':'gridProperties.frozenRowCount,gridProperties.frozenColumnCount'}})
+# тот же стиль на Operations и Loans (без цвета, TNR 13)
+for t in ('Operations','Loans'):
+    if t in ids:
+        reqs.append(whole(ids[t])); reqs.append(boldrow(ids[t],1))
+api('post',':batchUpdate',json={'requests':reqs})
+print('PnL перестроен: блоки, переходящий остаток, TNR 13, без цвета. Строк:', len(rows))
