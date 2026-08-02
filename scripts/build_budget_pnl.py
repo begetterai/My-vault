@@ -66,7 +66,19 @@ for kind,subname,cats in EXP_STRUCT:
 
 parts=subtotals+standalone
 r_exp = add('Итого расходы', ['='+'+'.join(f'{col}{p}' for p in parts) for col in COLS], '='+'+'.join(f'N{p}' for p in parts))
-r_bal = add('Остаток', [f'={col}{r_inc}-{col}{r_exp}' for col in COLS], f'=N{r_inc}-N{r_exp}')
+
+# Накопления / Инвестиции — отдельный блок ВНЕ расходов (отложенные деньги = не трата, а перевод себе)
+add('', ['']*12, '')
+r_savhdr = add('НАКОПЛЕНИЯ / ИНВЕСТИЦИИ', ['']*12, '')
+sav_start=len(rows)+1
+for c in ['Накопления / Подушка','Инвестиции']:
+    rr=add(c, [sif(m,'Накопление',c) for m in range(1,13)], ''); rows[-1][-1]=f'=SUM(B{rr}:M{rr})'
+sav_end=len(rows)
+r_sav = add('Итого отложено', [f'=SUM({col}{sav_start}:{col}{sav_end})' for col in COLS], f'=SUM(N{sav_start}:N{sav_end})')
+
+add('', ['']*12, '')
+# Остаток = доход − расходы − отложено (свободные деньги, переходят на след. месяц)
+r_bal = add('Остаток', [f'={col}{r_inc}-{col}{r_exp}-{col}{r_sav}' for col in COLS], f'=N{r_inc}-N{r_exp}-N{r_sav}')
 put('PnL!A1',rows)
 # переходящий остаток пишем ПОСЛЕ основной таблицы (иначе перезатирается)
 carry=['0']+[f'={COLS[k]}{r_bal}' for k in range(11)]
@@ -79,7 +91,7 @@ def whole(sheet):
         'fields':'userEnteredFormat.textFormat.fontFamily,userEnteredFormat.textFormat.fontSize,userEnteredFormat.textFormat.bold,userEnteredFormat.backgroundColor'}}
 def boldrow(sheet,r0):
     return {'repeatCell':{'range':{'sheetId':sheet,'startRowIndex':r0-1,'endRowIndex':r0},'cell':{'userEnteredFormat':{'textFormat':{'bold':True}}},'fields':'userEnteredFormat.textFormat.bold'}}
-reqs=[whole(pnl)]+[boldrow(pnl,rr) for rr in [1,r_inc,r_exphdr,r_exp,r_bal]+subtotals]
+reqs=[whole(pnl)]+[boldrow(pnl,rr) for rr in [1,r_inc,r_exphdr,r_exp,r_savhdr,r_sav,r_bal]+subtotals]
 reqs.append({'updateSheetProperties':{'properties':{'sheetId':pnl,'gridProperties':{'frozenRowCount':1,'frozenColumnCount':1}},'fields':'gridProperties.frozenRowCount,gridProperties.frozenColumnCount'}})
 for t in ('Operations','Loans'):
     if t in ids: reqs+= [whole(ids[t]), boldrow(ids[t],1)]
