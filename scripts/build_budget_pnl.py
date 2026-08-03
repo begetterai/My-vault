@@ -46,8 +46,9 @@ def add(label, cells, year):
 r_prev = add('Остаток с предыдущего месяца', ['']*12, '')
 r_zp   = add('Зарплата',        [sif(m,'Доход','Зарплата') for m in range(1,13)], '=SUM(B{r}:M{r})'.format(r=len(rows)+1))
 r_oth  = add('Прочий доход',     [sif(m,'Доход','Прочий доход') for m in range(1,13)], '=SUM(B{r}:M{r})'.format(r=len(rows)+1))
-r_cred = add('Кредиты получено', [sif(m,'Доход','Кредит') for m in range(1,13)], '=SUM(B{r}:M{r})'.format(r=len(rows)+1))
-r_inc  = add('ИТОГО доход', [f'={c}{r_prev}+{c}{r_zp}+{c}{r_oth}+{c}{r_cred}' for c in COLS], f'=N{r_zp}+N{r_oth}+N{r_cred}')
+r_earn = add('Доход заработанный', [f'={c}{r_zp}+{c}{r_oth}' for c in COLS], f'=N{r_zp}+N{r_oth}')
+r_cred = add('Кредиты получено (в долг)', [sif(m,'Доход','Кредит') for m in range(1,13)], '=SUM(B{r}:M{r})'.format(r=len(rows)+1))
+r_inc  = add('ИТОГО поступления (остаток + заработок + кредит)', [f'={c}{r_prev}+{c}{r_earn}+{c}{r_cred}' for c in COLS], f'=N{r_earn}+N{r_cred}')
 add('', ['']*12, '')
 r_exphdr = add('РАСХОДЫ', ['']*12, '')
 
@@ -77,8 +78,10 @@ sav_end=len(rows)
 r_sav = add('Итого отложено', [f'=SUM({col}{sav_start}:{col}{sav_end})' for col in COLS], f'=SUM(N{sav_start}:N{sav_end})')
 
 add('', ['']*12, '')
-# Остаток = доход − расходы − отложено (свободные деньги, переходят на след. месяц)
-r_bal = add('Остаток', [f'={col}{r_inc}-{col}{r_exp}-{col}{r_sav}' for col in COLS], f'=N{r_inc}-N{r_exp}-N{r_sav}')
+# Остаток (кэш) = все поступления − расходы − отложено; переходит на след. месяц
+r_bal = add('Остаток (кэш, переходит на след. месяц)', [f'={col}{r_inc}-{col}{r_exp}-{col}{r_sav}' for col in COLS], f'=N{r_inc}-N{r_exp}-N{r_sav}')
+# Справочно: результат без заёмных — сколько заработал минус потратил/отложил (минус = живёшь в долг)
+r_net = add('Чистый результат без кредитов (справочно)', [f'={col}{r_earn}-{col}{r_exp}-{col}{r_sav}' for col in COLS], f'=N{r_earn}-N{r_exp}-N{r_sav}')
 put('PnL!A1',rows)
 # переходящий остаток пишем ПОСЛЕ основной таблицы (иначе перезатирается)
 carry=['0']+[f'={COLS[k]}{r_bal}' for k in range(11)]
@@ -91,9 +94,22 @@ def whole(sheet):
         'fields':'userEnteredFormat.textFormat.fontFamily,userEnteredFormat.textFormat.fontSize,userEnteredFormat.textFormat.bold,userEnteredFormat.backgroundColor'}}
 def boldrow(sheet,r0):
     return {'repeatCell':{'range':{'sheetId':sheet,'startRowIndex':r0-1,'endRowIndex':r0},'cell':{'userEnteredFormat':{'textFormat':{'bold':True}}},'fields':'userEnteredFormat.textFormat.bold'}}
-reqs=[whole(pnl)]+[boldrow(pnl,rr) for rr in [1,r_inc,r_exphdr,r_exp,r_savhdr,r_sav,r_bal]+subtotals]
+reqs=[whole(pnl)]+[boldrow(pnl,rr) for rr in [1,r_earn,r_inc,r_exphdr,r_exp,r_savhdr,r_sav,r_bal,r_net]+subtotals]
 reqs.append({'updateSheetProperties':{'properties':{'sheetId':pnl,'gridProperties':{'frozenRowCount':1,'frozenColumnCount':1}},'fields':'gridProperties.frozenRowCount,gridProperties.frozenColumnCount'}})
 for t in ('Operations','Loans'):
     if t in ids: reqs+= [whole(ids[t]), boldrow(ids[t],1)]
+
+# ── Валидация Operations: выпадающие списки на Тип и Категорию (защита от опечаток/утечек) ──
+TYPES=['Доход','Расход','Накопление']
+CATS_ALL=['Зарплата','Прочий доход','Кредит',
+ 'Дом','Машина','Одежда/Обувь','Семья','Гаджеты','Подписки','Подарки','Продукты','Кафе','Развлечение',
+ 'Лечение / Медикаменты','Спортивное питание','Абонемент в зал','БАДы','Массаж / Сауна',
+ 'Обучение','Курение','Оплата кредита','Путешествие','Прочее','Накопления / Подушка','Инвестиции']
+def validation(sheet,col0,values):
+    return {'setDataValidation':{'range':{'sheetId':sheet,'startRowIndex':1,'endRowIndex':1000,'startColumnIndex':col0,'endColumnIndex':col0+1},
+      'rule':{'condition':{'type':'ONE_OF_LIST','values':[{'userEnteredValue':v} for v in values]},'showCustomUi':True,'strict':True}}}
+ops=ids['Operations']
+reqs+= [validation(ops,1,TYPES), validation(ops,2,CATS_ALL)]
+
 api('post',':batchUpdate',json={'requests':reqs})
-print('PnL перестроен. Строк:', len(rows))
+print('PnL перестроен. Строк:', len(rows), '| валидация Тип+Категория добавлена')
