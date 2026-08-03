@@ -10,8 +10,9 @@ thin=Side(style='thin', color='FFBFAF8E')
 BORDER=Border(left=thin,right=thin,top=thin,bottom=thin)
 
 def _fill(c): return PatternFill('solid', fgColor=c)
-def _f(sz,bold=False,italic=False,color=INK,name='Arial'):
-    return Font(name=name,size=sz,bold=bold,italic=italic,color=color)
+def _f(sz=13,bold=False,italic=False,color=INK,name='Times New Roman'):
+    # правило оформления Азиза: Times New Roman, размер 13 (жирный допустим)
+    return Font(name=name,size=13,bold=bold,italic=italic,color=color)
 
 def build_card(spec, path):
     wb=openpyxl.Workbook(); ws=wb.active
@@ -34,18 +35,18 @@ def build_card(spec, path):
     # шапка
     ws.merge_cells(f'A1:F1'); ws.merge_cells(f'G1:L{last_ing}')
     ws.merge_cells('A2:F2')
-    cell('A1',spec['title'],_f(18,bold=True,color=WHITE),NAVY); ws.row_dimensions[1].height=32
+    cell('A1',spec['title'],_f(18,bold=True,color=WHITE),NAVY); ws.row_dimensions[1].height=34
     bar_range(1,last_ing,'GHIJKL')
     cell('G1','МЕСТО ДЛЯ ФОТО ГОТОВОГО БЛЮДА',_f(10,italic=True,color=GRAY),WHITE)
-    cell('A2',f"ВЫХОД: {spec['output']}",_f(11,bold=True),GOLD); ws.row_dimensions[2].height=20
+    cell('A2',f"ВЫХОД: {spec['output']}",_f(11,bold=True),GOLD); ws.row_dimensions[2].height=22
     # заголовок таблицы
     heads=['№','Продукт / ПФ','Ед.','Вес','Нарезка / форма','Примечание']
     for col,h in zip('ABCDEF',heads):
         cell(f'{col}3',h,_f(9,bold=True),CREAM);
-    ws.row_dimensions[3].height=16
+    ws.row_dimensions[3].height=18
     # ингредиенты
     for i,ing in enumerate(ings):
-        r=4+i; ws.row_dimensions[r].height=18
+        r=4+i; ws.row_dimensions[r].height=20
         cell(f'A{r}',ing.get('n',i+1),_f(9))
         cell(f'B{r}',ing['name'],_f(9))
         cell(f'C{r}',ing.get('unit','г'),_f(9))
@@ -58,7 +59,7 @@ def build_card(spec, path):
         ws.merge_cells(f'A{r}:L{r}')
         bar_range(r,r,color=GOLD)
         cell(f'A{r}',title,_f(10,bold=True,color=WHITE),GOLD,align=('left','center'))
-        ws.row_dimensions[r].height=18; r+=1
+        ws.row_dimensions[r].height=20; r+=1
     def line(text):
         nonlocal r
         ws.merge_cells(f'A{r}:L{r}')
