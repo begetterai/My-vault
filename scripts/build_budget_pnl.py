@@ -72,10 +72,10 @@ r_exp = add('Итого расходы', ['='+'+'.join(f'{col}{p}' for p in part
 # Накопления / Инвестиции — отдельный блок ВНЕ расходов (отложенные деньги = не трата, а перевод себе)
 add('', ['']*12, '')
 r_savhdr = add('НАКОПЛЕНИЯ / ИНВЕСТИЦИИ', ['']*12, '')
-sav_start=len(rows)+1
+sav_start=len(rows)+1; sav_row={}
 for c in ['Накопления / Подушка','Инвестиции']:
-    rr=add(c, [sif(m,'Накопление',c) for m in range(1,13)], ''); rows[-1][-1]=f'=SUM(B{rr}:M{rr})'
-sav_end=len(rows)
+    rr=add(c, [sif(m,'Накопление',c) for m in range(1,13)], ''); rows[-1][-1]=f'=SUM(B{rr}:M{rr})'; sav_row[c]=rr
+sav_end=len(rows); r_cushion=sav_row['Накопления / Подушка']
 r_sav = add('Итого отложено', [f'=SUM({col}{sav_start}:{col}{sav_end})' for col in COLS], f'=SUM(N{sav_start}:N{sav_end})')
 
 add('', ['']*12, '')
@@ -118,6 +118,12 @@ print('PnL перестроен. Строк:', len(rows), '| валидация 
 # ============================ ДАШБОРД ============================
 DASH='Дашборд'
 ids={sh['properties']['title']:sh['properties']['sheetId'] for sh in api('get','?fields=sheets.properties')['sheets']}
+# сохраняем введённые пользователем данные (план по категориям, месяц, цель подушки) перед пересборкой
+prev={}
+if DASH in ids:
+    for rrow in api('get',f'/values/{DASH}!A1:B120?valueRenderOption=UNFORMATTED_VALUE').get('values',[]):
+        if rrow and str(rrow[0]).strip():
+            prev[rrow[0]]= rrow[1] if len(rrow)>1 else ''
 if DASH not in ids:
     resp=api('post',':batchUpdate',json={'requests':[{'addSheet':{'properties':{'title':DASH,'index':1}}}]})
     dash_id=resp['replies'][0]['addSheet']['properties']['sheetId']
@@ -128,7 +134,7 @@ def pref(r): return f'=INDEX(PnL!B{r}:M{r},1,$B$2)'   # значение выб�
 D=[]
 def d(*cells): D.append(list(cells)); return len(D)
 d('Личный бюджет — Дашборд')
-d('Месяц (1–12):', 8, '=CHOOSE($B$2,"Январь","Февраль","Март","Апрель","Май","Июнь","Июль","Август","Сентябрь","Октябрь","Ноябрь","Декабрь")')
+d('Месяц (1–12):', prev.get('Месяц (1–12):',8), '=CHOOSE($B$2,"Январь","Февраль","Март","Апрель","Май","Июнь","Июль","Август","Сентябрь","Октябрь","Ноябрь","Декабрь")')
 d('')
 h_metrics=d('КЛЮЧЕВЫЕ МЕТРИКИ (выбранный месяц)')
 m_earn=d('Заработано', pref(r_earn))
@@ -144,7 +150,7 @@ h_tbl=d('Категория','План/мес','Факт','Δ план−фак�
 first_cat=len(D)+1
 for c in exp_order:
     rr=cat_row[c]; row=len(D)+1
-    d(c,'',f'=INDEX(PnL!B{rr}:M{rr},1,$B$2)',f'=B{row}-C{row}',
+    d(c,prev.get(c,''),f'=INDEX(PnL!B{rr}:M{rr},1,$B$2)',f'=B{row}-C{row}',
       f'=IFERROR(C{row}/B{row},"")',f'=IFERROR(C{row}/$B${m_exp},0)',
       f'=IF(AND(B{row}<>"",C{row}>B{row}),"⚠ перерасход","")')
 last_cat=len(D)
@@ -158,14 +164,24 @@ def dynrow(label,r): d(label,*[f'=PnL!{col}{r}' for col in COLS],f'=PnL!N{r}')
 dynrow('Заработано',r_earn); dynrow('Потрачено',r_exp); dynrow('Отложено',r_sav); dynrow('Остаток (кэш)',r_bal)
 r_dnorm=d('Норма сбережений',*[f'=IFERROR(PnL!{col}{r_sav}/PnL!{col}{r_earn},0)' for col in COLS],
           f'=IFERROR(PnL!N{r_sav}/PnL!N{r_earn},0)')
+d('')
+# ── Подушка безопасности: цель (мес расходов × среднемес.расход) и прогресс ──
+h_cush=d('ПОДУШКА БЕЗОПАСНОСТИ')
+r_cmon=d('Цель подушки (мес расходов):', prev.get('Цель подушки (мес расходов):',3))
+r_cavg=d('Среднемесячный расход', f'=IFERROR(PnL!N{r_exp}/COUNTIF(PnL!B{r_exp}:M{r_exp},">0"),0)')
+r_cgoal=d('Цель подушки (сумма)', f'=B{r_cmon}*B{r_cavg}')
+r_csav=d('Накоплено в подушку', f'=PnL!N{r_cushion}')
+r_cprog=d('Прогресс к цели', f'=IFERROR(B{r_csav}/B{r_cgoal},0)')
+r_cleft=d('Осталось накопить', f'=MAX(B{r_cgoal}-B{r_csav},0)')
 put(f'{DASH}!A1',D)
 
 # формат дашборда
 def pctfmt(r0,r1,c0,c1):
     return {'repeatCell':{'range':{'sheetId':dash_id,'startRowIndex':r0,'endRowIndex':r1,'startColumnIndex':c0,'endColumnIndex':c1},
         'cell':{'userEnteredFormat':{'numberFormat':{'type':'PERCENT','pattern':'0.0%'}}},'fields':'userEnteredFormat.numberFormat'}}
-dreqs=[whole(dash_id)]+[boldrow(dash_id,x) for x in [1,h_metrics,h_pf,h_tbl,h_dyn,h_dyn2,r_tot]]
-dreqs+= [pctfmt(r_norm-1,r_norm,1,2), pctfmt(first_cat-1,r_tot,4,6), pctfmt(r_dnorm-1,r_dnorm,1,14)]
+dreqs=[whole(dash_id)]+[boldrow(dash_id,x) for x in [1,h_metrics,h_pf,h_tbl,h_dyn,h_dyn2,r_tot,h_cush,r_cgoal]]
+dreqs+= [pctfmt(r_norm-1,r_norm,1,2), pctfmt(first_cat-1,r_tot,4,6), pctfmt(r_dnorm-1,r_dnorm,1,14),
+         pctfmt(r_cprog-1,r_cprog,1,2)]
 dreqs+= [
  {'updateDimensionProperties':{'range':{'sheetId':dash_id,'dimension':'COLUMNS','startIndex':0,'endIndex':1},'properties':{'pixelSize':240},'fields':'pixelSize'}},
  {'updateDimensionProperties':{'range':{'sheetId':dash_id,'dimension':'COLUMNS','startIndex':1,'endIndex':14},'properties':{'pixelSize':82},'fields':'pixelSize'}},
@@ -174,3 +190,47 @@ dreqs+= [
 ]
 api('post',':batchUpdate',json={'requests':dreqs})
 print('Дашборд собран. Строк:', len(D))
+
+# ============================ ЛИСТ «СЧЕТА» (балансы + сверка) ============================
+ACC='Счета'
+ids={sh['properties']['title']:sh['properties']['sheetId'] for sh in api('get','?fields=sheets.properties')['sheets']}
+prevacc={}
+if ACC in ids:
+    for rrow in api('get',f'/values/{ACC}!A1:B80?valueRenderOption=UNFORMATTED_VALUE').get('values',[]):
+        if rrow and str(rrow[0]).strip(): prevacc[rrow[0]]= rrow[1] if len(rrow)>1 else ''
+    acc_id=ids[ACC]; api('post',f'/values/{ACC}!A1:D80:clear',json={})
+else:
+    resp=api('post',':batchUpdate',json={'requests':[{'addSheet':{'properties':{'title':ACC,'index':2}}}]})
+    acc_id=resp['replies'][0]['addSheet']['properties']['sheetId']
+A=[]
+def a(*c): A.append(list(c)); return len(A)
+a('Личный бюджет — Счета и балансы')
+a('')
+a_hdr=a('Счёт','Баланс (факт, ввести вручную)')
+DEFAULT_ACCS=['Наличные','Карта','Сбережения / вклад','Прочее']
+first_acc=len(A)+1
+for name in DEFAULT_ACCS: a(name, prevacc.get(name,''))
+last_acc=len(A)
+a_tot=a('ИТОГО по счетам', f'=SUM(B{first_acc}:B{last_acc})')
+a('')
+a_cash=a('Остаток по таблице (PnL, кэш выбр. месяца)', f'=INDEX(PnL!B{r_bal}:M{r_bal},1,{DASH}!$B$2)')
+a_diff=a('Расхождение (счета − таблица)', f'=B{a_tot}-B{a_cash}')
+a('')
+a('Если расхождение ≠ 0 — есть неучтённые деньги или траты. Свести к нулю.')
+put(f'{ACC}!A1',A)
+areqs=[whole(acc_id)]+[boldrow(acc_id,x) for x in [1,a_hdr,a_tot,a_cash,a_diff]]
+areqs+= [
+ {'updateDimensionProperties':{'range':{'sheetId':acc_id,'dimension':'COLUMNS','startIndex':0,'endIndex':1},'properties':{'pixelSize':300},'fields':'pixelSize'}},
+ {'updateDimensionProperties':{'range':{'sheetId':acc_id,'dimension':'COLUMNS','startIndex':1,'endIndex':2},'properties':{'pixelSize':160},'fields':'pixelSize'}},
+]
+api('post',':batchUpdate',json={'requests':areqs})
+print('Лист «Счета» собран.')
+
+# ============================ LOANS: связь с погашениями ============================
+# Всего погашено берём из Operations (Расход / «Оплата кредита») — теперь долг считается сам
+put('Loans!G1:H3',[
+ ['Всего получено','=SUMIFS(Loans!$D:$D,Loans!$B:$B,"Получен")'],
+ ['Всего погашено','=SUMIFS(Operations!$D:$D,Operations!$B:$B,"Расход",Operations!$C:$C,"Оплата кредита")'],
+ ['Текущий долг','=H1-H2'],
+])
+print('Loans связан с погашениями (Operations → «Оплата кредита»).')
