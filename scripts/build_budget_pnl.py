@@ -52,18 +52,19 @@ r_inc  = add('ИТОГО поступления (остаток + заработ
 add('', ['']*12, '')
 r_exphdr = add('РАСХОДЫ', ['']*12, '')
 
-subtotals=[]; standalone=[]; num=1
+subtotals=[]; standalone=[]; num=1; cat_row={}; exp_order=[]
 for kind,subname,cats in EXP_STRUCT:
     if kind=='block':
         start=len(rows)+1
         for c in cats:
             rr=add(f'{num}. {c}', [sif(m,'Расход',c) for m in range(1,13)], ''); rows[-1][-1]=f'=SUM(B{rr}:M{rr})'; num+=1
+            cat_row[c]=rr; exp_order.append(c)
         end=len(rows)
         sub=add(subname, [f'=SUM({col}{start}:{col}{end})' for col in COLS], f'=SUM(N{start}:N{end})')
         subtotals.append(sub)
     else:
         c=cats[0]; rr=add(f'{num}. {c}', [sif(m,'Расход',c) for m in range(1,13)], ''); rows[-1][-1]=f'=SUM(B{rr}:M{rr})'; num+=1
-        standalone.append(rr)
+        standalone.append(rr); cat_row[c]=rr; exp_order.append(c)
 
 parts=subtotals+standalone
 r_exp = add('Итого расходы', ['='+'+'.join(f'{col}{p}' for p in parts) for col in COLS], '='+'+'.join(f'N{p}' for p in parts))
@@ -113,3 +114,63 @@ reqs+= [validation(ops,1,TYPES), validation(ops,2,CATS_ALL)]
 
 api('post',':batchUpdate',json={'requests':reqs})
 print('PnL перестроен. Строк:', len(rows), '| валидация Тип+Категория добавлена')
+
+# ============================ ДАШБОРД ============================
+DASH='Дашборд'
+ids={sh['properties']['title']:sh['properties']['sheetId'] for sh in api('get','?fields=sheets.properties')['sheets']}
+if DASH not in ids:
+    resp=api('post',':batchUpdate',json={'requests':[{'addSheet':{'properties':{'title':DASH,'index':1}}}]})
+    dash_id=resp['replies'][0]['addSheet']['properties']['sheetId']
+else:
+    dash_id=ids[DASH]; api('post',f'/values/{DASH}!A1:Z400:clear',json={})
+
+def pref(r): return f'=INDEX(PnL!B{r}:M{r},1,$B$2)'   # значение выбранного месяца из строки PnL
+D=[]
+def d(*cells): D.append(list(cells)); return len(D)
+d('Личный бюджет — Дашборд')
+d('Месяц (1–12):', 8, '=CHOOSE($B$2,"Январь","Февраль","Март","Апрель","Май","Июнь","Июль","Август","Сентябрь","Октябрь","Ноябрь","Декабрь")')
+d('')
+h_metrics=d('КЛЮЧЕВЫЕ МЕТРИКИ (выбранный месяц)')
+m_earn=d('Заработано', pref(r_earn))
+d('Кредиты (в долг)', pref(r_cred))
+m_exp=d('Потрачено', pref(r_exp))
+m_sav=d('Отложено', pref(r_sav))
+d('Остаток (кэш)', pref(r_bal))
+d('Чистый результат без кредитов', pref(r_net))
+r_norm=d('Норма сбережений', f'=IFERROR(B{m_sav}/B{m_earn},0)')
+d('')
+h_pf=d('ПЛАН / ФАКТ ПО КАТЕГОРИЯМ (выбранный месяц)')
+h_tbl=d('Категория','План/мес','Факт','Δ план−факт','Исполнение','Доля в расходах','Статус')
+first_cat=len(D)+1
+for c in exp_order:
+    rr=cat_row[c]; row=len(D)+1
+    d(c,'',f'=INDEX(PnL!B{rr}:M{rr},1,$B$2)',f'=B{row}-C{row}',
+      f'=IFERROR(C{row}/B{row},"")',f'=IFERROR(C{row}/$B${m_exp},0)',
+      f'=IF(AND(B{row}<>"",C{row}>B{row}),"⚠ перерасход","")')
+last_cat=len(D)
+row=len(D)+1
+r_tot=d('ИТОГО',f'=SUM(B{first_cat}:B{last_cat})',pref(r_exp),f'=B{row}-C{row}',
+        f'=IFERROR(C{row}/B{row},"")',f'=IFERROR(C{row}/$B${m_exp},0)','')
+d('')
+h_dyn=d('ДИНАМИКА ПО МЕСЯЦАМ')
+h_dyn2=d('Показатель','Янв','Фев','Мар','Апр','Май','Июн','Июл','Авг','Сен','Окт','Ноя','Дек','Год')
+def dynrow(label,r): d(label,*[f'=PnL!{col}{r}' for col in COLS],f'=PnL!N{r}')
+dynrow('Заработано',r_earn); dynrow('Потрачено',r_exp); dynrow('Отложено',r_sav); dynrow('Остаток (кэш)',r_bal)
+r_dnorm=d('Норма сбережений',*[f'=IFERROR(PnL!{col}{r_sav}/PnL!{col}{r_earn},0)' for col in COLS],
+          f'=IFERROR(PnL!N{r_sav}/PnL!N{r_earn},0)')
+put(f'{DASH}!A1',D)
+
+# формат дашборда
+def pctfmt(r0,r1,c0,c1):
+    return {'repeatCell':{'range':{'sheetId':dash_id,'startRowIndex':r0,'endRowIndex':r1,'startColumnIndex':c0,'endColumnIndex':c1},
+        'cell':{'userEnteredFormat':{'numberFormat':{'type':'PERCENT','pattern':'0.0%'}}},'fields':'userEnteredFormat.numberFormat'}}
+dreqs=[whole(dash_id)]+[boldrow(dash_id,x) for x in [1,h_metrics,h_pf,h_tbl,h_dyn,h_dyn2,r_tot]]
+dreqs+= [pctfmt(r_norm-1,r_norm,1,2), pctfmt(first_cat-1,r_tot,4,6), pctfmt(r_dnorm-1,r_dnorm,1,14)]
+dreqs+= [
+ {'updateDimensionProperties':{'range':{'sheetId':dash_id,'dimension':'COLUMNS','startIndex':0,'endIndex':1},'properties':{'pixelSize':240},'fields':'pixelSize'}},
+ {'updateDimensionProperties':{'range':{'sheetId':dash_id,'dimension':'COLUMNS','startIndex':1,'endIndex':14},'properties':{'pixelSize':82},'fields':'pixelSize'}},
+ {'setDataValidation':{'range':{'sheetId':dash_id,'startRowIndex':1,'endRowIndex':2,'startColumnIndex':1,'endColumnIndex':2},
+    'rule':{'condition':{'type':'ONE_OF_LIST','values':[{'userEnteredValue':str(i)} for i in range(1,13)]},'showCustomUi':True,'strict':True}}},
+]
+api('post',':batchUpdate',json={'requests':dreqs})
+print('Дашборд собран. Строк:', len(D))
