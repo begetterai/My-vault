@@ -16,7 +16,7 @@ ENV:
   NOTION_IDS_JSON      — {tdb,sdb,vdb} (или файл credentials/notion_ids.json)
 Запуск: python3 scripts/romashka_agent.py
 """
-import os, sys, json, time, logging, datetime, urllib.parse
+import os, sys, re, json, time, logging, datetime, urllib.parse
 os.environ.setdefault('REQUESTS_CA_BUNDLE', '/etc/ssl/certs/ca-certificates.crt')
 import requests
 from google.oauth2 import service_account
@@ -303,6 +303,70 @@ def _resolve_date(date_str):
         except Exception: d = None
     d = d or today_local()
     return str(d), d.strftime('%Y-%m')
+
+# ── Быстрый ввод: «Категория Сумма [Дата] [Комментарий]» — без догадок модели ──
+def _quick_map():
+    m={}
+    def add(name, kind, canon):
+        m[name.lower().replace('ё','е')] = (kind, canon)
+    for c in BUDGET_CATS: add(c,'расход',c)
+    for c in INCOME_CATS: add(c,'доход',c)
+    add('Кредит','доход','Кредит')
+    for c in SAVINGS_CATS: add(c,'накопление',c)
+    add('Оплата кредита','погашение','Оплата кредита')
+    # синонимы/сокращения
+    for alias,(k,c) in {
+      'зп':('доход','Зарплата'),'зарплата':('доход','Зарплата'),
+      'подушка':('накопление','Накопления / Подушка'),'накопления':('накопление','Накопления / Подушка'),
+      'инвестиции':('накопление','Инвестиции'),'крипта':('накопление','Инвестиции'),
+      'погашение':('погашение','Оплата кредита'),'погашение кредита':('погашение','Оплата кредита'),
+      'лечение':('расход','Лечение / Медикаменты'),'медикаменты':('расход','Лечение / Медикаменты'),
+      'аптека':('расход','Лечение / Медикаменты'),'врач':('расход','Лечение / Медикаменты'),
+      'зал':('расход','Абонемент в зал'),'абонемент':('расход','Абонемент в зал'),'фитнес':('расход','Абонемент в зал'),
+      'спортпит':('расход','Спортивное питание'),'протеин':('расход','Спортивное питание'),
+      'массаж':('расход','Массаж / Сауна'),'сауна':('расход','Массаж / Сауна'),'баня':('расход','Массаж / Сауна'),
+      'бады':('расход','БАДы'),'витамины':('расход','БАДы'),
+      'одежда':('расход','Одежда/Обувь'),'обувь':('расход','Одежда/Обувь'),
+      'сигареты':('расход','Курение'),'стики':('расход','Курение'),
+      'бензин':('расход','Машина'),'авто':('расход','Машина'),
+      'продукты':('расход','Продукты'),'базар':('расход','Продукты'),
+      'аренда':('расход','Дом'),'коммуналка':('расход','Дом'),
+      'такси':('расход','Прочее'),
+    }.items(): add(alias,k,c)
+    return m
+QUICK_CATS=_quick_map()
+
+def _parse_quick(text):
+    """«Курение 20 20.08.2026 Стики» → (kind, категория, сумма, ISO-дата, комментарий) или None."""
+    t=' '.join(str(text).strip().split())
+    if not t or '\n' in str(text).strip(): return None
+    low=t.lower().replace('ё','е')
+    # самое длинное совпадение имени категории в начале строки
+    best=None
+    for name in QUICK_CATS:
+        if low.startswith(name) and (len(low)==len(name) or not low[len(name)].isalpha()):
+            if best is None or len(name)>len(best): best=name
+    if not best: return None
+    kind,cat=QUICK_CATS[best]
+    rest=t[len(best):].strip(' ,;:-')
+    m=re.match(r'^(\d+(?:[.,]\d+)?)\s*(.*)$', rest, re.S)
+    if not m: return None
+    amount=float(m.group(1).replace(',','.')); rest=m.group(2).strip()
+    # дата: 20.08.2026 / 20.08.26 / 20.08 / 2026-08-20
+    iso=None
+    dm=re.match(r'^(\d{4}-\d{2}-\d{2})\b\s*(.*)$', rest, re.S)
+    if dm:
+        iso=dm.group(1); rest=dm.group(2).strip()
+    else:
+        dm=re.match(r'^(\d{1,2})[./](\d{1,2})(?:[./](\d{2,4}))?\b\s*(.*)$', rest, re.S)
+        if dm:
+            dd,mm=int(dm.group(1)),int(dm.group(2))
+            yy=dm.group(3); year=today_local().year
+            if yy: year=int(yy)+2000 if len(yy)==2 else int(yy)
+            try:
+                iso=str(datetime.date(year,mm,dd)); rest=dm.group(4).strip()
+            except ValueError: return None
+    return kind,cat,amount,iso,rest
 
 def tool_add_budget_entry(amount, category='Прочее', kind='расход', comment='', date=None, **_):
     """Запись дохода/расхода в бюджет (лист Operations). Тип с заглавной, комментарий обязателен."""
@@ -764,7 +828,19 @@ def handle(msg):
             PENDING.pop(ALLOWED, None); send('Отменил, ничего не записал.'); return
         PENDING.pop(ALLOWED, None)  # новое сообщение — сбрасываем ожидание
     if text.strip().lower() in ('/start','/помощь','/help'):
-        send('🌸 Кидай голос или текст: задачи, нарушения, «выручка за неделю», «сколько потратили на аренду в июне», заметки. Действия с записью я делаю после твоего «да».'); return
+        send('🌸 Кидай голос или текст: задачи, нарушения, «выручка за неделю», «сколько потратили на аренду в июне», заметки. Действия с записью я делаю после твоего «да».\n\n'
+             '💵 Быстрый ввод бюджета: <b>Категория Сумма Дата Комментарий</b>\n'
+             'Например: <code>Курение 20 20.08.2026 Стики</code> — запишу сразу, без подтверждения.'); return
+    # Быстрый ввод бюджета — точный формат, пишем сразу (категория задана явно, гадать нечего)
+    q=_parse_quick(text)
+    if q:
+        kind,cat,amount,iso,com=q
+        try:
+            res=tool_add_budget_entry(amount, category=cat, kind=kind, comment=com, date=iso)
+            send(res); audit('quick', text, res)
+        except Exception as e:
+            send(f'⚠️ Не смог записать: {e}')
+        return
     typing()
     try:
         reply=brain([{'role':'user','content':text}])
