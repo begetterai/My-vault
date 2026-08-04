@@ -124,8 +124,10 @@ ids={sh['properties']['title']:sh['properties']['sheetId'] for sh in api('get','
 prev={}
 if DASH in ids:
     for rrow in api('get',f'/values/{DASH}!A1:B120?valueRenderOption=UNFORMATTED_VALUE').get('values',[]):
-        if rrow and str(rrow[0]).strip():
-            prev[rrow[0]]= rrow[1] if len(rrow)>1 else ''
+        # сохраняем ТОЛЬКО числовые значения (план, месяц, цель) — текст (легенда) игнорируем,
+        # иначе описания из легенды (Семья/Продукты/Кафе) затекают в колонку «План»
+        if rrow and str(rrow[0]).strip() and len(rrow)>1 and isinstance(rrow[1],(int,float)):
+            prev[rrow[0]]= rrow[1]
 if DASH not in ids:
     resp=api('post',':batchUpdate',json={'requests':[{'addSheet':{'properties':{'title':DASH,'index':1}}}]})
     dash_id=resp['replies'][0]['addSheet']['properties']['sheetId']
@@ -135,39 +137,32 @@ else:
 def pref(r): return f'=INDEX(PnL!B{r}:M{r},1,$B$2)'   # значение выбранного месяца из строки PnL
 D=[]
 def d(*cells): D.append(list(cells)); return len(D)
-d('Личный бюджет — Дашборд')
-d('Месяц (1–12):', prev.get('Месяц (1–12):',8), '=CHOOSE($B$2,"Январь","Февраль","Март","Апрель","Май","Июнь","Июль","Август","Сентябрь","Октябрь","Ноябрь","Декабрь")')
+
+# 1) Заголовок + селектор месяца
+d('ЛИЧНЫЙ БЮДЖЕТ — ДАШБОРД')
+d('Месяц (1–12):', prev.get('Месяц (1–12):',8),
+  '=CHOOSE($B$2,"Январь","Февраль","Март","Апрель","Май","Июнь","Июль","Август","Сентябрь","Октябрь","Ноябрь","Декабрь")')
 d('')
-h_metrics=d('КЛЮЧЕВЫЕ МЕТРИКИ (выбранный месяц)')
-m_earn=d('Заработано', pref(r_earn))
-d('Кредиты (в долг)', pref(r_cred))
-m_exp=d('Потрачено', pref(r_exp))
-m_sav=d('Отложено + погашение долга', pref(r_sav))
-d('Остаток (кэш)', pref(r_bal))
-d('Чистый результат без кредитов', pref(r_net))
-r_norm=d('Норма сбережений', f'=IFERROR(B{m_sav}/B{m_earn},0)')
+# 2) Итоги месяца — горизонтальная лента KPI (метки + значения)
+h_kpi=d('ИТОГИ МЕСЯЦА')
+kpi_lbl=d('Заработано','Потрачено','Отложено + долг','Остаток (кэш)','Чистый без кредитов','Норма сбереж.')
+kr=len(D)+1
+kpi_val=d(pref(r_earn),pref(r_exp),pref(r_sav),pref(r_bal),pref(r_net),f'=IFERROR(C{kr}/A{kr},0)')
 d('')
-h_pf=d('ПЛАН / ФАКТ ПО КАТЕГОРИЯМ (выбранный месяц)')
-h_tbl=d('Категория','План/мес','Факт','Δ план−факт','Исполнение','Доля в расходах','Статус')
+# 3) План / факт по категориям
+h_pf=d('ПЛАН / ФАКТ ПО КАТЕГОРИЯМ')
+h_tbl=d('Категория','План/мес','Факт','Δ план−факт','Доля','Статус')
 first_cat=len(D)+1
 for c in exp_order:
     rr=cat_row[c]; row=len(D)+1
-    d(c,prev.get(c,''),f'=INDEX(PnL!B{rr}:M{rr},1,$B$2)',f'=B{row}-C{row}',
-      f'=IFERROR(C{row}/B{row},"")',f'=IFERROR(C{row}/$B${m_exp},0)',
+    d(c, prev.get(c,''), f'=INDEX(PnL!B{rr}:M{rr},1,$B$2)', f'=B{row}-C{row}',
+      f'=IFERROR(C{row}/$B${kpi_val},0)',
       f'=IF(AND(B{row}<>"",C{row}>B{row}),"⚠ перерасход","")')
-last_cat=len(D)
-row=len(D)+1
-r_tot=d('ИТОГО',f'=SUM(B{first_cat}:B{last_cat})',pref(r_exp),f'=B{row}-C{row}',
-        f'=IFERROR(C{row}/B{row},"")',f'=IFERROR(C{row}/$B${m_exp},0)','')
+last_cat=len(D); row=len(D)+1
+r_tot=d('ИТОГО', f'=SUM(B{first_cat}:B{last_cat})', pref(r_exp), f'=B{row}-C{row}',
+        f'=IFERROR(C{row}/$B${kpi_val},0)', '')
 d('')
-h_dyn=d('ДИНАМИКА ПО МЕСЯЦАМ')
-h_dyn2=d('Показатель','Янв','Фев','Мар','Апр','Май','Июн','Июл','Авг','Сен','Окт','Ноя','Дек','Год')
-def dynrow(label,r): d(label,*[f'=PnL!{col}{r}' for col in COLS],f'=PnL!N{r}')
-dynrow('Заработано',r_earn); dynrow('Потрачено',r_exp); dynrow('Отложено + долг',r_sav); dynrow('Остаток (кэш)',r_bal)
-r_dnorm=d('Норма сбережений',*[f'=IFERROR(PnL!{col}{r_sav}/PnL!{col}{r_earn},0)' for col in COLS],
-          f'=IFERROR(PnL!N{r_sav}/PnL!N{r_earn},0)')
-d('')
-# ── Подушка безопасности: цель (мес расходов × среднемес.расход) и прогресс ──
+# 4) Подушка безопасности (цель редактируешь ты)
 h_cush=d('ПОДУШКА БЕЗОПАСНОСТИ')
 r_cmon=d('Цель подушки (мес расходов):', prev.get('Цель подушки (мес расходов):',3))
 r_cavg=d('Среднемесячный расход', f'=IFERROR(PnL!N{r_exp}/COUNTIF(PnL!B{r_exp}:M{r_exp},">0"),0)')
@@ -176,6 +171,16 @@ r_csav=d('Накоплено в подушку', f'=PnL!N{r_cushion}')
 r_cprog=d('Прогресс к цели', f'=IFERROR(B{r_csav}/B{r_cgoal},0)')
 r_cleft=d('Осталось накопить', f'=MAX(B{r_cgoal}-B{r_csav},0)')
 d('')
+# 5) Динамика по месяцам
+h_dyn=d('ДИНАМИКА ПО МЕСЯЦАМ')
+h_dyn2=d('Показатель','Янв','Фев','Мар','Апр','Май','Июн','Июл','Авг','Сен','Окт','Ноя','Дек','Год')
+dyn_first=len(D)+1
+def dynrow(label,r): d(label,*[f'=PnL!{col}{r}' for col in COLS],f'=PnL!N{r}')
+dynrow('Заработано',r_earn); dynrow('Потрачено',r_exp); dynrow('Отложено + долг',r_sav); dynrow('Остаток (кэш)',r_bal)
+r_dnorm=d('Норма сбережений',*[f'=IFERROR(PnL!{col}{r_sav}/PnL!{col}{r_earn},0)' for col in COLS],
+          f'=IFERROR(PnL!N{r_sav}/PnL!N{r_earn},0)')
+d('')
+# 6) Легенда
 h_leg=d('ЛЕГЕНДА КАТЕГОРИЙ')
 d('Семья','регулярная помощь родным (разовый подарок → «Подарки»)')
 d('Продукты','еда домой')
@@ -184,19 +189,29 @@ d('Развлечение','досуг без еды')
 d('Погашение кредита','возврат долга — не расход, живёт в зоне «Сбережения и долг»')
 put(f'{DASH}!A1',D)
 
-# формат дашборда
-def pctfmt(r0,r1,c0,c1):
+# ── формат дашборда: рамки, выравнивание, числа/проценты, ширины ──
+def fmt(r0,r1,c0,c1,**uf):
     return {'repeatCell':{'range':{'sheetId':dash_id,'startRowIndex':r0,'endRowIndex':r1,'startColumnIndex':c0,'endColumnIndex':c1},
-        'cell':{'userEnteredFormat':{'numberFormat':{'type':'PERCENT','pattern':'0.0%'}}},'fields':'userEnteredFormat.numberFormat'}}
-# сброс числового формата на обычный (clear чистит значения, но не форматы — иначе тянутся старые %)
-numreset={'repeatCell':{'range':{'sheetId':dash_id,'startRowIndex':0,'endRowIndex':60,'startColumnIndex':0,'endColumnIndex':14},
-    'cell':{'userEnteredFormat':{'numberFormat':{'type':'NUMBER','pattern':'#,##0.##'}}},'fields':'userEnteredFormat.numberFormat'}}
-dreqs=[whole(dash_id),numreset]+[boldrow(dash_id,x) for x in [1,h_metrics,h_pf,h_tbl,h_dyn,h_dyn2,r_tot,h_cush,r_cgoal,h_leg]]
-dreqs+= [pctfmt(r_norm-1,r_norm,1,2), pctfmt(first_cat-1,r_tot,4,6), pctfmt(r_dnorm-1,r_dnorm,1,14),
-         pctfmt(r_cprog-1,r_cprog,1,2)]
-dreqs+= [
- {'updateDimensionProperties':{'range':{'sheetId':dash_id,'dimension':'COLUMNS','startIndex':0,'endIndex':1},'properties':{'pixelSize':240},'fields':'pixelSize'}},
- {'updateDimensionProperties':{'range':{'sheetId':dash_id,'dimension':'COLUMNS','startIndex':1,'endIndex':14},'properties':{'pixelSize':82},'fields':'pixelSize'}},
+        'cell':{'userEnteredFormat':uf},'fields':','.join('userEnteredFormat.'+k for k in uf)}}
+def pct(r0,r1,c0,c1): return fmt(r0,r1,c0,c1,numberFormat={'type':'PERCENT','pattern':'0.0%'})
+def rght(r0,r1,c0,c1): return fmt(r0,r1,c0,c1,horizontalAlignment='RIGHT')
+def box(r0,r1,c0,c1):
+    return {'updateBorders':{'range':{'sheetId':dash_id,'startRowIndex':r0,'endRowIndex':r1,'startColumnIndex':c0,'endColumnIndex':c1},
+        'top':{'style':'SOLID'},'bottom':{'style':'SOLID'},'left':{'style':'SOLID'},'right':{'style':'SOLID'},
+        'innerHorizontal':{'style':'SOLID'},'innerVertical':{'style':'SOLID'}}}
+# деньги: #,##0.00 (нули → «0.00», без хвостовой точки как у #,##0.##); счётчики — целыми
+numreset=fmt(0,80,0,14,numberFormat={'type':'NUMBER','pattern':'#,##0.00'})
+intfmt=lambda r0,r1,c0,c1: fmt(r0,r1,c0,c1,numberFormat={'type':'NUMBER','pattern':'#,##0'})
+dreqs=[whole(dash_id),numreset]
+dreqs+=[boldrow(dash_id,x) for x in [1,h_kpi,kpi_lbl,kpi_val,h_pf,h_tbl,r_tot,h_cush,r_cgoal,h_dyn,h_dyn2,h_leg]]
+dreqs+=[pct(kpi_val-1,kpi_val,5,6), pct(first_cat-1,r_tot,4,5), pct(r_cprog-1,r_cprog,1,2), pct(r_dnorm-1,r_dnorm,1,14)]
+dreqs+=[intfmt(1,2,1,2), intfmt(r_cmon-1,r_cmon,1,2)]  # месяц и «цель (мес)» — целые
+dreqs+=[rght(kpi_val-1,kpi_val,0,6), rght(first_cat-1,r_tot,1,5), rght(r_cmon-1,r_cleft,1,2), rght(dyn_first-1,r_dnorm,1,14)]
+dreqs+=[box(kpi_lbl-1,kpi_val,0,6), box(h_tbl-1,r_tot,0,6), box(r_cmon-1,r_cleft,0,2), box(h_dyn2-1,r_dnorm,0,14)]
+dreqs+=[
+ {'updateDimensionProperties':{'range':{'sheetId':dash_id,'dimension':'COLUMNS','startIndex':0,'endIndex':1},'properties':{'pixelSize':230},'fields':'pixelSize'}},
+ {'updateDimensionProperties':{'range':{'sheetId':dash_id,'dimension':'COLUMNS','startIndex':1,'endIndex':14},'properties':{'pixelSize':92},'fields':'pixelSize'}},
+ {'updateSheetProperties':{'properties':{'sheetId':dash_id,'gridProperties':{'frozenRowCount':2}},'fields':'gridProperties.frozenRowCount'}},
  {'setDataValidation':{'range':{'sheetId':dash_id,'startRowIndex':1,'endRowIndex':2,'startColumnIndex':1,'endColumnIndex':2},
     'rule':{'condition':{'type':'ONE_OF_LIST','values':[{'userEnteredValue':str(i)} for i in range(1,13)]},'showCustomUi':True,'strict':True}}},
 ]
