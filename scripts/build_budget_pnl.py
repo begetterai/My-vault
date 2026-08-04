@@ -113,6 +113,9 @@ def validation(sheet,col0,values):
       'rule':{'condition':{'type':'ONE_OF_LIST','values':[{'userEnteredValue':v} for v in values]},'showCustomUi':True,'strict':True}}}
 ops=ids['Operations']
 reqs+= [validation(ops,1,TYPES), validation(ops,2,CATS_ALL)]
+# сортировка журнала по дате (по возрастанию) — операции по датам, а не по порядку ввода
+reqs.append({'sortRange':{'range':{'sheetId':ops,'startRowIndex':1,'startColumnIndex':0,'endColumnIndex':5},
+    'sortSpecs':[{'dimensionIndex':0,'sortOrder':'ASCENDING'}]}})
 
 api('post',':batchUpdate',json={'requests':reqs})
 print('PnL перестроен. Строк:', len(rows), '| валидация Тип+Категория добавлена')

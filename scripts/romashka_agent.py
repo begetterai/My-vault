@@ -287,6 +287,10 @@ def _budget_append(tab, row):
     r = SHEETS.post(f'https://sheets.googleapis.com/v4/spreadsheets/{BUDGET_SS}/values/{tab}:append'
         '?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS', json={'values':[row]}, timeout=30)
     r.raise_for_status()
+    if tab.startswith('Operations'):     # держим журнал отсортированным по дате, а не по порядку ввода
+        SHEETS.post(f'https://sheets.googleapis.com/v4/spreadsheets/{BUDGET_SS}:batchUpdate',
+            json={'requests':[{'sortRange':{'range':{'sheetId':0,'startRowIndex':1,'startColumnIndex':0,'endColumnIndex':5},
+                'sortSpecs':[{'dimensionIndex':0,'sortOrder':'ASCENDING'}]}}]}, timeout=30).raise_for_status()
 _cap = lambda x: (x[:1].upper()+x[1:]) if x else x
 _money = lambda n: f'{int(round(float(n))):,}'.replace(',',' ')
 def _resolve_date(date_str):
