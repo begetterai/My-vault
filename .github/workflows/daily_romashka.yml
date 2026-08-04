@@ -2,8 +2,8 @@ name: Ромашка — Ежедневный дайджест
 
 on:
   schedule:
-    # 09:00 Душанбе = 04:00 UTC (UTC+5)
-    - cron: '0 4 * * *'
+    # 06:00 Душанбе = 01:00 UTC (UTC+5)
+    - cron: '0 1 * * *'
   workflow_dispatch:
     # Ручной запуск из GitHub Actions
 

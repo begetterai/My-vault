@@ -294,7 +294,10 @@ def _budget_append(tab, row):
             json={'requests':[{'sortRange':{'range':{'sheetId':gid,'startRowIndex':1,'startColumnIndex':0,'endColumnIndex':5},
                 'sortSpecs':[{'dimensionIndex':0,'sortOrder':'ASCENDING'}]}}]}, timeout=30).raise_for_status()
 _cap = lambda x: (x[:1].upper()+x[1:]) if x else x
-_money = lambda n: f'{int(round(float(n))):,}'.replace(',',' ')
+def _money(n):
+    """Сумма для показа: целые — без дробей, дробные — как есть (не округляем, чтобы не врать)."""
+    v=float(n)
+    return f'{int(v):,}'.replace(',',' ') if v.is_integer() else f'{v:,.2f}'.replace(',',' ')
 def _resolve_date(date_str):
     """Дата операции: переданная YYYY-MM-DD или сегодня. Возвращает (дата, месяц)."""
     d = None
@@ -830,17 +833,18 @@ def handle(msg):
     if text.strip().lower() in ('/start','/помощь','/help'):
         send('🌸 Кидай голос или текст: задачи, нарушения, «выручка за неделю», «сколько потратили на аренду в июне», заметки. Действия с записью я делаю после твоего «да».\n\n'
              '💵 Быстрый ввод бюджета: <b>Категория Сумма Дата Комментарий</b>\n'
-             'Например: <code>Курение 20 20.08.2026 Стики</code> — запишу сразу, без подтверждения.'); return
-    # Быстрый ввод бюджета — точный формат, пишем сразу (категория задана явно, гадать нечего)
+             'Например: <code>Курение 20 20.08.2026 Стики</code> — покажу и запишу после «да».'); return
+    # Быстрый ввод бюджета — точный формат; категория задана явно, но пишем после «да»
     q=_parse_quick(text)
     if q:
         kind,cat,amount,iso,com=q
-        try:
-            res=tool_add_budget_entry(amount, category=cat, kind=kind, comment=com, date=iso)
-            send(res); audit('quick', text, res)
-        except Exception as e:
-            send(f'⚠️ Не смог записать: {e}')
-        return
+        amt_s = str(int(amount)) if float(amount).is_integer() else str(amount)
+        args={'amount':amt_s,'category':cat,'kind':kind,'comment':com}
+        if iso: args['date']=iso
+        PENDING[ALLOWED]=[('add_budget_entry',args)]
+        when = f' · {iso}' if iso else ' · сегодня'
+        send(f'{describe_action("add_budget_entry",args)}{when}\n\nЗаписать? (да/нет)')
+        audit('quick', text, 'ожидает подтверждения'); return
     typing()
     try:
         reply=brain([{'role':'user','content':text}])
