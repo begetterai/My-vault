@@ -28,15 +28,13 @@ def sif(m, kind, cat):
     return (f'=SUMIFS(Operations!$D:$D,Operations!$A:$A,">="&DATE(2026,{m},1),'
             f'Operations!$A:$A,"<"&DATE(2026,{m}+1,1),Operations!$B:$B,"{kind}",Operations!$C:$C,"{cat}")')
 
-# структура расходов: ('block', подытог-имя, [категории]) или ('single', None, [категория])
+# структура расходов: блоки названы по смыслу (сверху обязательное, снизу хотелки)
+# «Оплата кредита» вынесена из расходов в зону «Сбережения и долг» (это не потребление)
 EXP_STRUCT=[
- ('block','Итого блок 1', ['Дом','Машина','Одежда/Обувь','Семья','Гаджеты','Подписки','Подарки']),
- ('block','Итого блок 2', ['Продукты','Кафе','Развлечение']),
- ('block','Итого Здоровье / Тело', ['Лечение / Медикаменты','Спортивное питание','Абонемент в зал','БАДы','Массаж / Сауна']),
- ('single',None,['Обучение']),
- ('single',None,['Курение']),
- ('single',None,['Оплата кредита']),
- ('single',None,['Путешествие']),
+ ('block','Итого — Обязательное / Быт', ['Дом','Машина','Подписки','Семья']),
+ ('block','Итого — Еда', ['Продукты','Кафе']),
+ ('block','Итого — Здоровье / Тело', ['Лечение / Медикаменты','Спортивное питание','Абонемент в зал','БАДы','Массаж / Сауна']),
+ ('block','Итого — Хотелки / Досуг', ['Одежда/Обувь','Гаджеты','Подарки','Развлечение','Путешествие','Обучение','Курение']),
  ('single',None,['Прочее']),
 ]
 
@@ -69,14 +67,18 @@ for kind,subname,cats in EXP_STRUCT:
 parts=subtotals+standalone
 r_exp = add('Итого расходы', ['='+'+'.join(f'{col}{p}' for p in parts) for col in COLS], '='+'+'.join(f'N{p}' for p in parts))
 
-# Накопления / Инвестиции — отдельный блок ВНЕ расходов (отложенные деньги = не трата, а перевод себе)
+# Сбережения и долг — ВНЕ расходов (накопления = перевод себе; погашение = уменьшение долга; оба не потребление)
 add('', ['']*12, '')
-r_savhdr = add('НАКОПЛЕНИЯ / ИНВЕСТИЦИИ', ['']*12, '')
+r_savhdr = add('СБЕРЕЖЕНИЯ И ДОЛГ', ['']*12, '')
+# (метка в PnL, тип в Operations, категория в Operations)
+SAV_STRUCT=[('Накопления / Подушка','Накопление','Накопления / Подушка'),
+            ('Инвестиции','Накопление','Инвестиции'),
+            ('Погашение кредита','Погашение','Оплата кредита')]
 sav_start=len(rows)+1; sav_row={}
-for c in ['Накопления / Подушка','Инвестиции']:
-    rr=add(c, [sif(m,'Накопление',c) for m in range(1,13)], ''); rows[-1][-1]=f'=SUM(B{rr}:M{rr})'; sav_row[c]=rr
+for label,kind,opcat in SAV_STRUCT:
+    rr=add(label, [sif(m,kind,opcat) for m in range(1,13)], ''); rows[-1][-1]=f'=SUM(B{rr}:M{rr})'; sav_row[label]=rr
 sav_end=len(rows); r_cushion=sav_row['Накопления / Подушка']
-r_sav = add('Итого отложено', [f'=SUM({col}{sav_start}:{col}{sav_end})' for col in COLS], f'=SUM(N{sav_start}:N{sav_end})')
+r_sav = add('Итого — сбережения и долг', [f'=SUM({col}{sav_start}:{col}{sav_end})' for col in COLS], f'=SUM(N{sav_start}:N{sav_end})')
 
 add('', ['']*12, '')
 # Остаток (кэш) = все поступления − расходы − отложено; переходит на след. месяц
@@ -101,7 +103,7 @@ for t in ('Operations','Loans'):
     if t in ids: reqs+= [whole(ids[t]), boldrow(ids[t],1)]
 
 # ── Валидация Operations: выпадающие списки на Тип и Категорию (защита от опечаток/утечек) ──
-TYPES=['Доход','Расход','Накопление']
+TYPES=['Доход','Расход','Накопление','Погашение']
 CATS_ALL=['Зарплата','Прочий доход','Кредит',
  'Дом','Машина','Одежда/Обувь','Семья','Гаджеты','Подписки','Подарки','Продукты','Кафе','Развлечение',
  'Лечение / Медикаменты','Спортивное питание','Абонемент в зал','БАДы','Массаж / Сауна',
@@ -140,7 +142,7 @@ h_metrics=d('КЛЮЧЕВЫЕ МЕТРИКИ (выбранный месяц)')
 m_earn=d('Заработано', pref(r_earn))
 d('Кредиты (в долг)', pref(r_cred))
 m_exp=d('Потрачено', pref(r_exp))
-m_sav=d('Отложено', pref(r_sav))
+m_sav=d('Отложено + погашение долга', pref(r_sav))
 d('Остаток (кэш)', pref(r_bal))
 d('Чистый результат без кредитов', pref(r_net))
 r_norm=d('Норма сбережений', f'=IFERROR(B{m_sav}/B{m_earn},0)')
@@ -161,7 +163,7 @@ d('')
 h_dyn=d('ДИНАМИКА ПО МЕСЯЦАМ')
 h_dyn2=d('Показатель','Янв','Фев','Мар','Апр','Май','Июн','Июл','Авг','Сен','Окт','Ноя','Дек','Год')
 def dynrow(label,r): d(label,*[f'=PnL!{col}{r}' for col in COLS],f'=PnL!N{r}')
-dynrow('Заработано',r_earn); dynrow('Потрачено',r_exp); dynrow('Отложено',r_sav); dynrow('Остаток (кэш)',r_bal)
+dynrow('Заработано',r_earn); dynrow('Потрачено',r_exp); dynrow('Отложено + долг',r_sav); dynrow('Остаток (кэш)',r_bal)
 r_dnorm=d('Норма сбережений',*[f'=IFERROR(PnL!{col}{r_sav}/PnL!{col}{r_earn},0)' for col in COLS],
           f'=IFERROR(PnL!N{r_sav}/PnL!N{r_earn},0)')
 d('')
@@ -173,13 +175,23 @@ r_cgoal=d('Цель подушки (сумма)', f'=B{r_cmon}*B{r_cavg}')
 r_csav=d('Накоплено в подушку', f'=PnL!N{r_cushion}')
 r_cprog=d('Прогресс к цели', f'=IFERROR(B{r_csav}/B{r_cgoal},0)')
 r_cleft=d('Осталось накопить', f'=MAX(B{r_cgoal}-B{r_csav},0)')
+d('')
+h_leg=d('ЛЕГЕНДА КАТЕГОРИЙ')
+d('Семья','регулярная помощь родным (разовый подарок → «Подарки»)')
+d('Продукты','еда домой')
+d('Кафе','еда вне дома')
+d('Развлечение','досуг без еды')
+d('Погашение кредита','возврат долга — не расход, живёт в зоне «Сбережения и долг»')
 put(f'{DASH}!A1',D)
 
 # формат дашборда
 def pctfmt(r0,r1,c0,c1):
     return {'repeatCell':{'range':{'sheetId':dash_id,'startRowIndex':r0,'endRowIndex':r1,'startColumnIndex':c0,'endColumnIndex':c1},
         'cell':{'userEnteredFormat':{'numberFormat':{'type':'PERCENT','pattern':'0.0%'}}},'fields':'userEnteredFormat.numberFormat'}}
-dreqs=[whole(dash_id)]+[boldrow(dash_id,x) for x in [1,h_metrics,h_pf,h_tbl,h_dyn,h_dyn2,r_tot,h_cush,r_cgoal]]
+# сброс числового формата на обычный (clear чистит значения, но не форматы — иначе тянутся старые %)
+numreset={'repeatCell':{'range':{'sheetId':dash_id,'startRowIndex':0,'endRowIndex':60,'startColumnIndex':0,'endColumnIndex':14},
+    'cell':{'userEnteredFormat':{'numberFormat':{'type':'NUMBER','pattern':'#,##0.##'}}},'fields':'userEnteredFormat.numberFormat'}}
+dreqs=[whole(dash_id),numreset]+[boldrow(dash_id,x) for x in [1,h_metrics,h_pf,h_tbl,h_dyn,h_dyn2,r_tot,h_cush,r_cgoal,h_leg]]
 dreqs+= [pctfmt(r_norm-1,r_norm,1,2), pctfmt(first_cat-1,r_tot,4,6), pctfmt(r_dnorm-1,r_dnorm,1,14),
          pctfmt(r_cprog-1,r_cprog,1,2)]
 dreqs+= [
@@ -230,7 +242,7 @@ print('Лист «Счета» собран.')
 # Всего погашено берём из Operations (Расход / «Оплата кредита») — теперь долг считается сам
 put('Loans!G1:H3',[
  ['Всего получено','=SUMIFS(Loans!$D:$D,Loans!$B:$B,"Получен")'],
- ['Всего погашено','=SUMIFS(Operations!$D:$D,Operations!$B:$B,"Расход",Operations!$C:$C,"Оплата кредита")'],
+ ['Всего погашено','=SUMIFS(Operations!$D:$D,Operations!$B:$B,"Погашение",Operations!$C:$C,"Оплата кредита")'],
  ['Текущий долг','=H1-H2'],
 ])
 print('Loans связан с погашениями (Operations → «Оплата кредита»).')
