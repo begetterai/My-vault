@@ -547,6 +547,40 @@ tr.total td{border-top:2px solid var(--ink);border-bottom:none;
 footer{background:var(--navy);color:var(--on-navy-dim);padding:34px 0;
   font-size:13px;line-height:1.6}
 footer b{color:var(--on-navy)}
+
+/* ── Печать / PDF ── */
+@media print{
+  *{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  @page{size:A4 portrait;margin:12mm 10mm}
+  body{font-size:10.5pt;line-height:1.5}
+  .progress{display:none}
+  .wrap{max-width:100%;padding:0}
+  .cover{padding:30mm 10mm 14mm;page-break-after:always;
+    min-height:268mm;display:flex;flex-direction:column;justify-content:center}
+  .cover h1{font-size:32pt}
+  .cover .lead{font-size:11.5pt}
+  .kpis{margin-top:14mm;grid-template-columns:repeat(5,1fr)}
+  .kpi{padding:12px 10px}
+  .kpi-label{font-size:6.6pt;letter-spacing:.05em;margin-bottom:6px}
+  .kpi-value{font-size:14pt}
+  .kpi-sub{font-size:7.2pt;line-height:1.35;margin-top:5px}
+  section{padding:8mm 0;border-bottom:none;page-break-inside:auto}
+  .sec-head{page-break-after:avoid}
+  .sec-head h2{font-size:18pt}
+  .sec-lead{page-break-after:avoid;page-break-inside:avoid;font-size:10.5pt;margin-bottom:6mm}
+  p,li{orphans:3;widows:3}
+  .card,.problem,.sol,.win,.notes,.pull,.tl-item,table,.wins{page-break-inside:avoid}
+  .card{margin-bottom:6mm}
+  .chart{min-width:0}
+  .chart-scroll,.tbl-scroll{overflow:visible}
+  table{font-size:9.5pt;min-width:0}
+  th,td{padding:5px 7px}
+  .problem{margin-bottom:5mm}
+  .problem-text{font-size:10pt}
+  .timeline{gap:6mm}
+  footer{page-break-before:avoid}
+}
+
 </style>
 <div class="progress" id="prog"></div>
 ''')
