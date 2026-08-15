@@ -92,9 +92,9 @@ def body():
     n = 0
     for name, items in BLOCKS:
         h.append(f'<p style="font-size:13pt"><b>{name}</b></p>')
-        h.append('<table><tr><th class="num">№</th><th>Что проверить</th>'
-                 '<th style="width:17%">Норматив</th><th class="markw">Отметка</th>'
-                 '<th class="mark">Фото</th><th style="width:16%">Комментарий</th></tr>')
+        h.append('<table><tr><th class="num">№</th><th class="what">Что проверить</th>'
+                 '<th class="norm">Норматив</th><th class="markw">Отм.</th>'
+                 '<th class="mark">Фото</th><th class="cmt">Комментарий</th></tr>')
         for text, norm, photo in items:
             n += 1
             h.append(f'<tr><td class="num">{n}</td><td>{text}</td>'

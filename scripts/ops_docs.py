@@ -45,9 +45,12 @@ th, td { border: 1px solid #000; padding: 2.5pt 5pt; vertical-align: top;
 th { font-weight: bold; text-align: left; }
 .meta td, .meta th { font-size: 11.5pt; padding: 3pt 6pt; }
 .meta th { width: 27%; }
-.num  { text-align: center; width: 6%; }
-.mark { text-align: center; width: 9%; }
-.markw{ text-align: center; width: 13%; }
+.num  { text-align: center; width: 5%; }
+.what { width: 38%; }
+.norm { width: 15%; font-size: 11pt; }
+.cmt  { width: 22%; }
+.mark { text-align: center; width: 10%; }
+.markw{ text-align: center; width: 10%; }
 .small{ font-size: 11pt; }
 .note { font-size: 11.5pt; font-style: italic; }
 .sign { margin-top: 9pt; font-size: 12pt; }
