@@ -3,7 +3,8 @@
 чтобы утвердить вид один раз для всех 87 документов системы."""
 import sys, datetime
 sys.path.insert(0, '/home/user/My-vault/scripts')
-from ops_docs import session, build_html, put_doc, folder_by_name, enforce_font
+from ops_docs import (session, build_html, put_doc, folder_by_name,
+                      enforce_font, add_footer, footer_text)
 
 ROOT = '1cSLEkOXikhTv0g6lPxZ31xJca1Yu-q43'
 TODAY = datetime.date.today()
@@ -108,6 +109,7 @@ def main():
     name = '00-FRM-00 — ТЕСТ: эталон оформления'
     fid, act = put_doc(s, name, folder, html)
     n = enforce_font(s, fid)
+    add_footer(s, fid, footer_text(META))
     print(f'{name} — {act}, восстановлено жирных фрагментов: {n}')
     print(f'https://docs.google.com/document/d/{fid}')
     return fid

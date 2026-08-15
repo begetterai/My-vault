@@ -3,7 +3,7 @@
 import sys, datetime
 sys.path.insert(0, '/home/user/My-vault/scripts')
 from ops_docs import (session, build_html, put_doc, folder_by_name,
-                      registry_update, enforce_font, DRIVE_ID)
+                      registry_update, enforce_font, add_footer, footer_text, DRIVE_ID)
 
 ROOT = '1cSLEkOXikhTv0g6lPxZ31xJca1Yu-q43'          # 08_ОПЕРАЦИИ (Система документов 2026)
 REG  = '1TzB9gjpJvj_ziBwKdVuOhfKezMVsdXzeLxQMJWz-cQk'
@@ -135,6 +135,7 @@ def main():
     name = '03-CL-01 — Открытие смены (v1.0)'
     fid, act = put_doc(s, name, folder, html)
     n_style = enforce_font(s, fid)          # Times New Roman по всему документу
+    add_footer(s, fid, footer_text(META))   # колонтитул на каждой странице
     link = f'https://docs.google.com/document/d/{fid}'
     registry_update(s, REG, '03-CL-01', status='Черновик', version='v1.0',
                     date=META['date'], review=META['review'], link=link)

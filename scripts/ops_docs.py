@@ -190,6 +190,48 @@ def enforce_font(s, doc_id, family='Times New Roman'):
     return len(bold_ranges)
 
 
+def add_footer(s, doc_id, text):
+    """Колонтитул внизу каждой страницы: код · название · версия.
+    Через HTML не задаётся — только Docs API."""
+    d = s.get(f'https://docs.googleapis.com/v1/documents/{doc_id}', timeout=30).json()
+    fid = None
+    for k, v in (d.get('footers') or {}).items():
+        fid = k
+        break
+    if not fid:
+        r = s.post(f'https://docs.googleapis.com/v1/documents/{doc_id}:batchUpdate',
+                   json={'requests': [{'createFooter': {'type': 'DEFAULT'}}]}, timeout=30)
+        r.raise_for_status()
+        fid = r.json()['replies'][0]['createFooter']['footerId']
+    else:
+        # очистить старое содержимое колонтитула
+        d2 = s.get(f'https://docs.googleapis.com/v1/documents/{doc_id}', timeout=30).json()
+        cont = d2['footers'][fid]['content']
+        end = max(e.get('endIndex', 1) for e in cont)
+        if end > 2:
+            s.post(f'https://docs.googleapis.com/v1/documents/{doc_id}:batchUpdate',
+                   json={'requests': [{'deleteContentRange': {'range': {
+                       'segmentId': fid, 'startIndex': 1, 'endIndex': end - 1}}}]},
+                   timeout=30).raise_for_status()
+    reqs = [
+      {'insertText': {'location': {'segmentId': fid, 'index': 0}, 'text': text}},
+      {'updateTextStyle': {
+        'range': {'segmentId': fid, 'startIndex': 0, 'endIndex': len(text)},
+        'textStyle': {'weightedFontFamily': {'fontFamily': 'Times New Roman'},
+                      'fontSize': {'magnitude': 9, 'unit': 'PT'},
+                      'foregroundColor': {'color': {'rgbColor': {'red': .35, 'green': .35, 'blue': .35}}}},
+        'fields': 'weightedFontFamily,fontSize,foregroundColor'}},
+    ]
+    s.post(f'https://docs.googleapis.com/v1/documents/{doc_id}:batchUpdate',
+           json={'requests': reqs}, timeout=30).raise_for_status()
+    return fid
+
+
+def footer_text(meta):
+    """Единый текст колонтитула."""
+    return f"{meta['code']} · {meta['title']} · {meta.get('version','v1.0')}"
+
+
 def registry_update(s, sheet_id, code, status=None, version=None,
                     date=None, review=None, link=None):
     """Обновить строку документа в реестре по коду."""
