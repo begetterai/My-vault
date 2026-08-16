@@ -159,7 +159,13 @@ def main():
     seen = existing_keys(session)
     new_rows = []
 
+    today_str = str(today)
     for date_str in date_range(date_from, date_to):
+        # НЕ пишем текущий день: он ещё не закрыт, попадёт неполная выручка,
+        # а при следующем запуске строка будет пропущена как «уже есть».
+        if date_str >= today_str:
+            print(f'  Пропускаю {date_str} — день ещё не закрыт')
+            continue
         for loc, token in LOCATIONS.items():
             key = f'{date_str}|{loc}'
             if key in seen:
