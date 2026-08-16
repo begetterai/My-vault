@@ -335,6 +335,11 @@ def _quick_map():
       'продукты':('расход','Продукты'),'базар':('расход','Продукты'),
       'аренда':('расход','Дом'),'коммуналка':('расход','Дом'),
       'такси':('расход','Прочее'),
+      'парковка':('расход','Машина'),'оплата парковка':('расход','Машина'),
+      'вода':('расход','Продукты'),'вода с магазина':('расход','Продукты'),
+      'еда':('расход','Продукты'),'еда с магазина':('расход','Продукты'),
+      'стройматериал':('расход','Дом'),'стройматериалы':('расход','Дом'),
+      'помощь брату':('расход','Семья'),'помощь родителям':('расход','Семья'),
     }.items(): add(alias,k,c)
     return m
 QUICK_CATS=_quick_map()
@@ -352,16 +357,19 @@ def _parse_quick(text):
     if not best: return None
     kind,cat=QUICK_CATS[best]
     rest=t[len(best):].strip(' ,;:-')
-    m=re.match(r'^(\d+(?:[.,]\d+)?)\s*(.*)$', rest, re.S)
+    # сумма — первое число в остатке (не обязательно сразу после категории)
+    m=re.search(r'(\d+(?:[.,]\d+)?)', rest)
     if not m: return None
-    amount=float(m.group(1).replace(',','.')); rest=m.group(2).strip()
-    # дата: 20.08.2026 / 20.08.26 / 20.08 / 2026-08-20
+    before=rest[:m.start()].strip(' ,;:-')      # текст между категорией и суммой → в комментарий
+    amount=float(m.group(1).replace(',','.'))
+    rest=rest[m.end():].strip()
+    # дата: 20.08.2026 / 20.08.26 / 20.08 / 2026-08-20, разделитель . / ,
     iso=None
     dm=re.match(r'^(\d{4}-\d{2}-\d{2})\b\s*(.*)$', rest, re.S)
     if dm:
         iso=dm.group(1); rest=dm.group(2).strip()
     else:
-        dm=re.match(r'^(\d{1,2})[./](\d{1,2})(?:[./](\d{2,4}))?\b\s*(.*)$', rest, re.S)
+        dm=re.match(r'^(\d{1,2})[./,](\d{1,2})(?:[./,](\d{2,4}))?\b\s*(.*)$', rest, re.S)
         if dm:
             dd,mm=int(dm.group(1)),int(dm.group(2))
             yy=dm.group(3); year=today_local().year
@@ -369,7 +377,30 @@ def _parse_quick(text):
             try:
                 iso=str(datetime.date(year,mm,dd)); rest=dm.group(4).strip()
             except ValueError: return None
-    return kind,cat,amount,iso,rest
+    # комментарий: текст до суммы + хвост после даты, без мусора
+    com=" ".join(x for x in (before, rest) if x).strip(' ,;:-.')
+    com=re.sub(r'^\W+|\W+$', '', com)
+    return kind,cat,amount,iso,com
+
+def _parse_quick_lines(text):
+    """Многострочный быстрый ввод: разбирает КАЖДУЮ строку отдельно.
+    Возвращает (список разобранных операций, список неразобранных строк).
+    Нужно, чтобы пачка операций задним числом не терялась в модели."""
+    lines = [l.strip() for l in str(text).splitlines() if l.strip()]
+    if len(lines) < 2:
+        return [], []
+    ok, bad = [], []
+    for ln in lines:
+        q = _parse_quick(ln)
+        if q:
+            ok.append(q)
+        else:
+            bad.append(ln)
+    # считаем пачкой, только если разобралось большинство строк
+    if len(ok) < 2 or len(ok) < len(lines) * 0.5:
+        return [], []
+    return ok, bad
+
 
 def tool_add_budget_entry(amount, category='Прочее', kind='расход', comment='', date=None, **_):
     """Запись дохода/расхода в бюджет (лист Operations). Тип с заглавной, комментарий обязателен."""
@@ -829,11 +860,32 @@ def handle(msg):
             r='\n'.join(res); send(r); audit('confirm', text, r); return
         if low in DENY:
             PENDING.pop(ALLOWED, None); send('Отменил, ничего не записал.'); return
-        PENDING.pop(ALLOWED, None)  # новое сообщение — сбрасываем ожидание
+        dropped = PENDING.pop(ALLOWED, None)  # новое сообщение — сбрасываем ожидание
+        if dropped:
+            send(f'⚠️ Предыдущая запись НЕ сохранена — не было «да». Отменено: {len(dropped)} операц.')
     if text.strip().lower() in ('/start','/помощь','/help'):
         send('🌸 Кидай голос или текст: задачи, нарушения, «выручка за неделю», «сколько потратили на аренду в июне», заметки. Действия с записью я делаю после твоего «да».\n\n'
              '💵 Быстрый ввод бюджета: <b>Категория Сумма Дата Комментарий</b>\n'
              'Например: <code>Курение 20 20.08.2026 Стики</code> — покажу и запишу после «да».'); return
+    # Быстрый ввод пачкой: несколько операций, каждая своей строкой
+    multi, bad = _parse_quick_lines(text)
+    if multi:
+        acts, lines = [], []
+        for kind,cat,amount,iso,com in multi:
+            amt_s = str(int(amount)) if float(amount).is_integer() else str(amount)
+            a={'amount':amt_s,'category':cat,'kind':kind,'comment':com}
+            if iso: a['date']=iso
+            acts.append(('add_budget_entry',a))
+            when = iso if iso else 'сегодня'
+            lines.append(f'{describe_action("add_budget_entry",a)} · {when}')
+        PENDING[ALLOWED]=acts
+        msg=f'❓ Подтверди — {len(acts)} операц.:\n\n' + '\n'.join(lines)
+        if bad:
+            msg += '\n\n⚠️ НЕ РАСПОЗНАЛ (не запишу):\n' + '\n'.join('· '+b[:60] for b in bad)
+        send(msg + '\n\nОтветь «да» или «нет».')
+        audit('quick-multi', text, f'ожидает подтверждения: {len(acts)} шт, не распознано {len(bad)}')
+        return
+
     # Быстрый ввод бюджета — точный формат; категория задана явно, но пишем после «да»
     q=_parse_quick(text)
     if q:
