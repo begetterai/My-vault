@@ -1,0 +1,179 @@
+#!/usr/bin/env python3
+"""Приём материалов Азиза в систему документов.
+
+Азиз присылает файлы (docx, плакаты, скриншоты) — они складываются на диск
+в «Источники», привязываются к строкам реестра, а чего в реестре нет — заводится
+новой строкой со статусом «Предложено». Сами документы тут НЕ собираются:
+это только приёмка, чтобы ничего не потерялось и не расползлось.
+
+Скрипт идемпотентный: повторный запуск не плодит дубли.
+"""
+import sys, json, os, mimetypes
+sys.path.insert(0, '/home/user/My-vault/scripts')
+from ops_docs import session, find, DRIVE_ID
+
+ROOT = '1cSLEkOXikhTv0g6lPxZ31xJca1Yu-q43'      # 08_ОПЕРАЦИИ (Система документов 2026)
+REG = '1TzB9gjpJvj_ziBwKdVuOhfKezMVsdXzeLxQMJWz-cQk'
+UP = '/root/.claude/uploads/606dd1b1-a624-5ef2-a06e-c6a894e680ba'
+
+# файл на диске → (имя в Drive, код документа в реестре)
+FILES = [
+    ('0fe9eb56-______________________________________.docx',
+     'ИСТОЧНИК — Стандарт поддержания порядка на станции.docx', '04-SOP-04'),
+    ('43f2054d-________________________________.docx',
+     'ИСТОЧНИК — Стандарт маркировки ПФ и товаров.docx', '04-POL-01'),
+    ('4ff34e1e-_______________________________________.docx',
+     'ИСТОЧНИК — Стандарт чистоты теплового оборудования.docx', '04-SOP-02'),
+    ('bc63cf29-_______________________________.docx',
+     'ИСТОЧНИК — HACCP и пищевая безопасность.docx', '04-POL-04'),
+    ('d12383f0-____________________________.docx',
+     'ИСТОЧНИК — Стандарт чистоты в помещениях.docx', '04-SOP-05'),
+    ('ea3a2124-__________________________________________.docx',
+     'ИСТОЧНИК — Стандарт чистоты холодильного оборудования.docx', '04-SOP-03'),
+    ('8bb22b99-IMG_0559.jpeg',
+     'ИСТОЧНИК — Плакат: правила хранения кухонной посуды.jpeg', '04-POL-05'),
+    ('9c88fa6b-IMG_0558.jpeg',
+     'ИСТОЧНИК — Плакат: стандарт Mise en Place.jpeg', '04-POL-03'),
+    ('29cce194-IMG_0557.jpeg',
+     'ИСТОЧНИК — Плакат: правила уборки станции.jpeg', '04-SOP-04'),
+    ('500d2c2d-IMG_0555.png',
+     'ИСТОЧНИК — Оргструктура Ромашки (схема).png', '01-REF-01'),
+    ('e13f1730-IMG_0556.png',
+     'ИСТОЧНИК — 5 ключевых метрик (пост Instagram).png', None),
+]
+
+# Строки, которых в реестре не было. Код · Название · Тип · Категория · Что содержать
+NEW_ROWS = [
+    ('04-POL-03', 'Mise en place — подготовка станции к сервису', 'POL',
+     '04 Кухня и производство',
+     'Что значит «станция готова»: комплект инвентаря, нарезано/взвешено/подписано, '
+     'температуры холодных и горячих компонентов, расстановка слева направо, '
+     'par level на 1–2 часа сервиса, чек-лист перед сервисом'),
+    ('04-POL-04', 'HACCP и пищевая безопасность', 'POL',
+     '04 Кухня и производство',
+     'Что такое ХАССП простыми словами, критические контрольные точки на наших точках, '
+     'температурные режимы, перекрёстное загрязнение, кто и что контролирует, '
+     'что делать при отклонении'),
+    ('04-POL-05', 'Хранение посуды и инвентаря', 'POL',
+     '04 Кухня и производство',
+     'Только чистая и сухая, не на полу, 15 см от пола, зоны подписаны, кухонная и '
+     'гостевая раздельно, инвентарь для сырья и готовой продукции не смешивается, '
+     'ножи на держателях, доски вертикально и по цветам'),
+    ('04-SOP-02', 'Чистота теплового оборудования', 'SOP',
+     '04 Кухня и производство',
+     'Список оборудования, что считается чистым, средства, периодичность '
+     '(в середине смены и в конце), кто отвечает, кто контролирует'),
+    ('04-SOP-03', 'Чистота холодильного оборудования', 'SOP',
+     '04 Кухня и производство',
+     'Шкафы, столы, лари: порядок внутри, что запрещено хранить, размораживание, '
+     'периодичность мойки, кто отвечает и контролирует'),
+    ('04-SOP-04', 'Уборка станции и порядок на рабочем месте', 'SOP',
+     '04 Кухня и производство',
+     'Когда убираем: начало смены, каждые 3 часа, после заготовок, после потока, '
+     'перед уходом. Как убираем: 5 шагов с выдержкой дезсредства. Чем можно '
+     'и чем запрещено'),
+    ('04-SOP-05', 'Чистота помещений', 'SOP',
+     '04 Кухня и производство',
+     'Стены, полы, трапы, потолок, вентиляция, светильники, двери, окна, плинтусы. '
+     'График уборки, на что смотреть, кто отвечает и контролирует'),
+]
+
+
+def ensure_folder(s, name, parent):
+    fid = find(s, name, parent)
+    if fid:
+        return fid, 'уже был'
+    r = s.post('https://www.googleapis.com/drive/v3/files',
+               params={'supportsAllDrives': 'true', 'fields': 'id'},
+               json={'name': name, 'parents': [parent],
+                     'mimeType': 'application/vnd.google-apps.folder'}, timeout=60)
+    r.raise_for_status()
+    return r.json()['id'], 'создан'
+
+
+def upload(s, path, name, parent):
+    """Заливает файл как есть, без конвертации — источник должен остаться исходником."""
+    ex = find(s, name, parent)
+    if ex:
+        return ex, 'уже был'
+    mime = mimetypes.guess_type(name)[0] or 'application/octet-stream'
+    meta = {'name': name, 'parents': [parent]}
+    b = '----rk'
+    body = (f'--{b}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n'
+            + json.dumps(meta) + f'\r\n--{b}\r\nContent-Type: {mime}\r\n\r\n').encode() \
+        + open(path, 'rb').read() + f'\r\n--{b}--'.encode()
+    r = s.post('https://www.googleapis.com/upload/drive/v3/files',
+               params={'uploadType': 'multipart', 'supportsAllDrives': 'true', 'fields': 'id'},
+               headers={'Content-Type': f'multipart/related; boundary={b}'},
+               data=body, timeout=300)
+    r.raise_for_status()
+    return r.json()['id'], 'загружен'
+
+
+def registry(s):
+    v = s.get(f'https://sheets.googleapis.com/v4/spreadsheets/{REG}/values/A1:O200',
+              timeout=60).json().get('values', [])
+    return v
+
+
+def main():
+    s = session()
+    mgmt = find(s, '00 Управление системой документов', ROOT)
+    src, act = ensure_folder(s, '00.1 Источники — материалы Азиза', mgmt)
+    print(f'папка «00.1 Источники» — {act}')
+    print(f'https://drive.google.com/drive/folders/{src}\n')
+
+    # 1. новые строки реестра
+    v = registry(s)
+    have = {r[0] for r in v[1:] if r}
+    add = [r for r in NEW_ROWS if r[0] not in have]
+    if add:
+        rows = [[c, n, t, cat, 'Предложено', '', '', '', '', '', '', what,
+                 'Заведено из материалов Азиза 16.08.2026'] for c, n, t, cat, what in add]
+        s.post(f'https://sheets.googleapis.com/v4/spreadsheets/{REG}/values/A1:append',
+               params={'valueInputOption': 'USER_ENTERED', 'insertDataOption': 'INSERT_ROWS'},
+               json={'values': rows}, timeout=60).raise_for_status()
+        print(f'реестр: добавлено строк — {len(add)}')
+        for c, n, *_ in add:
+            print(f'   + {c}  {n}')
+    else:
+        print('реестр: новых строк не нужно')
+    print()
+
+    # 2. заливаем файлы и привязываем к строкам
+    v = registry(s)
+    idx = {r[0]: i for i, r in enumerate(v[1:], 2) if r}
+    data, orphan = [], []
+    for fn, name, code in FILES:
+        p = os.path.join(UP, fn)
+        if not os.path.exists(p):
+            print(f'  !! нет файла {fn}')
+            continue
+        fid, act = upload(s, p, name, src)
+        link = f'https://drive.google.com/file/d/{fid}/view'
+        mark = ''
+        if code and code in idx:
+            i = idx[code]
+            prev = v[i - 1][13] if len(v[i - 1]) > 13 else ''
+            val = link if not prev else (prev if link in prev else prev + '\n' + link)
+            data.append({'range': f'N{i}', 'values': [[val]]})
+            mark = f'→ {code}'
+        elif code:
+            mark = f'→ {code} (строки нет!)'
+        else:
+            orphan.append(name)
+            mark = '→ без привязки'
+        print(f'  {act:9s} {name[:58]:58s} {mark}')
+    if data:
+        s.post(f'https://sheets.googleapis.com/v4/spreadsheets/{REG}/values:batchUpdate',
+               json={'valueInputOption': 'USER_ENTERED', 'data': data}, timeout=60
+               ).raise_for_status()
+        print(f'\nреестр: проставлено источников — {len(data)}')
+    if orphan:
+        print('\nбез привязки к документу (лежат в источниках):')
+        for o in orphan:
+            print('   ·', o)
+
+
+if __name__ == '__main__':
+    main()
