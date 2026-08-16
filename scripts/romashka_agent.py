@@ -340,9 +340,22 @@ def _quick_map():
       'еда':('расход','Продукты'),'еда с магазина':('расход','Продукты'),
       'стройматериал':('расход','Дом'),'стройматериалы':('расход','Дом'),
       'помощь брату':('расход','Семья'),'помощь родителям':('расход','Семья'),
+      'подарок':('расход','Подарки'),'цветы':('расход','Подарки'),
+      'кофе':('расход','Кафе'),'ресторан':('расход','Кафе'),'обед':('расход','Кафе'),
+      'интернет':('расход','Подписки'),'телефон':('расход','Подписки'),'связь':('расход','Подписки'),
+      'мойка':('расход','Машина'),'ремонт авто':('расход','Машина'),
     }.items(): add(alias,k,c)
     return m
 QUICK_CATS=_quick_map()
+
+CURRENCY = {'см','сом','сомони','смн','tjs','с','c'}
+# Слова, после которых строка — не трата, а вопрос или задача
+NOT_SPEND = ('напомн','покаж','скольк','выручк','задач','отчет','сделай','добав',
+             'проверь','посчитай','что ','когда','почему','сводк','остаток')
+def _strip_currency(s):
+    """Убирает хвост-валюту: «вода см» → «вода», «см» → «»."""
+    w = [x for x in str(s).split() if x.lower().replace('ё','е').strip('.,;:') not in CURRENCY]
+    return ' '.join(w).strip(' ,;:-.')
 
 def _parse_quick(text):
     """«Курение 20 20.08.2026 Стики» → (kind, категория, сумма, ISO-дата, комментарий) или None."""
@@ -379,8 +392,42 @@ def _parse_quick(text):
             except ValueError: return None
     # комментарий: текст до суммы + хвост после даты, без мусора
     com=" ".join(x for x in (before, rest) if x).strip(' ,;:-.')
-    com=re.sub(r'^\W+|\W+$', '', com)
-    return kind,cat,amount,iso,com
+    com=re.sub(r'^\W+|\W+$', '', _strip_currency(com))
+    return kind,cat,amount,iso,com,False
+
+def _parse_quick_loose(text):
+    """Строка вида «Доставка торта 40 см» — категории такой нет, но это явно трата.
+    Не выбрасываем: пишем в «Прочее», текст — в комментарий, и помечаем флагом,
+    чтобы в подтверждении было видно, что категорию я не распознал.
+    Работает ТОЛЬКО внутри пачки — одиночное сообщение уходит модели, она умнее."""
+    t=' '.join(str(text).strip().split())
+    if not t or len(t)>70 or '?' in t: return None
+    m=re.search(r'(\d+(?:[.,]\d+)?)', t)
+    if not m: return None
+    before=t[:m.start()].strip(' ,;:-')
+    if not before or not (1 <= len(before.split()) <= 5): return None
+    if not re.fullmatch(r'[^\d]+', before): return None
+    amount=float(m.group(1).replace(',','.'))
+    rest=t[m.end():].strip()
+    iso=None
+    dm=re.match(r'^(\d{4}-\d{2}-\d{2})\b\s*(.*)$', rest, re.S)
+    if dm:
+        iso=dm.group(1); rest=dm.group(2).strip()
+    else:
+        dm=re.match(r'^(\d{1,2})[./,](\d{1,2})(?:[./,](\d{2,4}))?\b\s*(.*)$', rest, re.S)
+        if dm:
+            dd,mm=int(dm.group(1)),int(dm.group(2))
+            yy=dm.group(3); year=today_local().year
+            if yy: year=int(yy)+2000 if len(yy)==2 else int(yy)
+            try: iso=str(datetime.date(year,mm,dd)); rest=dm.group(4).strip()
+            except ValueError: return None
+    # после суммы и даты не должно остаться НИЧЕГО, кроме валюты:
+    # «Напомни завтра в 10 позвонить в банк» — это не трата, а задача
+    if _strip_currency(rest): return None
+    com=re.sub(r'^\W+|\W+$', '', _strip_currency(before))
+    if not com: return None
+    if any(w in com.lower().replace('ё','е') for w in NOT_SPEND): return None
+    return 'расход','Прочее',amount,iso,com,True
 
 def _parse_quick_lines(text):
     """Многострочный быстрый ввод: разбирает КАЖДУЮ строку отдельно.
@@ -391,7 +438,7 @@ def _parse_quick_lines(text):
         return [], []
     ok, bad = [], []
     for ln in lines:
-        q = _parse_quick(ln)
+        q = _parse_quick(ln) or _parse_quick_loose(ln)
         if q:
             ok.append(q)
         else:
@@ -870,26 +917,29 @@ def handle(msg):
     # Быстрый ввод пачкой: несколько операций, каждая своей строкой
     multi, bad = _parse_quick_lines(text)
     if multi:
-        acts, lines = [], []
-        for kind,cat,amount,iso,com in multi:
+        acts, lines, loose_n = [], [], 0
+        for kind,cat,amount,iso,com,loose in multi:
             amt_s = str(int(amount)) if float(amount).is_integer() else str(amount)
             a={'amount':amt_s,'category':cat,'kind':kind,'comment':com}
             if iso: a['date']=iso
             acts.append(('add_budget_entry',a))
             when = iso if iso else 'сегодня'
-            lines.append(f'{describe_action("add_budget_entry",a)} · {when}')
+            mark = ' ⚠️ категорию не понял → Прочее' if loose else ''
+            if loose: loose_n += 1
+            lines.append(f'{describe_action("add_budget_entry",a)} · {when}{mark}')
         PENDING[ALLOWED]=acts
         msg=f'❓ Подтверди — {len(acts)} операц.:\n\n' + '\n'.join(lines)
         if bad:
             msg += '\n\n⚠️ НЕ РАСПОЗНАЛ (не запишу):\n' + '\n'.join('· '+b[:60] for b in bad)
         send(msg + '\n\nОтветь «да» или «нет».')
-        audit('quick-multi', text, f'ожидает подтверждения: {len(acts)} шт, не распознано {len(bad)}')
+        audit('quick-multi', text, f'ожидает подтверждения: {len(acts)} шт '
+              f'(в «Прочее» без категории: {loose_n}), не распознано {len(bad)}')
         return
 
     # Быстрый ввод бюджета — точный формат; категория задана явно, но пишем после «да»
     q=_parse_quick(text)
     if q:
-        kind,cat,amount,iso,com=q
+        kind,cat,amount,iso,com,_loose=q
         amt_s = str(int(amount)) if float(amount).is_integer() else str(amount)
         args={'amount':amt_s,'category':cat,'kind':kind,'comment':com}
         if iso: args['date']=iso
