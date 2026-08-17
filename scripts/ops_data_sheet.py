@@ -183,6 +183,20 @@ def main():
     s.put(B + sid_file + '/values/Пункты!A1',
           params={'valueInputOption': 'RAW'}, json={'values': m}).raise_for_status()
 
+    # кто может заполнять чек-лист через бота — Азиз правит этот лист сам
+    if 'Команда' not in tabs:
+        s.post(B + sid_file + ':batchUpdate', json={'requests': [{'addSheet': {
+            'properties': {'title': 'Команда',
+                           'gridProperties': {'rowCount': 100, 'columnCount': 6,
+                                              'frozenRowCount': 1}}}}]}).raise_for_status()
+        s.put(B + sid_file + '/values/Команда!A1',
+              params={'valueInputOption': 'RAW'},
+              json={'values': [
+                  ['chat_id', 'Имя', 'Точка', 'Роль', 'Активен'],
+                  ['', 'Владимир', 'ЗБ', 'Управляющий', 'да'],
+                  ['', 'Дилчу', 'ОВИР', 'Управляющий', 'да'],
+              ]}).raise_for_status()
+
     print(f'лист «{TAB}»: пунктов {len(it)}, колонок {ncol}')
     print('https://docs.google.com/spreadsheets/d/' + sid_file)
     return sid_file

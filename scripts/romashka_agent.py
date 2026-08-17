@@ -835,6 +835,18 @@ def handle(msg):
         except Exception as e:
             log.warning(f'shift log: {e}')
         return
+    # Чек-лист открытия смены — доступен всем из листа «Команда», не только Азизу
+    try:
+        import ops_checklist
+        if ops_checklist.try_handle(
+                chat_id, msg.get('text',''), SHEETS,
+                send_to=lambda cid, txt: tg('sendMessage', chat_id=cid, text=txt,
+                                            parse_mode='HTML'),
+                notify=send, today=today_local()):
+            return
+    except Exception as e:
+        log.warning(f'checklist: {e}')
+
     if ALLOWED and chat_id!=ALLOWED:
         # Чужой в личке: команды не выполняем, но захватываем контакт
         frm=msg.get('from',{})
