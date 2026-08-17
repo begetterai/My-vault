@@ -40,6 +40,73 @@ TABS = {
                 [130, 150, 90, 150, 90]),
 }
 
+EXAMPLE = 'Пример — как это выглядит'
+
+# Лист с примерами. Реальные данные не трогает, отчёт его не читает.
+EX_ROWS = [
+    ['ПРИМЕР. Этот лист — только образец. Реальные данные пишет бот '
+     'на листы «Открытие смены» и «Невыполнено».'],
+    [],
+    ['1. Как заполняет старший смены — диалог с ботом'],
+    [],
+    ['Старший смены пишет:', 'открытие'],
+    ['Бот отвечает:', 'Открытие смены · ЗБ · 17.08.2026'],
+    ['', 'Блок 1 из 6 — Персонал'],
+    ['', '1. Смена вышла в полном составе, опозданий нет'],
+    ['', '2. Форма чистая, целая, по стандарту; бейдж на месте'],
+    ['', '3. Волосы убраны, головной убор надет, ногти короткие'],
+    ['', '…'],
+    ['', 'Ответь «ок», если всё выполнено.'],
+    ['', 'Если нет — номера невыполненных через пробел: 2 5'],
+    ['Старший смены:', 'ок'],
+    ['Бот:', 'Блок 2 из 6 — Помещение и зал …'],
+    ['Старший смены:', '2 4'],
+    ['', '(так шесть блоков — меньше минуты)'],
+    ['Бот:', 'Во сколько открылись?'],
+    ['Старший смены:', '10:05'],
+    ['Бот:', 'Не выполнено: 8. Вывеска и подсветка; 10. Туалет…'],
+    ['', 'Напиши коротко, почему.'],
+    ['Старший смены:', 'Одна лампа не горит, вызвал электрика'],
+    ['Бот:', '✅ Записал. 31 из 34 (91%). Хорошей смены.'],
+    [],
+    ['2. Что попадает на лист «Открытие смены»'],
+    [],
+    ['Дата', 'Точка', 'Старший смены', 'Заполнил в', 'Открыли в',
+     'Выполнено', 'Всего', '%', 'Не выполнены пункты', 'Комментарий'],
+    ['17.08.2026', 'ЗБ', 'Владимир', '9:12', '10:05', 31, 34, '91%',
+     '8, 10, 15', 'Одна лампа не горит, вызвал электрика'],
+    ['17.08.2026', 'ОВИР', 'Дилчу', '9:30', '10:00', 34, 34, '100%', '—', ''],
+    ['16.08.2026', 'ЗБ', 'Владимир', '9:05', '10:00', 34, 34, '100%', '—', ''],
+    ['16.08.2026', 'ОВИР', 'Дилчу', '9:40', '10:20', 29, 34, '85%',
+     '1, 12, 19, 26, 34', 'Один повар не вышел, открылись позже'],
+    [],
+    ['3. Что попадает на лист «Невыполнено» — расшифровка'],
+    [],
+    ['Дата', 'Точка', 'Старший смены', '№', 'Блок', 'Пункт'],
+    ['17.08.2026', 'ЗБ', 'Владимир', 8, '2. Помещение и зал',
+     'Вывеска и подсветка работают'],
+    ['17.08.2026', 'ЗБ', 'Владимир', 10, '2. Помещение и зал',
+     'Туалет: чисто, есть мыло, бумага, сушилка работает'],
+    ['17.08.2026', 'ЗБ', 'Владимир', 15, '3. Оборудование',
+     'Морозильники: температура −18 °C и ниже — записать в журнал'],
+    [],
+    ['4. Что приходит Азизу в телеграм сразу после заполнения'],
+    [],
+    ['', '🧾 ЗБ · открытие 17.08.2026 · Владимир'],
+    ['', '31/34 (91%)'],
+    ['', '✗ 8. Вывеска и подсветка работают'],
+    ['', '✗ 10. Туалет: чисто, есть мыло, бумага, сушилка работает'],
+    ['', '✗ 15. Морозильники: температура −18 °C и ниже'],
+    ['', '💬 Одна лампа не горит, вызвал электрика'],
+    [],
+    ['5. Зачем нужен лист «Невыполнено»'],
+    [],
+    ['', 'Через месяц по нему видно, какой пункт валят чаще всего. '
+         'Если «Туалет» проваливается 12 раз за месяц — это не забывчивость, '
+         'а сломанный процесс уборки. Проценты этого не показывают.'],
+]
+EX_BOLD = {0, 2, 24, 26, 33, 35, 40, 48}      # строки-заголовки, 0-based
+
 
 def items():
     out, n = [], 0
@@ -72,6 +139,84 @@ def ensure_file(s, name, parent):
                      'mimeType': 'application/vnd.google-apps.spreadsheet'}, timeout=60)
     r.raise_for_status()
     return r.json()['id'], 'создан'
+
+
+def example(s, fid):
+    """Лист с примерами: диалог с ботом, как ложатся данные, что видит Азиз."""
+    meta = s.get(B + fid, params={'fields': 'sheets.properties'}).json()
+    have = {sh['properties']['title']: sh['properties'] for sh in meta['sheets']}
+    if EXAMPLE not in have:
+        s.post(B + fid + ':batchUpdate', json={'requests': [{'addSheet': {
+            'properties': {'title': EXAMPLE,
+                           'gridProperties': {'rowCount': 80, 'columnCount': 10}}}}]}
+        ).raise_for_status()
+        meta = s.get(B + fid, params={'fields': 'sheets.properties'}).json()
+        have = {sh['properties']['title']: sh['properties'] for sh in meta['sheets']}
+    sid = have[EXAMPLE]['sheetId']
+
+    rows = [r + [''] * (10 - len(r)) for r in EX_ROWS]
+    s.put(B + fid + '/values/' + EXAMPLE.replace(' ', '%20') + '!A1',
+          params={'valueInputOption': 'RAW'}, json={'values': rows}).raise_for_status()
+
+    # где таблица (много заполненных ячеек), а где текст — считаем из содержимого,
+    # чтобы номера строк не разъезжались при правках
+    table = {i for i, r in enumerate(EX_ROWS) if len([c for c in r if c != '']) >= 5}
+    head = {i for i, r in enumerate(EX_ROWS)
+            if r and str(r[0]).startswith(('ПРИМЕР', '1.', '2.', '3.', '4.', '5.'))
+            and len([c for c in r if c != '']) == 1}
+
+    req = [
+        # текст перетекает вправо через пустые ячейки — иначе всё обрезается
+        {'repeatCell': {
+            'range': {'sheetId': sid, 'startRowIndex': 0, 'endRowIndex': 80,
+                      'startColumnIndex': 0, 'endColumnIndex': 10},
+            'cell': {'userEnteredFormat': {
+                'backgroundColor': WHITE, 'verticalAlignment': 'MIDDLE',
+                'wrapStrategy': 'OVERFLOW_CELL', 'horizontalAlignment': 'LEFT',
+                'textFormat': {'fontFamily': 'Times New Roman', 'fontSize': 13,
+                               'bold': False, 'foregroundColor': BLACK}}},
+            'fields': 'userEnteredFormat(backgroundColor,verticalAlignment,wrapStrategy,'
+                      'horizontalAlignment,textFormat)'}},
+        {'updateDimensionProperties': {
+            'range': {'sheetId': sid, 'dimension': 'COLUMNS',
+                      'startIndex': 0, 'endIndex': 1},
+            'properties': {'pixelSize': 196}, 'fields': 'pixelSize'}},
+        {'updateDimensionProperties': {
+            'range': {'sheetId': sid, 'dimension': 'COLUMNS',
+                      'startIndex': 1, 'endIndex': 10},
+            'properties': {'pixelSize': 118}, 'fields': 'pixelSize'}},
+        {'updateDimensionProperties': {
+            'range': {'sheetId': sid, 'dimension': 'ROWS',
+                      'startIndex': 0, 'endIndex': 80},
+            'properties': {'pixelSize': 26}, 'fields': 'pixelSize'}},
+    ]
+    for i in head:
+        req.append({'repeatCell': {
+            'range': {'sheetId': sid, 'startRowIndex': i, 'endRowIndex': i + 1,
+                      'startColumnIndex': 0, 'endColumnIndex': 10},
+            'cell': {'userEnteredFormat': {'textFormat': {'bold': True}}},
+            'fields': 'userEnteredFormat.textFormat.bold'}})
+    for i in sorted(table):
+        # в таблицах перетекать некуда — обрезаем, кроме последней колонки
+        req.append({'repeatCell': {
+            'range': {'sheetId': sid, 'startRowIndex': i, 'endRowIndex': i + 1,
+                      'startColumnIndex': 0, 'endColumnIndex': 9},
+            'cell': {'userEnteredFormat': {'wrapStrategy': 'CLIP'}},
+            'fields': 'userEnteredFormat.wrapStrategy'}})
+        # строка-шапка таблицы: жирная, с рамкой
+        if EX_ROWS[i] and EX_ROWS[i][0] == 'Дата':
+            req += [
+                {'repeatCell': {
+                    'range': {'sheetId': sid, 'startRowIndex': i, 'endRowIndex': i + 1,
+                              'startColumnIndex': 0, 'endColumnIndex': 10},
+                    'cell': {'userEnteredFormat': {'textFormat': {'bold': True}}},
+                    'fields': 'userEnteredFormat.textFormat.bold'}},
+                {'updateBorders': {
+                    'range': {'sheetId': sid, 'startRowIndex': i, 'endRowIndex': i + 1,
+                              'startColumnIndex': 0, 'endColumnIndex': 10},
+                    'top': LINE, 'bottom': LINE}},
+            ]
+    s.post(B + fid + ':batchUpdate', json={'requests': req}).raise_for_status()
 
 
 def polish(s, fid):
@@ -242,8 +387,9 @@ def main():
                                ['', 'Дилчу', 'ОВИР', 'Управляющий', 'да']]}
               ).raise_for_status()
 
+    example(s, fid)
     polish(s, fid)
-    print('листы:', ' · '.join(TABS))
+    print('листы:', ' · '.join(TABS), '·', EXAMPLE)
     print(f'пунктов в справочнике: {len(it)}')
     print('https://docs.google.com/spreadsheets/d/' + fid)
     return fid
