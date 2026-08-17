@@ -49,11 +49,81 @@ def team(sheets, force=False):
 
 
 # ── экраны ───────────────────────────────────────────────────────────────────
-def _menu_kb():
-    return {'inline_keyboard': [
-        [{'text': f'🧾 {CL.KINDS[k]["title"]}', 'callback_data': f'cl:go:{k}'}]
-        for k in ('open', 'close')
-    ] + [[{'text': '✖️ Отмена', 'callback_data': 'cl:cancel'}]]}
+def _role(who):
+    """Что человек может: заполнять, проверять, видеть всё."""
+    r = (who[2] if len(who) > 2 else '').lower()
+    if 'coo' in r or 'директор' in r:
+        return 'coo'
+    if 'правляющ' in r:
+        return 'manager'
+    return 'staff'
+
+
+def _menu_kb(role):
+    kb = [[{'text': f'🧾 {CL.KINDS[k]["title"]}', 'callback_data': f'cl:go:{k}'}]
+          for k in ('open', 'close')]
+    if role == 'staff':
+        kb.append([{'text': '📋 Мои последние', 'callback_data': 'cl:h:me'}])
+    elif role == 'manager':
+        kb.append([{'text': '📋 История точки', 'callback_data': 'cl:h:point'}])
+    else:
+        kb.append([{'text': '📋 История — обе точки', 'callback_data': 'cl:h:all'}])
+        kb.append([{'text': '💬 Идеи и задачи', 'callback_data': 'cl:h:ideas'}])
+    kb.append([{'text': '✖️ Закрыть', 'callback_data': 'cl:cancel'}])
+    return {'inline_keyboard': kb}
+
+
+def _hist_rows(sheets, scope, who_name, point):
+    """Последние заполнения обоих чек-листов, свежие сверху."""
+    rr = sheets.get(B + SS + '/values:batchGet',
+                    params={'ranges': ['Открытие смены', 'Закрытие смены'],
+                            'valueRenderOption': 'FORMATTED_VALUE'},
+                    timeout=60).json().get('valueRanges', [])
+    out = []
+    for vr, title in zip(rr, ('открытие', 'закрытие')):
+        for r in (vr.get('values') or [])[1:]:
+            if len(r) < 8:
+                continue
+            if scope == 'me' and (len(r) < 3 or r[2] != who_name):
+                continue
+            if scope == 'point' and r[1] != point:
+                continue
+            out.append({'d': r[0], 'p': r[1], 'who': r[2], 'kind': title,
+                        'ok': r[5], 'tot': r[6], 'fails': r[8] if len(r) > 8 else '',
+                        'min': r[12] if len(r) > 12 else '',
+                        'chk': r[13] if len(r) > 13 else '',
+                        'diff': r[15] if len(r) > 15 else ''})
+    out.sort(key=lambda x: (x['d'][6:10], x['d'][3:5], x['d'][0:2]), reverse=True)
+    return out[:12]
+
+
+def _hist_text(rows, title):
+    if not rows:
+        return f'<b>{title}</b>\n\nПока ни одного заполнения.'
+    lines = [f'<b>{title}</b>', '']
+    for x in rows:
+        chk = f'✅ пров. {x["chk"]}' if x['chk'] else '⚠️ не проверено'
+        lines.append(f'<b>{x["d"]}</b> · {x["p"]} · {x["kind"]} · {x["who"]}')
+        lines.append(f'   {x["ok"]}/{x["tot"]} · {x["min"]} мин · {chk}')
+        if x['fails'] and x['fails'] != '—':
+            lines.append(f'   ❌ пункты: {x["fails"]}')
+        if x['diff']:
+            lines.append(f'   ⚠️ {x["diff"]}')
+    return '\n'.join(lines)
+
+
+def _ideas_text(sheets):
+    v = sheets.get(B + SS + '/values/Идеи%20и%20задачи!A2:G60',
+                   timeout=60).json().get('values', [])
+    open_ = [r for r in v if len(r) > 5 and r[5] != 'Закрыта'][-10:]
+    if not open_:
+        return '<b>Идеи и задачи</b>\n\nПусто.'
+    lines = ['<b>Идеи и задачи — открытые</b>', '']
+    for r in reversed(open_):
+        lines.append(f'<b>{r[0]}</b> · {r[1]} · {r[2]}')
+        lines.append(f'   {r[4]}')
+        lines.append(f'   <i>{r[3]}</i>')
+    return '\n'.join(lines)
 
 
 def _icon(v):
@@ -258,8 +328,10 @@ def on_message(chat_id, msg_or_text, sheets, tg, notify=None, today=None,
             tg('sendMessage', chat_id=chat_id,
                text='Тебя нет в списке заполняющих. Обратись к управляющему.')
             return True
-        tg('sendMessage', chat_id=chat_id, text='Что заполняем?',
-           reply_markup=_menu_kb())
+        who = team(sheets)[chat_id]
+        tg('sendMessage', chat_id=chat_id, parse_mode='HTML',
+           text=f'<b>{who[0]}</b> · {who[1]}\nЧто делаем?',
+           reply_markup=_menu_kb(_role(who)))
         return True
 
     if st['stage'] == 'note':
@@ -329,6 +401,34 @@ def on_callback(cq, sheets, tg, notify=None, today=None):
         STATE.pop(chat_id, None)
         tg('editMessageText', chat_id=chat_id, message_id=mid,
            text='Отменил. Ничего не сохранено.')
+        ack(); return True
+
+    if data.startswith('cl:h:'):
+        scope = data.split(':')[2]
+        who = team(sheets).get(chat_id)
+        if not who:
+            ack('Нет доступа'); return True
+        if scope == 'ideas':
+            txt = _ideas_text(sheets)
+        else:
+            rows = _hist_rows(sheets, scope, who[0], who[1])
+            title = {'me': f'Мои последние — {who[0]}',
+                     'point': f'История · {who[1]}',
+                     'all': 'История · обе точки'}[scope]
+            txt = _hist_text(rows, title)
+        tg('editMessageText', chat_id=chat_id, message_id=mid, text=txt,
+           parse_mode='HTML',
+           reply_markup={'inline_keyboard': [[
+               {'text': '◀ Назад', 'callback_data': 'cl:menu'}]]})
+        ack(); return True
+
+    if data == 'cl:menu':
+        who = team(sheets).get(chat_id)
+        if not who:
+            ack('Нет доступа'); return True
+        tg('editMessageText', chat_id=chat_id, message_id=mid, parse_mode='HTML',
+           text=f'<b>{who[0]}</b> · {who[1]}\nЧто делаем?',
+           reply_markup=_menu_kb(_role(who)))
         ack(); return True
 
     if data == 'cl:need':
