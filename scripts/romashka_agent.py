@@ -806,19 +806,6 @@ def audit(kind, text, result):
         log.warning(f'audit fail: {e}')
 
 # ── Основной цикл ─────────────────────────────────────────────────────────────
-def _save_checklist_photo(file_id, name):
-    """Фото из чек-листа → на Drive, возвращаем ссылку."""
-    content,_ = _tg_download(file_id)
-    folder = NIDS.get('shift_photos')
-    nm = f'{name}-{now_local().strftime("%H%M%S")}.jpg'
-    meta = {'name': nm, 'parents':[folder]} if folder else {'name': nm}
-    up = SHEETS.post('https://www.googleapis.com/upload/drive/v3/files'
-                     '?uploadType=multipart&supportsAllDrives=true&fields=webViewLink',
-        files={'data':('m',json.dumps(meta),'application/json'),
-               'file':(nm,content,'image/jpeg')}, timeout=120).json()
-    return up.get('webViewLink','')
-
-
 def handle(msg):
     chat=msg.get('chat',{}); chat_id=str(chat['id']); ctype=chat.get('type','private')
     # Группа: регистрируем + собираем содержимое смен (сообщения, фото)
@@ -848,16 +835,6 @@ def handle(msg):
         except Exception as e:
             log.warning(f'shift log: {e}')
         return
-    # Чек-листы смены — доступны всем из листа «Команда», не только Азизу
-    try:
-        import ops_checklist
-        if ops_checklist.on_message(chat_id, msg, SHEETS, tg,
-                                    notify=send, today=today_local(),
-                                    save_photo=_save_checklist_photo):
-            return
-    except Exception as e:
-        log.warning(f'checklist: {e}')
-
     if ALLOWED and chat_id!=ALLOWED:
         # Чужой в личке: команды не выполняем, но захватываем контакт
         frm=msg.get('from',{})
@@ -981,32 +958,15 @@ def run():
     for need,name in [(TG_TOKEN,'TELEGRAM_BOT_TOKEN'),(ALLOWED,'TELEGRAM_CHAT_ID'),(GROQ_KEY,'GROQ_API_KEY')]:
         if not need: log.error(f'Нет {name}'); sys.exit(1)
     log.info('🌸 Ромашка-агент запущен')
-    try:
-        import ops_webapp
-        ops_webapp.setup(SHEETS, tg, send, TG_TOKEN)
-        ops_webapp._CTX['folder'] = NIDS.get('shift_photos')
-        _, _port = ops_webapp.serve_in_background()
-        log.info(f'Mini App слушает порт {_port}; адрес — WEBAPP_URL='
-                 f'{os.environ.get("WEBAPP_URL", "не задан")}')
-    except Exception as e:
-        log.error(f'Mini App не поднялся: {e}')
     try: send('🌸 Агент на связи. Кидай голос или текст.')
     except Exception: pass
     offset=0
     while True:
         try:
-            res=tg('getUpdates', offset=offset, timeout=25,
-                   allowed_updates=['message','my_chat_member','callback_query'])
+            res=tg('getUpdates', offset=offset, timeout=25, allowed_updates=['message','my_chat_member'])
             for upd in res.get('result') or []:
                 offset=upd['update_id']+1
-                if 'callback_query' in upd:
-                    # кнопки чек-листов
-                    try:
-                        import ops_checklist
-                        ops_checklist.on_callback(upd['callback_query'], SHEETS, tg,
-                                                  notify=send, today=today_local())
-                    except Exception as e: log.error(f'callback: {e}')
-                elif 'message' in upd:
+                if 'message' in upd:
                     try: handle(upd['message'])
                     except Exception as e: log.error(f'handle: {e}')
                 elif 'my_chat_member' in upd:

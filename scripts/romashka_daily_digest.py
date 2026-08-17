@@ -126,13 +126,6 @@ def build_message(rows, target_date, today):
         if snbzh_month:
             lines.append(f'   🔄 СНБЖ: {fmt(snbzh_month)} с')
 
-    # Операционный блок: чек-лист открытия за вчера
-    try:
-        import ops_daily_report as ops
-        lines.append(ops.block(ops._session(), target_date.strftime('%d.%m.%Y')))
-    except Exception as e:
-        lines.append(f'\n<i>Операционный блок недоступен: {e}</i>')
-
     lines.append(f'\n<a href="{DASHBOARD_URL}">📈 Открыть полный дашборд</a>')
     return '\n'.join(lines)
 
