@@ -22,6 +22,7 @@ SS = '1wPQb2QUYy_aTbZN7KjeQsa_FrNv4KGE2clNT5EHyHOI'
 B = 'https://sheets.googleapis.com/v4/spreadsheets/'
 
 STATE = {}
+CHECK = {}          # chat_id управляющего → строка, по которой пишем расхождение
 _TEAM = {'ts': None, 'map': {}}
 MENU = ('чек-лист', 'чеклист', '/чеклист', 'открытие', 'закрытие',
         'смена', '/смена', 'меню', '/меню')
@@ -39,7 +40,8 @@ def team(sheets, force=False):
             if len(r) >= 3 and str(r[0]).strip():
                 act = (r[4].strip().lower() if len(r) > 4 and r[4] else 'да')
                 if act in ('да', 'yes', '1', 'true', ''):
-                    m[str(r[0]).strip()] = (str(r[1]).strip(), str(r[2]).strip())
+                    m[str(r[0]).strip()] = (str(r[1]).strip(), str(r[2]).strip(),
+                                            (r[3].strip() if len(r) > 3 else ''))
     except Exception:
         pass
     _TEAM['ts'], _TEAM['map'] = now, m
@@ -84,7 +86,8 @@ def _block_screen(st):
         tail = '\n\n<i>Блок отмечен полностью.</i>'
         kb.append([{'text': 'Далее ▶' if not last else '▶ К замерам',
                     'callback_data': 'cl:next'}])
-    kb.append([{'text': '✖️ Отмена', 'callback_data': 'cl:cancel'}])
+    kb.append([{'text': '💬 Заметка / задача', 'callback_data': 'cl:note'},
+               {'text': '✖️ Отмена', 'callback_data': 'cl:cancel'}])
     return head + '\n'.join(body) + tail, {'inline_keyboard': kb}
 
 
@@ -141,10 +144,13 @@ def _write(sheets, st, comment, filled_at, seconds):
            ok, tot, round(ok / tot, 4),
            ', '.join(str(n) for n in fails) if fails else '—', comment,
            meas, ' '.join(st['photos_done']), round(seconds / 60, 1)]
-    sheets.post(B + SS + '/values/' + CL.KINDS[kind]['tab'].replace(' ', '%20') + '!A2:append',
-                params={'valueInputOption': 'USER_ENTERED',
-                        'insertDataOption': 'INSERT_ROWS'},
-                json={'values': [row]}, timeout=60).raise_for_status()
+    r = sheets.post(B + SS + '/values/' + CL.KINDS[kind]['tab'].replace(' ', '%20') + '!A2:append',
+                    params={'valueInputOption': 'USER_ENTERED',
+                            'insertDataOption': 'INSERT_ROWS'},
+                    json={'values': [row]}, timeout=60)
+    r.raise_for_status()
+    rng = (r.json().get('updates', {}) or {}).get('updatedRange', '')
+    line = ''.join(c for c in rng.split('!')[-1].split(':')[0] if c.isdigit())
     if fails:
         det = [[st['day'], st['point'], st['who'], CL.KINDS[kind]['title'],
                 n, nm[n][0], nm[n][1]] for n in fails]
@@ -152,14 +158,14 @@ def _write(sheets, st, comment, filled_at, seconds):
                     params={'valueInputOption': 'USER_ENTERED',
                             'insertDataOption': 'INSERT_ROWS'},
                     json={'values': det}, timeout=60).raise_for_status()
-    return ok, tot, fails
+    return ok, tot, fails, line
 
 
 def _finish(chat_id, st, sheets, tg, notify, comment):
     sec = (datetime.datetime.utcnow() - st['started']).total_seconds()
     try:
-        ok, tot, fails = _write(sheets, st, comment,
-                                datetime.datetime.utcnow().strftime('%H:%M'), sec)
+        ok, tot, fails, line = _write(sheets, st, comment,
+                                      datetime.datetime.utcnow().strftime('%H:%M'), sec)
     except Exception as e:
         tg('sendMessage', chat_id=chat_id,
            text=f'⚠️ Не смог сохранить: {e}\nСообщи управляющему.')
@@ -171,6 +177,10 @@ def _finish(chat_id, st, sheets, tg, notify, comment):
        text=f'✅ Записал. <b>{ok} из {tot}</b> ({pct}%), заняло {round(sec / 60)} мин.'
             + ('\n\n⚠️ Слишком быстро — управляющий это увидит.' if fast else
                '\nХорошей смены.'))
+    try:
+        _ask_check(sheets, tg, st, ok, tot, fails, line, comment, fast)
+    except Exception:
+        pass
     if notify and (fails or fast):
         nm = {n: t for n, _, t in CL.flat(st['kind'])}
         lst = '\n'.join(f'   ❌ {n}. {nm[n]}' for n in fails[:8])
@@ -183,6 +193,37 @@ def _finish(chat_id, st, sheets, tg, notify, comment):
                f'{st["day"]} · {st["who"]}\n{ok}/{tot} ({pct}%){warn}\n{lst}{more}{ms}{cm}')
 
 
+def note_write(sheets, day, who, point, source, text):
+    sheets.post(B + SS + '/values/Идеи%20и%20задачи!A2:append',
+                params={'valueInputOption': 'USER_ENTERED',
+                        'insertDataOption': 'INSERT_ROWS'},
+                json={'values': [[day, who, point, source, text, 'Новая', '']]},
+                timeout=60).raise_for_status()
+
+
+def _managers(sheets, point, exclude=None):
+    """chat_id управляющих этой точки — им уходит запрос на перепроверку."""
+    return [cid for cid, v in team(sheets).items()
+            if len(v) > 2 and v[1] == point and 'правляющ' in v[2] and cid != exclude]
+
+
+def _ask_check(sheets, tg, st, ok, tot, fails, line, comment, fast):
+    """Второй контур: управляющий подтверждает или отмечает расхождение."""
+    kind = st['kind']
+    nm = {n: t for n, _, t in CL.flat(kind)}
+    lst = '\n'.join(f'   ❌ {n}. {nm[n]}' for n in fails[:8]) or '   всё выполнено'
+    warn = f'\n⚠️ заполнено за {round((datetime.datetime.utcnow() - st["started"]).total_seconds() / 60, 1)} мин' if fast else ''
+    cm = f'\n💬 {comment}' if comment else ''
+    txt = (f'🔎 <b>Проверь заполнение</b>\n'
+           f'{st["point"]} · {CL.KINDS[kind]["title"].lower()} {st["day"]} · {st["who"]}\n'
+           f'{ok}/{tot}{warn}\n{lst}{cm}')
+    kb = {'inline_keyboard': [[
+        {'text': '✅ Проверил, всё так', 'callback_data': f'cl:ck:ok:{kind}:{line}'},
+        {'text': '⚠️ Есть расхождение', 'callback_data': f'cl:ck:bad:{kind}:{line}'}]]}
+    for cid in _managers(sheets, st['point'], exclude=None):
+        tg('sendMessage', chat_id=cid, text=txt, parse_mode='HTML', reply_markup=kb)
+
+
 # ── входные точки ────────────────────────────────────────────────────────────
 def on_message(chat_id, msg_or_text, sheets, tg, notify=None, today=None,
                save_photo=None):
@@ -192,6 +233,18 @@ def on_message(chat_id, msg_or_text, sheets, tg, notify=None, today=None,
     t = (msg.get('text') or '').strip()
     low = t.lower().replace('ё', 'е')
     st = STATE.get(chat_id)
+
+    # управляющий описывает расхождение
+    if chat_id in CHECK and not st:
+        kind, line, name = CHECK.pop(chat_id)
+        tab = CL.KINDS[kind]['tab'].replace(' ', '%20')
+        sheets.put(B + SS + f'/values/{tab}!P{line}',
+                   params={'valueInputOption': 'USER_ENTERED'},
+                   json={'values': [[t[:300]]]}, timeout=60)
+        tg('sendMessage', chat_id=chat_id, text='Записал расхождение.')
+        if notify:
+            notify(f'⚠️ <b>Расхождение при проверке</b> · {name}\n{t[:300]}')
+        return True
 
     if st and low in CANCEL:
         STATE.pop(chat_id, None)
@@ -207,6 +260,16 @@ def on_message(chat_id, msg_or_text, sheets, tg, notify=None, today=None,
             return True
         tg('sendMessage', chat_id=chat_id, text='Что заполняем?',
            reply_markup=_menu_kb())
+        return True
+
+    if st['stage'] == 'note':
+        try:
+            note_write(sheets, st['day'], st['who'], st['point'],
+                       f'{CL.KINDS[st["kind"]]["code"]} блок {st["i"] + 1}', t[:400])
+            tg('sendMessage', chat_id=chat_id, text='💬 Записал в «Идеи и задачи».')
+        except Exception as e:
+            tg('sendMessage', chat_id=chat_id, text=f'Не смог записать: {e}')
+        st['stage'] = st.pop('note_return', 'blocks')
         return True
 
     if st['stage'] == 'measure':
@@ -271,12 +334,43 @@ def on_callback(cq, sheets, tg, notify=None, today=None):
     if data == 'cl:need':
         ack('Сначала отметь все пункты блока'); return True
 
+    if data == 'cl:note':
+        st = STATE.get(chat_id)
+        if st:
+            st['note_return'] = st['stage']; st['stage'] = 'note'
+            tg('sendMessage', chat_id=chat_id, parse_mode='HTML',
+               text='💬 Напиши, что добавить в регламент или что сделать.\n'
+                    '<i>Попадёт в лист «Идеи и задачи», разберём на планёрке.</i>')
+        ack(); return True
+
+    if data.startswith('cl:ck:'):
+        _, _, verdict, kind, line = data.split(':')
+        who = team(sheets).get(chat_id)
+        name = who[0] if who else 'управляющий'
+        tab = CL.KINDS[kind]['tab'].replace(' ', '%20')
+        stamp = datetime.datetime.utcnow().strftime('%d.%m %H:%M')
+        sheets.put(B + SS + f'/values/{tab}!N{line}:P{line}',
+                   params={'valueInputOption': 'USER_ENTERED'},
+                   json={'values': [[name, stamp,
+                                     '' if verdict == 'ok' else 'ДА — см. комментарий']]},
+                   timeout=60)
+        if verdict == 'ok':
+            tg('editMessageText', chat_id=chat_id, message_id=mid,
+               text=cq['message']['text'] + f'\n\n✅ Проверил: {name}, {stamp}')
+            ack('Записал')
+        else:
+            CHECK[chat_id] = (kind, line, name)
+            tg('sendMessage', chat_id=chat_id,
+               text='Напиши, что именно не сошлось.')
+            ack()
+        return True
+
     if data.startswith('cl:go:'):
         kind = data.split(':')[2]
         who = team(sheets).get(chat_id)
         if not who or kind not in CL.KINDS:
             ack('Нет доступа'); return True
-        name, point = who
+        name, point = who[0], who[1]
         day = (today or datetime.date.today()).strftime('%d.%m.%Y')
         photos = CL.photo_items(kind)
         random.shuffle(photos)
