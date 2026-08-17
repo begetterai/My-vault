@@ -60,8 +60,13 @@ def _role(who):
 
 
 def _menu_kb(role):
-    kb = [[{'text': f'🧾 {CL.KINDS[k]["title"]}', 'callback_data': f'cl:go:{k}'}]
-          for k in ('open', 'close')]
+    import os
+    kb = []
+    url = os.environ.get('WEBAPP_URL', '').strip()
+    if url:
+        kb.append([{'text': '📱 Открыть приложение', 'web_app': {'url': url}}])
+    kb += [[{'text': f'🧾 {CL.KINDS[k]["title"]} (в чате)',
+             'callback_data': f'cl:go:{k}'}] for k in ('open', 'close')]
     if role == 'staff':
         kb.append([{'text': '📋 Мои последние', 'callback_data': 'cl:h:me'}])
     elif role == 'manager':

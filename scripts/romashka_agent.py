@@ -981,6 +981,15 @@ def run():
     for need,name in [(TG_TOKEN,'TELEGRAM_BOT_TOKEN'),(ALLOWED,'TELEGRAM_CHAT_ID'),(GROQ_KEY,'GROQ_API_KEY')]:
         if not need: log.error(f'Нет {name}'); sys.exit(1)
     log.info('🌸 Ромашка-агент запущен')
+    try:
+        import ops_webapp
+        ops_webapp.setup(SHEETS, tg, send, TG_TOKEN)
+        ops_webapp._CTX['folder'] = NIDS.get('shift_photos')
+        _, _port = ops_webapp.serve_in_background()
+        log.info(f'Mini App слушает порт {_port}; адрес — WEBAPP_URL='
+                 f'{os.environ.get("WEBAPP_URL", "не задан")}')
+    except Exception as e:
+        log.error(f'Mini App не поднялся: {e}')
     try: send('🌸 Агент на связи. Кидай голос или текст.')
     except Exception: pass
     offset=0
