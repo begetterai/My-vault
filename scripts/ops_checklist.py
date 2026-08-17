@@ -261,6 +261,22 @@ def _finish(chat_id, st, sheets, tg, notify, comment):
                f'{st["day"]} · {st["who"]}\n{ok}/{tot} ({pct}%){warn}\n{lst}{more}{ms}{cm}')
 
 
+_IDEAS_GID = {'v': None}
+
+
+def ideas_link(sheets):
+    if _IDEAS_GID['v'] is None:
+        try:
+            m = sheets.get(B + SS, params={'fields': 'sheets.properties'},
+                           timeout=30).json()
+            _IDEAS_GID['v'] = next(
+                x['properties']['sheetId'] for x in m['sheets']
+                if x['properties']['title'] == 'Идеи и задачи')
+        except Exception:
+            _IDEAS_GID['v'] = 0
+    return f'https://docs.google.com/spreadsheets/d/{SS}/edit#gid={_IDEAS_GID["v"]}'
+
+
 def note_write(sheets, day, who, point, source, text):
     sheets.post(B + SS + '/values/Идеи%20и%20задачи!A2:append',
                 params={'valueInputOption': 'USER_ENTERED'},
@@ -332,13 +348,30 @@ def on_message(chat_id, msg_or_text, sheets, tg, notify=None, today=None,
         return True
 
     if st['stage'] == 'note':
+        if len(t.split()) < 3:
+            tg('sendMessage', chat_id=chat_id, parse_mode='HTML',
+               text='Коротко — потом не разберём. Напиши фразой: '
+                    '<i>что не так и что с этим делать</i>.')
+            return True
+        src = f'{CL.KINDS[st["kind"]]["code"]} блок {st["i"] + 1}'
         try:
-            note_write(sheets, st['day'], st['who'], st['point'],
-                       f'{CL.KINDS[st["kind"]]["code"]} блок {st["i"] + 1}', t[:400])
-            tg('sendMessage', chat_id=chat_id, text='💬 Записал в «Идеи и задачи».')
+            note_write(sheets, st['day'], st['who'], st['point'], src, t[:400])
+            tg('sendMessage', chat_id=chat_id, parse_mode='HTML',
+               disable_web_page_preview=True,
+               text='💬 <b>Записал в «Идеи и задачи»</b>\n\n'
+                    f'«{t[:300]}»\n\n'
+                    f'Дата: {st["day"]} · Точка: {st["point"]} · От: {st["who"]}\n'
+                    f'Источник: {src} · Статус: Новая\n\n'
+                    f'<a href="{ideas_link(sheets)}">Открыть лист</a>\n'
+                    '<i>Разберём на планёрке недели.</i>')
+            if notify:
+                notify(f'💬 <b>Идея с точки {st["point"]}</b> · {st["who"]}\n'
+                       f'«{t[:300]}»\n<i>{src}</i>')
         except Exception as e:
             tg('sendMessage', chat_id=chat_id, text=f'Не смог записать: {e}')
         st['stage'] = st.pop('note_return', 'blocks')
+        tg('sendMessage', chat_id=chat_id,
+           text='Продолжаем чек-лист — отмечай кнопками в сообщении выше.')
         return True
 
     if st['stage'] == 'measure':
@@ -436,8 +469,14 @@ def on_callback(cq, sheets, tg, notify=None, today=None):
         if st:
             st['note_return'] = st['stage']; st['stage'] = 'note'
             tg('sendMessage', chat_id=chat_id, parse_mode='HTML',
-               text='💬 Напиши, что добавить в регламент или что сделать.\n'
-                    '<i>Попадёт в лист «Идеи и задачи», разберём на планёрке.</i>')
+               text='💬 <b>Что добавить в регламент или что сделать?</b>\n\n'
+                    'Пиши целой фразой, чтобы через неделю было понятно.\n'
+                    'Одно слово вроде «отчёт» или «холодильник» не годится — '
+                    'на планёрке никто не вспомнит, о чём речь.\n\n'
+                    '<i>Например:</i>\n'
+                    '· Купить второй термощуп, одного на две станции не хватает\n'
+                    '· Добавить в чек-лист пункт про запасной баллон газа\n'
+                    '· Ледогенератор течёт третий день, вызвать мастера')
         ack(); return True
 
     if data.startswith('cl:ck:'):
