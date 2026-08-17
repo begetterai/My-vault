@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Ромашка — чек-лист смены</title>
+<title>Чек-лист смены</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <style>
   :root{
@@ -114,6 +114,7 @@ async function boot(){
     if(!r.ok){ $('#who').textContent = 'Нет доступа'; return fail(j.error || ''); }
     DATA = j;
     $('#who').textContent = j.name + ' · ' + j.point;
+    document.title = (j.company || '') + ' — чек-лист';
     $('#sub').textContent = j.day;
     const box = $('#pickList'); box.innerHTML = '';
     for(const k of Object.keys(j.lists)){
