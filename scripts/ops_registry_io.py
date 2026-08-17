@@ -126,22 +126,22 @@ def main():
     sh = meta['sheets'][0]['properties']
     sid, cols = sh['sheetId'], sh['gridProperties']['columnCount']
 
-    if cols < 17:
+    if cols < 16:
         s.post(B + REG + ':batchUpdate', json={'requests': [{'appendDimension': {
-            'sheetId': sid, 'dimension': 'COLUMNS', 'length': 17 - cols}}]}).raise_for_status()
+            'sheetId': sid, 'dimension': 'COLUMNS', 'length': 16 - cols}}]}).raise_for_status()
 
-    v = s.get(B + REG + '/values/A1:Q200').json().get('values', [])
+    v = s.get(B + REG + '/values/A1:P200').json().get('values', [])
     rows = [(i, r[0]) for i, r in enumerate(v[1:], 2) if r and r[0]]
 
-    data = [{'range': 'P1', 'values': [['ВВОД']]},
-            {'range': 'Q1', 'values': [['ОТЧЁТ']]}]
+    data = [{'range': 'O1', 'values': [['ВВОД']]},
+            {'range': 'P1', 'values': [['ОТЧЁТ']]}]
     miss = []
     for i, code in rows:
         m = MAP.get(code)
         if not m:
             miss.append(code)
             continue
-        data.append({'range': f'P{i}:Q{i}', 'values': [list(m)]})
+        data.append({'range': f'O{i}:P{i}', 'values': [list(m)]})
     s.post(B + REG + '/values:batchUpdate',
            json={'valueInputOption': 'USER_ENTERED', 'data': data}).raise_for_status()
 
@@ -150,20 +150,20 @@ def main():
         # выпадающие списки — чтобы вручную не написали лишнего
         {'setDataValidation': {
             'range': {'sheetId': sid, 'startRowIndex': 1, 'endRowIndex': last,
-                      'startColumnIndex': 15, 'endColumnIndex': 16},
+                      'startColumnIndex': 14, 'endColumnIndex': 15},
             'rule': {'condition': {'type': 'ONE_OF_LIST',
                      'values': [{'userEnteredValue': x} for x in IN_VALUES]},
                      'strict': True, 'showCustomUi': True}}},
         {'setDataValidation': {
             'range': {'sheetId': sid, 'startRowIndex': 1, 'endRowIndex': last,
-                      'startColumnIndex': 16, 'endColumnIndex': 17},
+                      'startColumnIndex': 15, 'endColumnIndex': 16},
             'rule': {'condition': {'type': 'ONE_OF_LIST',
                      'values': [{'userEnteredValue': x} for x in OUT_VALUES]},
                      'strict': True, 'showCustomUi': True}}},
         # вид как у всей таблицы
         {'repeatCell': {
             'range': {'sheetId': sid, 'startRowIndex': 0, 'endRowIndex': last,
-                      'startColumnIndex': 15, 'endColumnIndex': 17},
+                      'startColumnIndex': 14, 'endColumnIndex': 16},
             'cell': {'userEnteredFormat': {
                 'horizontalAlignment': 'CENTER', 'verticalAlignment': 'MIDDLE',
                 'textFormat': {'fontFamily': 'Times New Roman', 'fontSize': 13}}},
@@ -171,16 +171,16 @@ def main():
                       'textFormat.fontFamily,textFormat.fontSize)'}},
         {'repeatCell': {
             'range': {'sheetId': sid, 'startRowIndex': 0, 'endRowIndex': 1,
-                      'startColumnIndex': 15, 'endColumnIndex': 17},
+                      'startColumnIndex': 14, 'endColumnIndex': 16},
             'cell': {'userEnteredFormat': {'textFormat': {'bold': True}}},
             'fields': 'userEnteredFormat.textFormat.bold'}},
         {'updateBorders': {
             'range': {'sheetId': sid, 'startRowIndex': 0, 'endRowIndex': 1,
-                      'startColumnIndex': 15, 'endColumnIndex': 17},
+                      'startColumnIndex': 14, 'endColumnIndex': 16},
             'top': LINE, 'bottom': LINE}},
         {'updateDimensionProperties': {
             'range': {'sheetId': sid, 'dimension': 'COLUMNS',
-                      'startIndex': 15, 'endIndex': 17},
+                      'startIndex': 14, 'endIndex': 16},
             'properties': {'pixelSize': 96}, 'fields': 'pixelSize'}},
     ]
     s.post(B + REG + ':batchUpdate', json={'requests': req}).raise_for_status()
