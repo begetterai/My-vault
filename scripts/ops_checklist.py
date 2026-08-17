@@ -89,16 +89,29 @@ def _parse(answer, rows):
     return sorted(set(nums)), None
 
 
-def _write(sheets, day, point, who, fails, opened, comment):
-    marks = ['TRUE'] * TOTAL
-    for n in fails:
-        marks[n - 1] = 'FALSE'
-    row = [day, point, who, datetime.datetime.utcnow().strftime('%H:%M')] + \
-        marks + [opened, comment]
-    sheets.post(B + SS + '/values/' + TAB + '!A3:append',
+def _names():
+    """№ пункта → (блок, текст)."""
+    return {n: (blk, t) for blk, rows in BLOCK_ITEMS for n, t, _ in rows}
+
+
+def _write(sheets, day, point, who, fails, opened, comment, filled_at):
+    """Пишет сводку в «Открытие смены» и по строке на каждый провал
+    в «Невыполнено». Никаких 34 колонок галочек — таблицу читает человек."""
+    nm = _names()
+    ok = TOTAL - len(fails)
+    short = ', '.join(str(n) for n in fails) if fails else '—'
+    summary = [day, point, who, filled_at, opened, ok, TOTAL,
+               round(ok / TOTAL, 4), short, comment]
+    sheets.post(B + SS + '/values/' + TAB + '!A2:append',
                 params={'valueInputOption': 'USER_ENTERED',
                         'insertDataOption': 'INSERT_ROWS'},
-                json={'values': [row]}, timeout=60).raise_for_status()
+                json={'values': [summary]}, timeout=60).raise_for_status()
+    if fails:
+        rows = [[day, point, who, n, nm[n][0], nm[n][1]] for n in fails]
+        sheets.post(B + SS + '/values/Невыполнено!A2:append',
+                    params={'valueInputOption': 'USER_ENTERED',
+                            'insertDataOption': 'INSERT_ROWS'},
+                    json={'values': rows}, timeout=60).raise_for_status()
 
 
 def try_handle(chat_id, text, sheets, send_to, notify=None, today=None):
@@ -170,7 +183,8 @@ def try_handle(chat_id, text, sheets, send_to, notify=None, today=None):
 def _finish(chat_id, st, sheets, send_to, notify, comment):
     try:
         _write(sheets, st['day'], st['point'], st['who'], st['fails'],
-               st.get('opened', ''), comment)
+               st.get('opened', ''), comment,
+               datetime.datetime.utcnow().strftime('%H:%M'))
     except Exception as e:
         send_to(chat_id, f'⚠️ Не смог сохранить: {e}\nСообщи управляющему.')
         STATE.pop(chat_id, None)

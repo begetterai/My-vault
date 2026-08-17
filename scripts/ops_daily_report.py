@@ -54,35 +54,38 @@ def _norm(d):
 
 
 def collect(s, day):
-    """→ {точка: {'есть': bool, 'кто':…, 'всего':n, 'ок':n, 'провал':[(№,текст)]}}"""
-    pts = s.get(B + SS + '/values/Пункты!A2:C200').json().get('values', [])
-    names = {int(r[0]): r[2] for r in pts if r and str(r[0]).isdigit() and len(r) > 2}
-    rows = s.get(B + SS + '/values/' + TAB,
-                 params={'valueRenderOption': 'FORMATTED_VALUE'}
-                 ).json().get('values', [])[2:]
-    out = {}
-    for p in POINTS:
-        out[p] = {'есть': False, 'кто': '', 'время': '', 'всего': len(names),
-                  'ок': 0, 'провал': [], 'коммент': ''}
-    for r in rows:
-        if len(r) < 2 or _norm(r[0]) != day:
+    """→ {точка: {'есть': bool, 'кто':…, 'всего':n, 'ок':n, 'провал':[(№,текст)]}}
+
+    Читает сводный лист «Открытие смены» и детальный «Невыполнено».
+    """
+    v = s.get(B + SS + '/values:batchGet',
+              params={'ranges': [TAB, 'Невыполнено'],
+                      'valueRenderOption': 'FORMATTED_VALUE'}).json().get('valueRanges', [])
+    summ = v[0].get('values', [])[1:] if v else []
+    fails = v[1].get('values', [])[1:] if len(v) > 1 else []
+
+    out = {p: {'есть': False, 'кто': '', 'открыли': '', 'всего': 0,
+               'ок': 0, 'провал': [], 'коммент': ''} for p in POINTS}
+    for r in summ:
+        if len(r) < 7 or _norm(r[0]) != day:
             continue
         p = str(r[1]).strip()
         if p not in out:
             continue
-        marks = r[NFIXED:NFIXED + len(names)]
-        ok, bad = 0, []
-        for i in range(len(names)):
-            v = marks[i] if i < len(marks) else False
-            if v is True or str(v).upper() == 'TRUE':
-                ok += 1
-            else:
-                bad.append((i + 1, names.get(i + 1, '?')))
-        tail = r[NFIXED + len(names):]
-        out[p].update({'есть': True, 'кто': (r[2] if len(r) > 2 else ''),
-                       'время': (r[3] if len(r) > 3 else ''),
-                       'ок': ok, 'провал': bad,
-                       'коммент': (tail[1] if len(tail) > 1 else '')})
+        num = lambda x: int(str(x).replace(' ', '') or 0) if str(x).replace(' ', '').isdigit() else 0
+        out[p].update({'есть': True, 'кто': r[2] if len(r) > 2 else '',
+                       'открыли': r[4] if len(r) > 4 else '',
+                       'ок': num(r[5]), 'всего': num(r[6]),
+                       'коммент': r[9] if len(r) > 9 else ''})
+    for r in fails:
+        if len(r) < 6 or _norm(r[0]) != day:
+            continue
+        p = str(r[1]).strip()
+        if p in out and out[p]['есть']:
+            n = int(r[3]) if str(r[3]).isdigit() else 0
+            out[p]['провал'].append((n, r[5]))
+    for p in out:
+        out[p]['провал'].sort()
     return out
 
 

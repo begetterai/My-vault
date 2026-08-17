@@ -1,34 +1,47 @@
 #!/usr/bin/env python3
-"""Склад операционных данных — лист, который заполняет смена с телефона.
+"""Склад операционных данных.
 
-Первая петля: 03-CL-01 «Открытие смены» → таблица → утренний отчёт в телеграм.
+Заполняет бот (ops_checklist.py). Таблица нужна человеку для ЧТЕНИЯ,
+поэтому она сводная, а не в 34 колонки галочек.
 
-Пункты берутся НАПРЯМУЮ из doc_03_CL_01.BLOCKS — то есть форма и документ
-всегда совпадают по составу. Изменил документ — перезапустил скрипт,
-колонки обновились.
+Листы:
+  Открытие смены — одна строка на смену: кто, сколько выполнено, что не сделано
+  Невыполнено    — по одной строке на каждый проваленный пункт (для аналитики:
+                   какой пункт валят чаще всего)
+  Пункты         — справочник 34 пунктов, тянется из документа 03-CL-01
+  Команда        — кто может заполнять через бота; Азиз правит сам
 
 Скрипт идемпотентный.
 """
-import sys, json, datetime
+import sys
 sys.path.insert(0, '/home/user/My-vault/scripts')
-from ops_docs import session, find, DRIVE_ID
+from ops_docs import session, find
 from doc_03_CL_01 import BLOCKS
 
 ROOT = '1cSLEkOXikhTv0g6lPxZ31xJca1Yu-q43'
 B = 'https://sheets.googleapis.com/v4/spreadsheets/'
 NAME = 'ОПЕРАЦИОННЫЕ ДАННЫЕ (заполняет смена)'
-TAB = 'Открытие смены'
 FOLDER = '00.2 Данные — заполняет смена'
 
 BLACK = {'red': 0, 'green': 0, 'blue': 0}
 WHITE = {'red': 1, 'green': 1, 'blue': 1}
 LINE = {'style': 'SOLID', 'width': 1, 'color': BLACK}
-FIXED = ['Дата', 'Точка', 'Старший смены', 'Время заполнения']
-TAIL = ['Точка открыта в', 'Комментарий к невыполненным']
+
+TABS = {
+    'Открытие смены': (
+        ['Дата', 'Точка', 'Старший смены', 'Заполнил в', 'Открыли в',
+         'Выполнено', 'Всего', '%', 'Не выполнены пункты', 'Комментарий'],
+        [96, 74, 140, 96, 90, 96, 70, 62, 200, 460]),
+    'Невыполнено': (
+        ['Дата', 'Точка', 'Старший смены', '№', 'Блок', 'Пункт'],
+        [96, 74, 140, 50, 190, 420]),
+    'Пункты': (['№', 'Блок', 'Пункт'], [50, 190, 460]),
+    'Команда': (['chat_id', 'Имя', 'Точка', 'Роль', 'Активен'],
+                [130, 150, 90, 150, 90]),
+}
 
 
 def items():
-    """[(номер, блок, текст пункта)] — сквозная нумерация как в документе."""
     out, n = [], 0
     for block, rows in BLOCKS:
         for text, norm, photo in rows:
@@ -49,7 +62,7 @@ def ensure_folder(s, name, parent):
     return r.json()['id'], 'создана'
 
 
-def ensure_sheet(s, name, parent):
+def ensure_file(s, name, parent):
     fid = find(s, name, parent)
     if fid:
         return fid, 'уже был'
@@ -61,145 +74,179 @@ def ensure_sheet(s, name, parent):
     return r.json()['id'], 'создан'
 
 
+def polish(s, fid):
+    """Финальный проход по форматам — ПОСЛЕ записи значений.
+
+    Раньше форматы шли одним батчем со структурой, и часть из них не доезжала:
+    дата оставалась числом 46251, процент — 0,9118, данные жирными.
+    """
+    meta = s.get(B + fid, params={'fields': 'sheets.properties'}).json()
+    p = {sh['properties']['title']: sh['properties'] for sh in meta['sheets']}
+    req = []
+    for t, pr in p.items():
+        if t not in TABS:
+            continue
+        sid, last = pr['sheetId'], pr['gridProperties']['rowCount']
+        ncol = len(TABS[t][0])
+        req += [
+            {'repeatCell': {
+                'range': {'sheetId': sid, 'startRowIndex': 1, 'endRowIndex': last,
+                          'startColumnIndex': 0, 'endColumnIndex': ncol},
+                'cell': {'userEnteredFormat': {'textFormat': {'bold': False}}},
+                'fields': 'userEnteredFormat.textFormat.bold'}},
+            {'repeatCell': {
+                'range': {'sheetId': sid, 'startRowIndex': 0, 'endRowIndex': 1,
+                          'startColumnIndex': 0, 'endColumnIndex': ncol},
+                'cell': {'userEnteredFormat': {'textFormat': {'bold': True}}},
+                'fields': 'userEnteredFormat.textFormat.bold'}},
+        ]
+        if t in ('Открытие смены', 'Невыполнено'):
+            req.append({'repeatCell': {
+                'range': {'sheetId': sid, 'startRowIndex': 1, 'endRowIndex': last,
+                          'startColumnIndex': 0, 'endColumnIndex': 1},
+                'cell': {'userEnteredFormat': {'numberFormat': {
+                    'type': 'DATE', 'pattern': 'dd.mm.yyyy'}}},
+                'fields': 'userEnteredFormat.numberFormat'}})
+        if t == 'Открытие смены':
+            req.append({'repeatCell': {
+                'range': {'sheetId': sid, 'startRowIndex': 1, 'endRowIndex': last,
+                          'startColumnIndex': 7, 'endColumnIndex': 8},
+                'cell': {'userEnteredFormat': {'numberFormat': {
+                    'type': 'PERCENT', 'pattern': '0%'}}},
+                'fields': 'userEnteredFormat.numberFormat'}})
+    if req:
+        s.post(B + fid + ':batchUpdate', json={'requests': req}).raise_for_status()
+
+
 def main():
     s = session()
     folder, fact = ensure_folder(s, FOLDER, ROOT)
-    sid_file, sact = ensure_sheet(s, NAME, folder)
-    print(f'папка — {fact}; таблица — {sact}')
+    fid, fileact = ensure_file(s, NAME, folder)
+    print(f'папка — {fact}; таблица — {fileact}')
 
-    meta = s.get(B + sid_file, params={'fields': 'sheets.properties'}).json()
-    tabs = {sh['properties']['title']: sh['properties'] for sh in meta['sheets']}
+    meta = s.get(B + fid, params={'fields': 'sheets.properties'}).json()
+    have = {sh['properties']['title']: sh['properties'] for sh in meta['sheets']}
+
+    # добавляем недостающие листы
+    add = [{'addSheet': {'properties': {
+        'title': t, 'gridProperties': {'rowCount': 1000, 'columnCount': len(h),
+                                       'frozenRowCount': 1}}}}
+        for t, (h, _) in TABS.items() if t not in have]
+    if add:
+        s.post(B + fid + ':batchUpdate', json={'requests': add}).raise_for_status()
+        meta = s.get(B + fid, params={'fields': 'sheets.properties'}).json()
+        have = {sh['properties']['title']: sh['properties'] for sh in meta['sheets']}
 
     req = []
-    if TAB not in tabs:
-        req.append({'addSheet': {'properties': {'title': TAB,
-                    'gridProperties': {'rowCount': 2000, 'columnCount': 60,
-                                       'frozenRowCount': 2, 'frozenColumnCount': 2}}}})
-        s.post(B + sid_file + ':batchUpdate', json={'requests': req}).raise_for_status()
-        meta = s.get(B + sid_file, params={'fields': 'sheets.properties'}).json()
-        tabs = {sh['properties']['title']: sh['properties'] for sh in meta['sheets']}
-    sid = tabs[TAB]['sheetId']
+    for t, (head, widths) in TABS.items():
+        p = have[t]
+        sid, ncol = p['sheetId'], len(head)
+        # старая раскладка на 40 колонок галочек — вычищаем всё лишнее
+        req += [
+            {'updateSheetProperties': {
+                'properties': {'sheetId': sid,
+                               'gridProperties': {'frozenRowCount': 1, 'frozenColumnCount': 0}},
+                'fields': 'gridProperties.frozenRowCount,gridProperties.frozenColumnCount'}},
+            {'setDataValidation': {'range': {'sheetId': sid, 'startRowIndex': 0,
+                                             'endRowIndex': p['gridProperties']['rowCount'],
+                                             'startColumnIndex': 0,
+                                             'endColumnIndex': p['gridProperties']['columnCount']}}},
+            {'repeatCell': {
+                'range': {'sheetId': sid, 'startRowIndex': 0,
+                          'endRowIndex': p['gridProperties']['rowCount'],
+                          'startColumnIndex': 0,
+                          'endColumnIndex': p['gridProperties']['columnCount']},
+                'cell': {'userEnteredFormat': {
+                    'backgroundColor': WHITE, 'verticalAlignment': 'MIDDLE',
+                    'wrapStrategy': 'WRAP', 'horizontalAlignment': 'LEFT',
+                    'textRotation': {'angle': 0},
+                    'textFormat': {'fontFamily': 'Times New Roman', 'fontSize': 13,
+                                   'bold': False, 'foregroundColor': BLACK}}},
+                'fields': 'userEnteredFormat(backgroundColor,verticalAlignment,wrapStrategy,'
+                          'horizontalAlignment,textRotation,textFormat)'}},
+            # шапка
+            {'repeatCell': {
+                'range': {'sheetId': sid, 'startRowIndex': 0, 'endRowIndex': 1,
+                          'startColumnIndex': 0, 'endColumnIndex': ncol},
+                'cell': {'userEnteredFormat': {'textFormat': {'bold': True}}},
+                'fields': 'userEnteredFormat.textFormat.bold'}},
+            {'updateBorders': {
+                'range': {'sheetId': sid, 'startRowIndex': 0, 'endRowIndex': 1,
+                          'startColumnIndex': 0, 'endColumnIndex': ncol},
+                'top': LINE, 'bottom': LINE}},
+            {'updateDimensionProperties': {
+                'range': {'sheetId': sid, 'dimension': 'ROWS',
+                          'startIndex': 0, 'endIndex': 1000},
+                'properties': {'pixelSize': 30}, 'fields': 'pixelSize'}},
+        ]
+        for j, w in enumerate(widths):
+            req.append({'updateDimensionProperties': {
+                'range': {'sheetId': sid, 'dimension': 'COLUMNS',
+                          'startIndex': j, 'endIndex': j + 1},
+                'properties': {'pixelSize': w}, 'fields': 'pixelSize'}})
+        # лишние колонки от старой раскладки — отдельным проходом ниже,
+        # иначе удаление сдвигает диапазоны форматов в этом же батче
 
-    # первый лист по умолчанию убираем, если он пустой и не наш
-    for t, p in tabs.items():
-        if t in ('Лист1', 'Sheet1') and t != TAB:
-            s.post(B + sid_file + ':batchUpdate',
-                   json={'requests': [{'deleteSheet': {'sheetId': p['sheetId']}}]})
-
-    it = items()
-    ncol = len(FIXED) + len(it) + len(TAIL)
-
-    # две строки шапки: блок и текст пункта
-    row1 = FIXED + [b for _, b, _ in it] + TAIL
-    row2 = [''] * len(FIXED) + ['%d. %s' % (n, t) for n, _, t in it] + [''] * len(TAIL)
-    s.put(B + sid_file + '/values/' + TAB + '!A1',
-          params={'valueInputOption': 'RAW'},
-          json={'values': [row1, row2]}).raise_for_status()
-
-    c0 = len(FIXED)
-    c1 = c0 + len(it)
-    req = [
-        # весь лист — стандарт оформления
-        {'repeatCell': {
-            'range': {'sheetId': sid, 'startRowIndex': 0, 'endRowIndex': 2000,
-                      'startColumnIndex': 0, 'endColumnIndex': ncol},
-            'cell': {'userEnteredFormat': {
-                'backgroundColor': WHITE, 'verticalAlignment': 'MIDDLE',
-                'wrapStrategy': 'WRAP',
-                'textFormat': {'fontFamily': 'Times New Roman', 'fontSize': 13,
-                               'foregroundColor': BLACK}}},
-            'fields': 'userEnteredFormat(backgroundColor,verticalAlignment,wrapStrategy,'
-                      'textFormat.fontFamily,textFormat.fontSize,textFormat.foregroundColor)'}},
-        # шапка — жирная, вертикальная, с рамкой
-        {'repeatCell': {
-            'range': {'sheetId': sid, 'startRowIndex': 0, 'endRowIndex': 2,
-                      'startColumnIndex': 0, 'endColumnIndex': ncol},
-            'cell': {'userEnteredFormat': {
-                'textFormat': {'bold': True},
-                'horizontalAlignment': 'CENTER',
-                'textRotation': {'angle': 90}}},
-            'fields': 'userEnteredFormat(textFormat.bold,horizontalAlignment,textRotation)'}},
-        # первые колонки — по-человечески, без поворота
-        {'repeatCell': {
-            'range': {'sheetId': sid, 'startRowIndex': 0, 'endRowIndex': 2,
-                      'startColumnIndex': 0, 'endColumnIndex': len(FIXED)},
-            'cell': {'userEnteredFormat': {
-                'textRotation': {'angle': 0}, 'horizontalAlignment': 'LEFT'}},
-            'fields': 'userEnteredFormat(textRotation,horizontalAlignment)'}},
-        {'updateBorders': {
-            'range': {'sheetId': sid, 'startRowIndex': 0, 'endRowIndex': 2,
-                      'startColumnIndex': 0, 'endColumnIndex': ncol},
-            'top': LINE, 'bottom': LINE}},
-        # галочки по всем пунктам
-        {'setDataValidation': {
-            'range': {'sheetId': sid, 'startRowIndex': 2, 'endRowIndex': 2000,
-                      'startColumnIndex': c0, 'endColumnIndex': c1},
-            'rule': {'condition': {'type': 'BOOLEAN'}}}},
-        # точка — выпадающий список
-        {'setDataValidation': {
-            'range': {'sheetId': sid, 'startRowIndex': 2, 'endRowIndex': 2000,
-                      'startColumnIndex': 1, 'endColumnIndex': 2},
-            'rule': {'condition': {'type': 'ONE_OF_LIST', 'values': [
-                {'userEnteredValue': 'ЗБ'}, {'userEnteredValue': 'ОВИР'}]},
-                'strict': True, 'showCustomUi': True}}},
-        # дата — как дата
-        {'repeatCell': {
-            'range': {'sheetId': sid, 'startRowIndex': 2, 'endRowIndex': 2000,
-                      'startColumnIndex': 0, 'endColumnIndex': 1},
+    # дата — как дата, на обоих листах с датой
+    for t in ('Открытие смены', 'Невыполнено'):
+        req.append({'repeatCell': {
+            'range': {'sheetId': have[t]['sheetId'], 'startRowIndex': 1,
+                      'endRowIndex': 1000, 'startColumnIndex': 0, 'endColumnIndex': 1},
             'cell': {'userEnteredFormat': {'numberFormat': {
                 'type': 'DATE', 'pattern': 'dd.mm.yyyy'}}},
+            'fields': 'userEnteredFormat.numberFormat'}})
+    # числа по центру, процент — процентом, а не 0,9118
+    sid_o = have['Открытие смены']['sheetId']
+    req += [
+        {'repeatCell': {
+            'range': {'sheetId': sid_o, 'startRowIndex': 1, 'endRowIndex': 1000,
+                      'startColumnIndex': 5, 'endColumnIndex': 8},
+            'cell': {'userEnteredFormat': {'horizontalAlignment': 'CENTER'}},
+            'fields': 'userEnteredFormat.horizontalAlignment'}},
+        {'repeatCell': {
+            'range': {'sheetId': sid_o, 'startRowIndex': 1, 'endRowIndex': 1000,
+                      'startColumnIndex': 7, 'endColumnIndex': 8},
+            'cell': {'userEnteredFormat': {'numberFormat': {
+                'type': 'PERCENT', 'pattern': '0%'}}},
             'fields': 'userEnteredFormat.numberFormat'}},
-        # ширины: пункты узкие, первые колонки нормальные, хвост широкий
-        {'updateDimensionProperties': {
-            'range': {'sheetId': sid, 'dimension': 'COLUMNS',
-                      'startIndex': c0, 'endIndex': c1},
-            'properties': {'pixelSize': 34}, 'fields': 'pixelSize'}},
-        {'updateDimensionProperties': {
-            'range': {'sheetId': sid, 'dimension': 'COLUMNS',
-                      'startIndex': 0, 'endIndex': len(FIXED)},
-            'properties': {'pixelSize': 120}, 'fields': 'pixelSize'}},
-        {'updateDimensionProperties': {
-            'range': {'sheetId': sid, 'dimension': 'COLUMNS',
-                      'startIndex': c1, 'endIndex': ncol},
-            'properties': {'pixelSize': 220}, 'fields': 'pixelSize'}},
-        {'updateDimensionProperties': {
-            'range': {'sheetId': sid, 'dimension': 'ROWS',
-                      'startIndex': 0, 'endIndex': 2},
-            'properties': {'pixelSize': 260}, 'fields': 'pixelSize'}},
-        {'updateDimensionProperties': {
-            'range': {'sheetId': sid, 'dimension': 'ROWS',
-                      'startIndex': 2, 'endIndex': 2000},
-            'properties': {'pixelSize': 30}, 'fields': 'pixelSize'}},
     ]
-    s.post(B + sid_file + ':batchUpdate', json={'requests': req}).raise_for_status()
+    s.post(B + fid + ':batchUpdate', json={'requests': req}).raise_for_status()
 
-    # карта пунктов рядом — чтобы отчёт знал, что за колонкой
-    m = [['№', 'Блок', 'Пункт']] + [[n, b, t] for n, b, t in it]
-    if 'Пункты' not in tabs:
-        s.post(B + sid_file + ':batchUpdate', json={'requests': [{'addSheet': {
-            'properties': {'title': 'Пункты',
-                           'gridProperties': {'rowCount': 200, 'columnCount': 4,
-                                              'frozenRowCount': 1}}}}]}).raise_for_status()
-    s.put(B + sid_file + '/values/Пункты!A1',
-          params={'valueInputOption': 'RAW'}, json={'values': m}).raise_for_status()
+    # вторым проходом — обрезка лишних колонок от старой раскладки
+    meta = s.get(B + fid, params={'fields': 'sheets.properties'}).json()
+    cut = []
+    for sh in meta['sheets']:
+        p = sh['properties']
+        want = TABS.get(p['title'])
+        if want and p['gridProperties']['columnCount'] > len(want[0]):
+            cut.append({'deleteDimension': {'range': {
+                'sheetId': p['sheetId'], 'dimension': 'COLUMNS',
+                'startIndex': len(want[0]),
+                'endIndex': p['gridProperties']['columnCount']}}})
+    if cut:
+        s.post(B + fid + ':batchUpdate', json={'requests': cut}).raise_for_status()
 
-    # кто может заполнять чек-лист через бота — Азиз правит этот лист сам
-    if 'Команда' not in tabs:
-        s.post(B + sid_file + ':batchUpdate', json={'requests': [{'addSheet': {
-            'properties': {'title': 'Команда',
-                           'gridProperties': {'rowCount': 100, 'columnCount': 6,
-                                              'frozenRowCount': 1}}}}]}).raise_for_status()
-        s.put(B + sid_file + '/values/Команда!A1',
+    # шапки
+    data = [{'range': f"'{t}'!A1", 'values': [h]} for t, (h, _) in TABS.items()]
+    it = items()
+    data.append({'range': "'Пункты'!A2", 'values': [[n, b, x] for n, b, x in it]})
+    s.post(B + fid + '/values:batchUpdate',
+           json={'valueInputOption': 'RAW', 'data': data}).raise_for_status()
+
+    # команда — заготовка, если лист пустой
+    cur = s.get(B + fid + '/values/Команда!A2:E2').json().get('values', [])
+    if not cur:
+        s.put(B + fid + '/values/Команда!A2',
               params={'valueInputOption': 'RAW'},
-              json={'values': [
-                  ['chat_id', 'Имя', 'Точка', 'Роль', 'Активен'],
-                  ['', 'Владимир', 'ЗБ', 'Управляющий', 'да'],
-                  ['', 'Дилчу', 'ОВИР', 'Управляющий', 'да'],
-              ]}).raise_for_status()
+              json={'values': [['', 'Владимир', 'ЗБ', 'Управляющий', 'да'],
+                               ['', 'Дилчу', 'ОВИР', 'Управляющий', 'да']]}
+              ).raise_for_status()
 
-    print(f'лист «{TAB}»: пунктов {len(it)}, колонок {ncol}')
-    print('https://docs.google.com/spreadsheets/d/' + sid_file)
-    return sid_file
+    polish(s, fid)
+    print('листы:', ' · '.join(TABS))
+    print(f'пунктов в справочнике: {len(it)}')
+    print('https://docs.google.com/spreadsheets/d/' + fid)
+    return fid
 
 
 if __name__ == '__main__':
