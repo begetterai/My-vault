@@ -215,8 +215,7 @@ def _write(sheets, st, comment, filled_at, seconds):
            ', '.join(str(n) for n in fails) if fails else '—', comment,
            meas, ' '.join(st['photos_done']), round(seconds / 60, 1)]
     r = sheets.post(B + SS + '/values/' + CL.KINDS[kind]['tab'].replace(' ', '%20') + '!A2:append',
-                    params={'valueInputOption': 'USER_ENTERED',
-                            'insertDataOption': 'INSERT_ROWS'},
+                    params={'valueInputOption': 'USER_ENTERED'},
                     json={'values': [row]}, timeout=60)
     r.raise_for_status()
     rng = (r.json().get('updates', {}) or {}).get('updatedRange', '')
@@ -225,8 +224,7 @@ def _write(sheets, st, comment, filled_at, seconds):
         det = [[st['day'], st['point'], st['who'], CL.KINDS[kind]['title'],
                 n, nm[n][0], nm[n][1]] for n in fails]
         sheets.post(B + SS + '/values/Невыполнено!A2:append',
-                    params={'valueInputOption': 'USER_ENTERED',
-                            'insertDataOption': 'INSERT_ROWS'},
+                    params={'valueInputOption': 'USER_ENTERED'},
                     json={'values': det}, timeout=60).raise_for_status()
     return ok, tot, fails, line
 
@@ -265,8 +263,7 @@ def _finish(chat_id, st, sheets, tg, notify, comment):
 
 def note_write(sheets, day, who, point, source, text):
     sheets.post(B + SS + '/values/Идеи%20и%20задачи!A2:append',
-                params={'valueInputOption': 'USER_ENTERED',
-                        'insertDataOption': 'INSERT_ROWS'},
+                params={'valueInputOption': 'USER_ENTERED'},
                 json={'values': [[day, who, point, source, text, 'Новая', '']]},
                 timeout=60).raise_for_status()
 
