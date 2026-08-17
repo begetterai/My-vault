@@ -78,12 +78,14 @@ def collect(s, day):
                        'ок': num(r[5]), 'всего': num(r[6]),
                        'коммент': r[9] if len(r) > 9 else ''})
     for r in fails:
-        if len(r) < 6 or _norm(r[0]) != day:
+        if len(r) < 7 or _norm(r[0]) != day:
             continue
         p = str(r[1]).strip()
+        if r[3].strip() != 'Открытие смены':      # закрытие идёт своим блоком
+            continue
         if p in out and out[p]['есть']:
-            n = int(r[3]) if str(r[3]).isdigit() else 0
-            out[p]['провал'].append((n, r[5]))
+            n = int(r[4]) if str(r[4]).isdigit() else 0
+            out[p]['провал'].append((n, r[6]))
     for p in out:
         out[p]['провал'].sort()
     return out

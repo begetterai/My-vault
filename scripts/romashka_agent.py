@@ -835,14 +835,11 @@ def handle(msg):
         except Exception as e:
             log.warning(f'shift log: {e}')
         return
-    # Чек-лист открытия смены — доступен всем из листа «Команда», не только Азизу
+    # Чек-листы смены — доступны всем из листа «Команда», не только Азизу
     try:
         import ops_checklist
-        if ops_checklist.try_handle(
-                chat_id, msg.get('text',''), SHEETS,
-                send_to=lambda cid, txt: tg('sendMessage', chat_id=cid, text=txt,
-                                            parse_mode='HTML'),
-                notify=send, today=today_local()):
+        if ops_checklist.on_message(chat_id, msg.get('text',''), SHEETS, tg,
+                                    notify=send, today=today_local()):
             return
     except Exception as e:
         log.warning(f'checklist: {e}')
@@ -975,10 +972,18 @@ def run():
     offset=0
     while True:
         try:
-            res=tg('getUpdates', offset=offset, timeout=25, allowed_updates=['message','my_chat_member'])
+            res=tg('getUpdates', offset=offset, timeout=25,
+                   allowed_updates=['message','my_chat_member','callback_query'])
             for upd in res.get('result') or []:
                 offset=upd['update_id']+1
-                if 'message' in upd:
+                if 'callback_query' in upd:
+                    # кнопки чек-листов
+                    try:
+                        import ops_checklist
+                        ops_checklist.on_callback(upd['callback_query'], SHEETS, tg,
+                                                  notify=send, today=today_local())
+                    except Exception as e: log.error(f'callback: {e}')
+                elif 'message' in upd:
                     try: handle(upd['message'])
                     except Exception as e: log.error(f'handle: {e}')
                 elif 'my_chat_member' in upd:

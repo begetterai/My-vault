@@ -16,7 +16,7 @@
 import sys
 sys.path.insert(0, '/home/user/My-vault/scripts')
 from ops_docs import session, find
-from doc_03_CL_01 import BLOCKS
+import checklists as CL
 
 ROOT = '1cSLEkOXikhTv0g6lPxZ31xJca1Yu-q43'
 B = 'https://sheets.googleapis.com/v4/spreadsheets/'
@@ -32,10 +32,14 @@ TABS = {
         ['Дата', 'Точка', 'Старший смены', 'Заполнил в', 'Открыли в',
          'Выполнено', 'Всего', '%', 'Не выполнены пункты', 'Комментарий'],
         [96, 74, 140, 96, 90, 96, 70, 62, 200, 460]),
+    'Закрытие смены': (
+        ['Дата', 'Точка', 'Старший смены', 'Заполнил в', 'Закрыли в',
+         'Выполнено', 'Всего', '%', 'Не выполнены пункты', 'Комментарий'],
+        [96, 74, 140, 96, 90, 96, 70, 62, 200, 460]),
     'Невыполнено': (
-        ['Дата', 'Точка', 'Старший смены', '№', 'Блок', 'Пункт'],
-        [96, 74, 140, 50, 190, 420]),
-    'Пункты': (['№', 'Блок', 'Пункт'], [50, 190, 460]),
+        ['Дата', 'Точка', 'Старший смены', 'Документ', '№', 'Блок', 'Пункт'],
+        [96, 74, 140, 150, 50, 190, 420]),
+    'Пункты': (['Документ', '№', 'Блок', 'Пункт'], [150, 50, 190, 460]),
     'Команда': (['chat_id', 'Имя', 'Точка', 'Роль', 'Активен'],
                 [130, 150, 90, 150, 90]),
 }
@@ -109,11 +113,12 @@ EX_BOLD = {0, 2, 24, 26, 33, 35, 40, 48}      # строки-заголовки,
 
 
 def items():
-    out, n = [], 0
-    for block, rows in BLOCKS:
-        for text, norm, photo in rows:
-            n += 1
-            out.append((n, block, text))
+    """Справочник пунктов обоих чек-листов."""
+    out = []
+    for kind in ('open', 'close'):
+        title = CL.KINDS[kind]['title']
+        for n, b, t in CL.flat(kind):
+            out.append((title, n, b, t))
     return out
 
 
@@ -245,14 +250,14 @@ def polish(s, fid):
                 'cell': {'userEnteredFormat': {'textFormat': {'bold': True}}},
                 'fields': 'userEnteredFormat.textFormat.bold'}},
         ]
-        if t in ('Открытие смены', 'Невыполнено'):
+        if t in ('Открытие смены', 'Закрытие смены', 'Невыполнено'):
             req.append({'repeatCell': {
                 'range': {'sheetId': sid, 'startRowIndex': 1, 'endRowIndex': last,
                           'startColumnIndex': 0, 'endColumnIndex': 1},
                 'cell': {'userEnteredFormat': {'numberFormat': {
                     'type': 'DATE', 'pattern': 'dd.mm.yyyy'}}},
                 'fields': 'userEnteredFormat.numberFormat'}})
-        if t == 'Открытие смены':
+        if t in ('Открытие смены', 'Закрытие смены'):
             req.append({'repeatCell': {
                 'range': {'sheetId': sid, 'startRowIndex': 1, 'endRowIndex': last,
                           'startColumnIndex': 7, 'endColumnIndex': 8},
@@ -279,6 +284,16 @@ def main():
         for t, (h, _) in TABS.items() if t not in have]
     if add:
         s.post(B + fid + ':batchUpdate', json={'requests': add}).raise_for_status()
+        meta = s.get(B + fid, params={'fields': 'sheets.properties'}).json()
+        have = {sh['properties']['title']: sh['properties'] for sh in meta['sheets']}
+
+    # если колонок в листе меньше, чем нужно — сначала добавим, иначе 400
+    grow = [{'appendDimension': {'sheetId': have[t]['sheetId'], 'dimension': 'COLUMNS',
+                                 'length': len(h) - have[t]['gridProperties']['columnCount']}}
+            for t, (h, _) in TABS.items()
+            if have[t]['gridProperties']['columnCount'] < len(h)]
+    if grow:
+        s.post(B + fid + ':batchUpdate', json={'requests': grow}).raise_for_status()
         meta = s.get(B + fid, params={'fields': 'sheets.properties'}).json()
         have = {sh['properties']['title']: sh['properties'] for sh in meta['sheets']}
 
@@ -374,7 +389,7 @@ def main():
     # шапки
     data = [{'range': f"'{t}'!A1", 'values': [h]} for t, (h, _) in TABS.items()]
     it = items()
-    data.append({'range': "'Пункты'!A2", 'values': [[n, b, x] for n, b, x in it]})
+    data.append({'range': "'Пункты'!A2", 'values': [list(x) for x in it]})
     s.post(B + fid + '/values:batchUpdate',
            json={'valueInputOption': 'RAW', 'data': data}).raise_for_status()
 
