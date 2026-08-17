@@ -1,25 +1,27 @@
 #!/usr/bin/env python3
-"""Чек-листы смены в боте — меню и кнопки-иконки.
+"""Чек-листы смены в боте.
 
-Как работает:
-  1. Человек пишет «чек-лист» → бот показывает кнопки: какой документ заполняем.
-  2. Выбрал — идут блоки. Все пункты по умолчанию ✅.
-     Не выполнено — жмёшь номер, он становится ❌. Жмёшь ещё раз — обратно ✅.
-  3. «Далее» — следующий блок. После последнего бот спрашивает время
-     и причину по невыполненным.
-  4. Пишет в таблицу, отвечает человеку, шлёт сводку Азизу.
+Задача — не «поставить галочки», а сделать так, чтобы проверить точку было
+дешевле, чем изобразить проверку. Четыре механизма:
 
-Печатать почти ничего не надо — только время и комментарий.
+  1. Ничего не отмечено заранее. Каждый пункт надо нажать: ✅ или ❌.
+     Пока весь блок не отмечен, «Далее» не пускает. Протыкать нечего.
+  2. Где нужен замер — спрашиваем число, а не галочку: температуры, касса.
+     Число выдумать можно, но это уже осознанная ложь, а не небрежность.
+  3. Фото. Каждый раз бот просит снимки ДВУХ случайных пунктов из тех,
+     где в документе стоит «фото». Заранее не подготовишь — не знаешь каких.
+  4. Время. Засекается от начала до конца. Быстрее трёх минут точку
+     физически не обойти — такие заполнения помечаются и уходят Азизу.
 
 Кто может заполнять — лист «Команда» в таблице операционных данных.
 """
-import datetime
+import datetime, random
 import checklists as CL
 
 SS = '1wPQb2QUYy_aTbZN7KjeQsa_FrNv4KGE2clNT5EHyHOI'
 B = 'https://sheets.googleapis.com/v4/spreadsheets/'
 
-STATE = {}                      # chat_id → ход заполнения
+STATE = {}
 _TEAM = {'ts': None, 'map': {}}
 MENU = ('чек-лист', 'чеклист', '/чеклист', 'открытие', 'закрытие',
         'смена', '/смена', 'меню', '/меню')
@@ -27,7 +29,6 @@ CANCEL = ('отмена', 'стоп', '/отмена')
 
 
 def team(sheets, force=False):
-    """chat_id → (имя, точка). Кэш 10 минут, чтобы не дёргать таблицу."""
     now = datetime.datetime.utcnow()
     if not force and _TEAM['ts'] and (now - _TEAM['ts']).seconds < 600:
         return _TEAM['map']
@@ -53,48 +54,94 @@ def _menu_kb():
     ] + [[{'text': '✖️ Отмена', 'callback_data': 'cl:cancel'}]]}
 
 
+def _icon(v):
+    return '⬜' if v is None else ('✅' if v else '❌')
+
+
 def _block_screen(st):
     kind = st['kind']
     blocks = CL.by_block(kind)
     name, rows = blocks[st['i']]
+    left = sum(1 for n, _, _ in rows if st['marks'].get(n) is None)
     head = (f'<b>{CL.KINDS[kind]["title"]} · {st["point"]} · {st["day"]}</b>\n'
             f'Блок {st["i"] + 1} из {len(blocks)} — {name}\n\n')
-    body = []
-    kb, row = [], []
+    body, kb, row = [], [], []
     for k, (n, text, norm) in enumerate(rows, 1):
-        ok = st['marks'].get(n, True)
-        body.append(f'{"✅" if ok else "❌"} <b>{k}.</b> {text}'
-                    + (f' <i>({norm})</i>' if norm else ''))
-        row.append({'text': f'{k} {"✅" if ok else "❌"}', 'callback_data': f'cl:t:{n}'})
+        v = st['marks'].get(n)
+        body.append(f'{_icon(v)} <b>{k}.</b> {text}' + (f' <i>({norm})</i>' if norm else ''))
+        row.append({'text': f'{k} {_icon(v)}', 'callback_data': f'cl:t:{n}'})
         if len(row) == 3:
-            kb.append(row)
-            row = []
+            kb.append(row); row = []
     if row:
         kb.append(row)
-    tail = ('\n\n<i>Жми номер, если пункт НЕ выполнен — он станет ❌.</i>')
-    last = st['i'] + 1 == len(blocks)
-    kb.append([{'text': '✅ Готово, сохранить' if last else 'Далее ▶',
-                'callback_data': 'cl:next'}])
+    if left:
+        tail = (f'\n\n<i>Отметь каждый пункт: первое нажатие — ✅ выполнено, '
+                f'второе — ❌ не выполнено.\nОсталось отметить: {left}</i>')
+        kb.append([{'text': f'⬜ Осталось {left} — отметь все',
+                    'callback_data': 'cl:need'}])
+    else:
+        last = st['i'] + 1 == len(blocks)
+        tail = '\n\n<i>Блок отмечен полностью.</i>'
+        kb.append([{'text': 'Далее ▶' if not last else '▶ К замерам',
+                    'callback_data': 'cl:next'}])
     kb.append([{'text': '✖️ Отмена', 'callback_data': 'cl:cancel'}])
     return head + '\n'.join(body) + tail, {'inline_keyboard': kb}
 
 
 def _fails(st):
-    return sorted(n for n, ok in st['marks'].items() if not ok)
+    return sorted(n for n, v in st['marks'].items() if v is False)
+
+
+def _ask_measure(st, tg, chat_id):
+    n = st['measures_left'][0]
+    q, norm, unit = CL.MEASURES[st['kind']][n]
+    tg('sendMessage', chat_id=chat_id, parse_mode='HTML',
+       text=f'📏 <b>{q}</b>\nНорма: {norm} {unit}\n\nНапиши число.')
+
+
+def _ask_photo(st, tg, chat_id):
+    n, text = st['photos_left'][0]
+    tg('sendMessage', chat_id=chat_id, parse_mode='HTML',
+       text=f'📷 <b>Пришли фото:</b> {text}\n\n'
+            f'<i>Снимок должен быть сделан сейчас, не из галереи.</i>')
+
+
+def _advance(st, tg, chat_id, sheets, notify):
+    """Двигает по стадиям: замеры → фото → время → комментарий → запись."""
+    if st['measures_left']:
+        st['stage'] = 'measure'; _ask_measure(st, tg, chat_id); return
+    if st['photos_left']:
+        st['stage'] = 'photo'; _ask_photo(st, tg, chat_id); return
+    if st['stage'] != 'time' and 'time' not in st:
+        st['stage'] = 'time'
+        tg('sendMessage', chat_id=chat_id,
+           text=CL.KINDS[st['kind']]['ask_time'] + ' Напиши время, например 10:00')
+        return
+    fails = _fails(st)
+    if fails and 'comment' not in st:
+        st['stage'] = 'comment'
+        nm = {n: x for n, _, x in CL.flat(st['kind'])}
+        lst = '\n'.join(f'❌ {n}. {nm[n]}' for n in fails)
+        tg('sendMessage', chat_id=chat_id, parse_mode='HTML',
+           text='Не выполнено:\n' + lst +
+                '\n\nНапиши коротко, почему по каждому.')
+        return
+    _finish(chat_id, st, sheets, tg, notify, st.get('comment', ''))
 
 
 # ── запись ───────────────────────────────────────────────────────────────────
-def _write(sheets, st, comment, filled_at):
+def _write(sheets, st, comment, filled_at, seconds):
     kind = st['kind']
     nm = {n: (b, t) for n, b, t in CL.flat(kind)}
-    tab = CL.KINDS[kind]['tab']
     fails = _fails(st)
     tot = CL.total(kind)
     ok = tot - len(fails)
+    meas = '; '.join(f'{CL.MEASURES[kind][n][0]}: {v}' for n, v in st['measured'].items())
     row = [st['day'], st['point'], st['who'], filled_at, st.get('time', ''),
            ok, tot, round(ok / tot, 4),
-           ', '.join(str(n) for n in fails) if fails else '—', comment]
-    sheets.post(B + SS + '/values/' + tab.replace(' ', '%20') + '!A2:append',
+           ', '.join(str(n) for n in fails) if fails else '—', comment,
+           meas, ' '.join(st['photos_done']), round(seconds / 60, 1)]
+    sheets.post(B + SS + '/values/' + CL.KINDS[kind]['tab'].replace(' ', '%20') + '!A2:append',
                 params={'valueInputOption': 'USER_ENTERED',
                         'insertDataOption': 'INSERT_ROWS'},
                 json={'values': [row]}, timeout=60).raise_for_status()
@@ -109,32 +156,40 @@ def _write(sheets, st, comment, filled_at):
 
 
 def _finish(chat_id, st, sheets, tg, notify, comment):
+    sec = (datetime.datetime.utcnow() - st['started']).total_seconds()
     try:
         ok, tot, fails = _write(sheets, st, comment,
-                                datetime.datetime.utcnow().strftime('%H:%M'))
+                                datetime.datetime.utcnow().strftime('%H:%M'), sec)
     except Exception as e:
         tg('sendMessage', chat_id=chat_id,
            text=f'⚠️ Не смог сохранить: {e}\nСообщи управляющему.')
-        STATE.pop(chat_id, None)
-        return
+        STATE.pop(chat_id, None); return
     STATE.pop(chat_id, None)
     pct = round(ok / tot * 100)
+    fast = sec < CL.MIN_SECONDS
     tg('sendMessage', chat_id=chat_id, parse_mode='HTML',
-       text=f'✅ Записал. <b>{ok} из {tot}</b> ({pct}%). Хорошей смены.')
-    if notify and fails:
+       text=f'✅ Записал. <b>{ok} из {tot}</b> ({pct}%), заняло {round(sec / 60)} мин.'
+            + ('\n\n⚠️ Слишком быстро — управляющий это увидит.' if fast else
+               '\nХорошей смены.'))
+    if notify and (fails or fast):
         nm = {n: t for n, _, t in CL.flat(st['kind'])}
         lst = '\n'.join(f'   ❌ {n}. {nm[n]}' for n in fails[:8])
         more = f'\n   … и ещё {len(fails) - 8}' if len(fails) > 8 else ''
         cm = f'\n   💬 {comment}' if comment else ''
+        ms = ('\n   📏 ' + '; '.join(f'{CL.MEASURES[st["kind"]][n][0]}: {v}'
+                                    for n, v in st['measured'].items())) if st['measured'] else ''
+        warn = f'\n   ⚠️ Заполнено за {round(sec / 60, 1)} мин — быстрее норматива' if fast else ''
         notify(f'🧾 <b>{st["point"]}</b> · {CL.KINDS[st["kind"]]["title"].lower()} '
-               f'{st["day"]} · {st["who"]}\n{ok}/{tot} ({pct}%)\n{lst}{more}{cm}')
+               f'{st["day"]} · {st["who"]}\n{ok}/{tot} ({pct}%){warn}\n{lst}{more}{ms}{cm}')
 
 
 # ── входные точки ────────────────────────────────────────────────────────────
-def on_message(chat_id, text, sheets, tg, notify=None, today=None):
-    """Текстовое сообщение. → True, если это про чек-лист."""
+def on_message(chat_id, msg_or_text, sheets, tg, notify=None, today=None,
+               save_photo=None):
+    """Текст или фото. → True, если это про чек-лист."""
     chat_id = str(chat_id)
-    t = (text or '').strip()
+    msg = msg_or_text if isinstance(msg_or_text, dict) else {'text': msg_or_text}
+    t = (msg.get('text') or '').strip()
     low = t.lower().replace('ё', 'е')
     st = STATE.get(chat_id)
 
@@ -154,34 +209,52 @@ def on_message(chat_id, text, sheets, tg, notify=None, today=None):
            reply_markup=_menu_kb())
         return True
 
+    if st['stage'] == 'measure':
+        val = t.replace(',', '.').replace('−', '-')
+        try:
+            float(val)
+        except ValueError:
+            tg('sendMessage', chat_id=chat_id, text='Нужно число. Например: 4 или -19')
+            return True
+        st['measured'][st['measures_left'].pop(0)] = t[:20]
+        _advance(st, tg, chat_id, sheets, notify)
+        return True
+
+    if st['stage'] == 'photo':
+        if 'photo' not in msg:
+            tg('sendMessage', chat_id=chat_id,
+               text='Нужно именно фото. Сфотографируй и пришли.')
+            return True
+        n, text = st['photos_left'].pop(0)
+        link = ''
+        if save_photo:
+            try:
+                link = save_photo(msg['photo'][-1]['file_id'],
+                                  f'{st["point"]}-{st["day"]}-п{n}') or ''
+            except Exception:
+                link = ''
+        st['photos_done'].append(link or f'п{n}:есть')
+        _advance(st, tg, chat_id, sheets, notify)
+        return True
+
     if st['stage'] == 'time':
         st['time'] = t[:20]
-        fails = _fails(st)
-        if fails:
-            st['stage'] = 'comment'
-            nm = {n: x for n, _, x in CL.flat(st['kind'])}
-            lst = '\n'.join(f'❌ {n}. {nm[n]}' for n in fails)
-            tg('sendMessage', chat_id=chat_id, parse_mode='HTML',
-               text='Не выполнено:\n' + lst +
-                    '\n\nНапиши коротко, почему. Нечего сказать — напиши <b>нет</b>.')
-        else:
-            _finish(chat_id, st, sheets, tg, notify, '')
+        _advance(st, tg, chat_id, sheets, notify)
         return True
 
     if st['stage'] == 'comment':
-        _finish(chat_id, st, sheets, tg, notify,
-                '' if low in ('нет', 'no', '-') else t[:300])
+        st['comment'] = '' if low in ('нет', 'no', '-') else t[:300]
+        _advance(st, tg, chat_id, sheets, notify)
         return True
 
     if st['stage'] == 'blocks':
         tg('sendMessage', chat_id=chat_id,
-           text='Отмечай кнопками выше. «Отмена» — если начать заново.')
+           text='Отмечай кнопками выше. «Отмена» — начать заново.')
         return True
     return False
 
 
 def on_callback(cq, sheets, tg, notify=None, today=None):
-    """Нажатие кнопки. → True, если это наша кнопка."""
     data = cq.get('data', '')
     if not data.startswith('cl:'):
         return False
@@ -193,58 +266,61 @@ def on_callback(cq, sheets, tg, notify=None, today=None):
         STATE.pop(chat_id, None)
         tg('editMessageText', chat_id=chat_id, message_id=mid,
            text='Отменил. Ничего не сохранено.')
-        ack()
-        return True
+        ack(); return True
+
+    if data == 'cl:need':
+        ack('Сначала отметь все пункты блока'); return True
 
     if data.startswith('cl:go:'):
         kind = data.split(':')[2]
         who = team(sheets).get(chat_id)
         if not who or kind not in CL.KINDS:
-            ack('Нет доступа')
-            return True
+            ack('Нет доступа'); return True
         name, point = who
         day = (today or datetime.date.today()).strftime('%d.%m.%Y')
-        STATE[chat_id] = {'kind': kind, 'day': day, 'point': point, 'who': name,
-                          'i': 0, 'marks': {}, 'stage': 'blocks'}
+        photos = CL.photo_items(kind)
+        random.shuffle(photos)
+        STATE[chat_id] = {
+            'kind': kind, 'day': day, 'point': point, 'who': name,
+            'i': 0, 'marks': {}, 'stage': 'blocks',
+            'started': datetime.datetime.utcnow(),
+            'measures_left': list(CL.MEASURES.get(kind, {}).keys()),
+            'measured': {},
+            'photos_left': photos[:CL.PHOTOS_PER_RUN],
+            'photos_done': [],
+        }
         txt, kb = _block_screen(STATE[chat_id])
         tg('editMessageText', chat_id=chat_id, message_id=mid, text=txt,
            parse_mode='HTML', reply_markup=kb)
-        ack()
-        return True
+        ack(); return True
 
     st = STATE.get(chat_id)
     if not st or st['stage'] != 'blocks':
-        ack('Начни заново: напиши «чек-лист»')
-        return True
+        ack('Начни заново: напиши «чек-лист»'); return True
 
     if data.startswith('cl:t:'):
         n = int(data.split(':')[2])
-        st['marks'][n] = not st['marks'].get(n, True)
+        v = st['marks'].get(n)
+        st['marks'][n] = True if v is None else (False if v else True)
         txt, kb = _block_screen(st)
         tg('editMessageText', chat_id=chat_id, message_id=mid, text=txt,
            parse_mode='HTML', reply_markup=kb)
-        ack('не выполнено' if not st['marks'][n] else 'выполнено')
-        return True
+        ack('выполнено' if st['marks'][n] else 'НЕ выполнено'); return True
 
     if data == 'cl:next':
         blocks = CL.by_block(st['kind'])
-        # проставим ✅ всем, кого не трогали в этом блоке
-        for n, _, _ in blocks[st['i']][1]:
-            st['marks'].setdefault(n, True)
+        if any(st['marks'].get(n) is None for n, _, _ in blocks[st['i']][1]):
+            ack('Отметь все пункты блока'); return True
         st['i'] += 1
         if st['i'] < len(blocks):
             txt, kb = _block_screen(st)
             tg('editMessageText', chat_id=chat_id, message_id=mid, text=txt,
                parse_mode='HTML', reply_markup=kb)
         else:
-            st['stage'] = 'time'
             done = sum(1 for v in st['marks'].values() if v)
-            tot = CL.total(st['kind'])
             tg('editMessageText', chat_id=chat_id, message_id=mid, parse_mode='HTML',
                text=f'<b>{CL.KINDS[st["kind"]]["title"]} · {st["point"]} · {st["day"]}</b>\n'
-                    f'Отмечено: {done} из {tot}')
-            tg('sendMessage', chat_id=chat_id,
-               text=CL.KINDS[st['kind']]['ask_time'] + ' Напиши время, например 10:00')
-        ack()
-        return True
+                    f'Отмечено: {done} из {CL.total(st["kind"])}')
+            _advance(st, tg, chat_id, sheets, notify)
+        ack(); return True
     return False

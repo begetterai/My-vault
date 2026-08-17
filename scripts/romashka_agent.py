@@ -806,6 +806,19 @@ def audit(kind, text, result):
         log.warning(f'audit fail: {e}')
 
 # ── Основной цикл ─────────────────────────────────────────────────────────────
+def _save_checklist_photo(file_id, name):
+    """Фото из чек-листа → на Drive, возвращаем ссылку."""
+    content,_ = _tg_download(file_id)
+    folder = NIDS.get('shift_photos')
+    nm = f'{name}-{now_local().strftime("%H%M%S")}.jpg'
+    meta = {'name': nm, 'parents':[folder]} if folder else {'name': nm}
+    up = SHEETS.post('https://www.googleapis.com/upload/drive/v3/files'
+                     '?uploadType=multipart&supportsAllDrives=true&fields=webViewLink',
+        files={'data':('m',json.dumps(meta),'application/json'),
+               'file':(nm,content,'image/jpeg')}, timeout=120).json()
+    return up.get('webViewLink','')
+
+
 def handle(msg):
     chat=msg.get('chat',{}); chat_id=str(chat['id']); ctype=chat.get('type','private')
     # Группа: регистрируем + собираем содержимое смен (сообщения, фото)
@@ -838,8 +851,9 @@ def handle(msg):
     # Чек-листы смены — доступны всем из листа «Команда», не только Азизу
     try:
         import ops_checklist
-        if ops_checklist.on_message(chat_id, msg.get('text',''), SHEETS, tg,
-                                    notify=send, today=today_local()):
+        if ops_checklist.on_message(chat_id, msg, SHEETS, tg,
+                                    notify=send, today=today_local(),
+                                    save_photo=_save_checklist_photo):
             return
     except Exception as e:
         log.warning(f'checklist: {e}')
