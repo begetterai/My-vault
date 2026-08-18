@@ -42,7 +42,12 @@ def _who(init_data):
 
 def init_payload(who):
     role = S.role_of(who)
+    # руководитель работает по обеим точкам — даём выбор; линейный закреплён
+    pts = ([{'code': p, 'label': S.point_label(p)} for p in S.points()]
+           if role in ('manager', 'coo') else
+           [{'code': who[1], 'label': S.point_label(who[1])}])
     out = {'company': C.COMPANY, 'name': who[0], 'point': who[1],
+           'point_label': S.point_label(who[1]), 'points': pts,
            'role': role, 'day': C.day_str(), 'lists': {}}
     for key, cl in C.for_role(role).items():
         photos = C.photo_items(key)
@@ -82,6 +87,11 @@ def submit(who, body):
     hhmm = BOT.parse_time(body.get('time', ''))
     if not hhmm:
         return {'ok': False, 'error': 'Время нужно в формате ЧЧ:ММ'}
+    point = str(body.get('point') or '').strip() or who[1]
+    if point != who[1] and S.role_of(who) not in ('manager', 'coo'):
+        point = who[1]
+    if point not in S.points():
+        point = who[1]
     photos, shots = [], []
     for ph in (body.get('photos') or []):
         raw = b''
@@ -90,24 +100,24 @@ def submit(who, body):
         except Exception:
             pass
         n = ph.get('n')
-        photos.append(S.save_photo(raw, f'{who[1]}-{day}-п{n}') if raw else f'п{n}:есть')
+        photos.append(S.save_photo(raw, f'{point}-{day}-п{n}') if raw else f'п{n}:есть')
         if raw:
             shots.append((int(n), raw))
     sec = float(body.get('seconds') or 0)
     comment = str(body.get('comment', ''))[:300]
-    dup = S.already_filled(kind, day, who[1])
+    dup = S.already_filled(kind, day, point)
     ok, tot, fails, line = S.save_fill(
-        kind, day, who[1], who[0], marks, measured, photos, hhmm, comment, sec)
-    st = {'kind': kind, 'day': day, 'point': who[1], 'who': who[0]}
+        kind, day, point, who[0], marks, measured, photos, hhmm, comment, sec)
+    st = {'kind': kind, 'day': day, 'point': point, 'who': who[0]}
     try:
         BOT.notify_check(st, ok, tot, fails, line, comment,
                          sec < C.MIN_SECONDS, bool(dup))
     except Exception:
         pass
     if V.enabled():
-        V.review_async(kind, line, who[1], who[0], shots)
+        V.review_async(kind, line, point, who[0], shots)
     for q, val, norm, unit in BOT.norm_alerts(kind, measured):
-        BOT.admin(f'🌡 <b>Замер вне нормы</b> · {who[1]} · {who[0]}\n'
+        BOT.admin(f'🌡 <b>Замер вне нормы</b> · {point} · {who[0]}\n'
                   f'{q}: <b>{val} {unit}</b> при норме {norm}')
     return {'ok': True, 'done': ok, 'total': tot, 'dup': dup,
             'minutes': round(sec / 60, 1), 'fast': sec < C.MIN_SECONDS}

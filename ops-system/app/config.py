@@ -57,6 +57,7 @@ CHECKLISTS_FILE = ENV('CHECKLISTS_FILE',
                       os.path.join(HERE, 'checklists.romashka.json'))
 
 TABS = {
+    'points': 'Точки',
     'team': 'Команда',
     'ideas': 'Идеи и задачи',
     'fails': 'Невыполнено',

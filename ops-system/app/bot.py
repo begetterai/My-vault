@@ -123,6 +123,28 @@ def menu_kb(role):
     return {'inline_keyboard': kb}
 
 
+def point_kb(kind):
+    """Выбор заведения перед заполнением."""
+    kb = [[{'text': S.point_label(p), 'callback_data': f'cl:pt:{kind}:{p}'}]
+          for p in S.points()]
+    kb.append([{'text': '◀ Назад', 'callback_data': 'cl:menu'}])
+    return {'inline_keyboard': kb}
+
+
+def begin(chat_id, mid, kind, who, point):
+    photos = C.photo_items(kind)
+    random.shuffle(photos)
+    STATE[chat_id] = {
+        'kind': kind, 'day': C.day_str(), 'point': point, 'who': who[0],
+        'i': 0, 'marks': {}, 'stage': 'blocks', 'started': C.now(),
+        'measures_left': list(C.checklists()[kind]['measures'].keys()),
+        'measured': {}, 'photos_left': photos[:C.PHOTOS_PER_RUN],
+        'photos_done': []}
+    txt, kb = block_screen(STATE[chat_id])
+    tg('editMessageText', chat_id=chat_id, message_id=mid, text=txt,
+       parse_mode='HTML', reply_markup=kb)
+
+
 def icon(v):
     return '⬜' if v is None else ('✅' if v else '❌')
 
@@ -131,7 +153,7 @@ def block_screen(st):
     cl = C.checklists()[st['kind']]
     b = cl['blocks'][st['i']]
     left = sum(1 for it in b['items'] if st['marks'].get(it['n']) is None)
-    head = (f'<b>{cl["title"]} · {st["point"]} · {st["day"]}</b>\n'
+    head = (f'<b>{cl["title"]}</b>\n{S.point_label(st["point"])} · {st["day"]}\n'
             f'Блок {st["i"] + 1} из {len(cl["blocks"])} — {b["name"]}\n\n')
     body, kb, row = [], [], []
     for k, it in enumerate(b['items'], 1):
@@ -471,7 +493,7 @@ def on_message(msg):
         who = S.team().get(chat_id)
         if not who:
             return unknown(chat_id, msg.get('from') or {})
-        say(chat_id, f'<b>{who[0]}</b> · {who[1]}\nЧто делаем?',
+        say(chat_id, f'<b>{who[0]}</b>\n{S.point_label(who[1])}\nЧто делаем?',
             reply_markup=menu_kb(S.role_of(who)))
         return True
 
@@ -597,7 +619,7 @@ def on_callback(cq):
 
     if data == 'cl:menu':
         tg('editMessageText', chat_id=chat_id, message_id=mid, parse_mode='HTML',
-           text=f'<b>{who[0]}</b> · {who[1]}\nЧто делаем?',
+           text=f'<b>{who[0]}</b>\n{S.point_label(who[1])}\nЧто делаем?',
            reply_markup=menu_kb(S.role_of(who)))
         return ack() or True
 
@@ -628,18 +650,22 @@ def on_callback(cq):
         kind = data.split(':')[2]
         if kind not in C.checklists():
             return ack('Нет такого чек-листа') or True
-        photos = C.photo_items(kind)
-        random.shuffle(photos)
-        STATE[chat_id] = {
-            'kind': kind, 'day': C.day_str(),
-            'point': who[1], 'who': who[0], 'i': 0, 'marks': {}, 'stage': 'blocks',
-            'started': C.now(),
-            'measures_left': list(C.checklists()[kind]['measures'].keys()),
-            'measured': {}, 'photos_left': photos[:C.PHOTOS_PER_RUN],
-            'photos_done': []}
-        txt, kb = block_screen(STATE[chat_id])
-        tg('editMessageText', chat_id=chat_id, message_id=mid, text=txt,
-           parse_mode='HTML', reply_markup=kb)
+        pts = S.points()
+        # руководитель работает по обеим точкам — спрашиваем, за какую заполняет.
+        # линейный сотрудник закреплён за своей: чужую он подтвердить не может.
+        if S.role_of(who) in ('manager', 'coo') and len(pts) > 1:
+            tg('editMessageText', chat_id=chat_id, message_id=mid, parse_mode='HTML',
+               text=f'<b>{C.checklists()[kind]["title"]}</b>\nЗа какое заведение?',
+               reply_markup=point_kb(kind))
+            return ack() or True
+        begin(chat_id, mid, kind, who, who[1])
+        return ack() or True
+
+    if data.startswith('cl:pt:'):
+        _, _, kind, point = data.split(':', 3)
+        if kind not in C.checklists():
+            return ack('Нет такого чек-листа') or True
+        begin(chat_id, mid, kind, who, point)
         return ack() or True
 
     st = STATE.get(chat_id)

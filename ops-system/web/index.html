@@ -66,6 +66,12 @@
 
   /* ── выбор чек-листа ────────────────────────────────────────────────── */
   .pick{display:grid;gap:12px;margin-top:8px}
+  .seg{display:flex;gap:8px;margin-top:8px}
+  .seg button{flex:1;padding:14px 10px;border-radius:14px;border:1.5px solid var(--line);
+              background:var(--card);font-weight:600;font-size:14px;cursor:pointer;
+              line-height:1.25;text-align:center}
+  .seg button[aria-pressed="true"]{border-color:var(--brand);background:var(--brand);
+              color:var(--on-brand);font-weight:700}
   .big{display:block;width:100%;padding:20px 18px;border:1px solid var(--line);
        background:var(--card);border-radius:18px;text-align:left;
        font-family:Manrope,"Golos Text",sans-serif;font-size:19px;font-weight:700;
@@ -161,6 +167,10 @@
 
 <main>
   <div id="pick" class="hidden">
+    <div id="pointBox" class="hidden">
+      <h2>Заведение</h2>
+      <div class="seg" id="pointSeg"></div>
+    </div>
     <h2>Что заполняем</h2>
     <div class="pick" id="pickList"></div>
   </div>
@@ -186,6 +196,7 @@ tg?.ready(); tg?.expand();
 const initData = tg?.initData || '';
 const $ = s => document.querySelector(s);
 let DATA = null, kind = null, marks = {}, measures = {}, photos = {}, started = 0;
+let point = null;
 
 const fail = m => { $('#err').textContent = m; $('#err').classList.remove('hidden'); };
 
@@ -200,9 +211,28 @@ async function boot(){
         : ''));
     }
     DATA = j;
-    $('#who').textContent = j.name + ' · ' + j.point;
+    point = j.point;
+    $('#who').textContent = j.name;
+    if((j.points || []).length > 1){
+      const seg = $('#pointSeg'); seg.innerHTML = '';
+      j.points.forEach(p => {
+        const b = document.createElement('button');
+        b.textContent = p.label;
+        b.setAttribute('aria-pressed', p.code === point ? 'true' : 'false');
+        b.onclick = () => {
+          point = p.code;
+          seg.querySelectorAll('button').forEach((x, i) =>
+            x.setAttribute('aria-pressed', j.points[i].code === point ? 'true' : 'false'));
+          $('#sub').textContent = (j.points.find(q => q.code === point) || {}).label
+            + ' · ' + j.day;
+          tg?.HapticFeedback?.selectionChanged?.();
+        };
+        seg.appendChild(b);
+      });
+      $('#pointBox').classList.remove('hidden');
+    }
     document.title = (j.company || '') + ' — чек-лист';
-    $('#sub').textContent = j.day;
+    $('#sub').textContent = (j.point_label || j.point) + ' · ' + j.day;
     const box = $('#pickList'); box.innerHTML = '';
     for(const k of Object.keys(j.lists)){
       const b = document.createElement('button');
@@ -223,7 +253,8 @@ function start(k){
   $('#pick').classList.add('hidden');
   $('#bar').classList.remove('hidden');
   $('#foot').classList.remove('hidden');
-  $('#sub').textContent = L.title + ' · ' + DATA.day;
+  const pl = (DATA.points || []).find(q => q.code === point);
+  $('#sub').textContent = (pl ? pl.label : point) + ' · ' + L.title;
 
   const f = $('#form'); f.innerHTML = ''; f.classList.remove('hidden');
   L.blocks.forEach(bl => {
@@ -390,7 +421,7 @@ function paint(){
 async function submit(){
   $('#send').disabled = true; $('#send').textContent = 'Отправляю…';
   const body = {
-    initData, kind, marks, measures,
+    initData, kind, point, marks, measures,
     photos: Object.entries(photos).map(([n,data]) => ({n:+n, data})),
     time: $('#time').value.trim(),
     comment: $('#comment').value.trim(),

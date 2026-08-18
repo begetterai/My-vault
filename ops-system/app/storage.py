@@ -92,7 +92,8 @@ def ensure_structure():
             C.TABS['ideas']: ['Дата', 'Кто', 'Точка', 'Откуда', 'Текст', 'Статус', 'Решение'],
             C.TABS['items']: ['Документ', '№', 'Блок', 'Пункт', 'Норматив', 'Фото',
                               'Эталонное фото — вставь ссылку'],
-            C.TABS['team']: ['chat_id', 'Имя', 'Точка', 'Роль', 'Активен']}
+            C.TABS['team']: ['chat_id', 'Имя', 'Точка', 'Роль', 'Активен'],
+            C.TABS['points']: ['Код', 'Название', 'Адрес', 'Активна']}
     for key, cl in C.checklists().items():
         want[cl['tab']] = FILL_COLS
     meta = s.get(B + C.DATA_SHEET, params={'fields': 'sheets.properties'}, timeout=60).json()
@@ -145,8 +146,39 @@ def role_of(who):
     return 'staff'
 
 
+_PTS = {'ts': None, 'map': {}}
+
+
+def points_map(force=False):
+    """Код точки → (название, адрес). Лист «Точки».
+
+    Код — это то, чем точка подписана во всех данных; менять его нельзя.
+    Название и адрес — только для показа человеку.
+    """
+    now = datetime.datetime.utcnow()
+    if not force and _PTS['ts'] and (now - _PTS['ts']).seconds < 600:
+        return _PTS['map']
+    m = {}
+    for r in get(C.TABS['points'], 'A2:D50'):
+        if r and str(r[0]).strip():
+            act = (r[3].strip().lower() if len(r) > 3 and r[3] else 'да')
+            if act in ('да', 'yes', '1', 'true', ''):
+                m[str(r[0]).strip()] = (str(r[1]).strip() if len(r) > 1 else '',
+                                        str(r[2]).strip() if len(r) > 2 else '')
+    _PTS['ts'], _PTS['map'] = now, m
+    return m
+
+
+def point_label(code):
+    """«ЗБ · Лохути 11» — если адрес задан, иначе просто код."""
+    name, addr = points_map().get(code, ('', ''))
+    tail = addr or name
+    return f'{code} · {tail}' if tail else code
+
+
 def points():
-    return sorted({v[1] for v in team().values() if v[1]})
+    """Все точки: из листа «Точки», плюс те, что встречаются у людей."""
+    return sorted(set(points_map()) | {v[1] for v in team().values() if v[1]})
 
 
 def managers_of(point):
