@@ -87,7 +87,9 @@ def day_full(day, point=None):
         for key, cl in C.checklists().items():
             x = next((y for y in f if y['point'] == p and y['kind'] == cl['title']), None)
             if not x:
-                L.append(f'   ❌ {cl["title"].lower()} — <b>не заполнен</b>')
+                # событийный чек-лист не ждут каждый день — молчим о нём
+                if cl.get('deadline'):
+                    L.append(f'   ❌ {cl["title"].lower()} — <b>не заполнен</b>')
                 continue
             pc = round(x['ok'] / x['tot'] * 100) if x['tot'] else 0
             chk = f'✅ подтвердил {x["chk"]}' if x['chk'] else '⚠️ не подтверждено'
@@ -155,15 +157,19 @@ def week(mon=None, point=None):
     pts = [point] if point else S.points()
     if point:
         rows = [x for x in rows if x['point'] == point]
-    kinds = len(C.checklists())
+    kinds = len(C.scheduled())          # событийные в норму недели не входят
     expect = len(pts) * 7 * kinds
 
     L = [f'📊 <b>{C.COMPANY} · неделя {mon.strftime("%d.%m")} — '
          f'{sun.strftime("%d.%m.%Y")}</b>', '']
 
     L.append('<b>1. Заполнение</b>')
-    L.append(f'Ожидалось {expect} · заполнено <b>{len(rows)}</b>'
-             + (f' ({round(len(rows) / expect * 100)}%)' if expect else ''))
+    sched = {cl['title'] for cl in C.scheduled().values()}
+    reg = [x for x in rows if x['kind'] in sched]
+    extra = len(rows) - len(reg)
+    L.append(f'Ожидалось {expect} · заполнено <b>{len(reg)}</b>'
+             + (f' ({round(len(reg) / expect * 100)}%)' if expect else '')
+             + (f'\nПлюс разовых проверок: {extra}' if extra else ''))
     for p in pts:
         pf = [x for x in rows if x['point'] == p]
         if not pf:
@@ -171,7 +177,9 @@ def week(mon=None, point=None):
             continue
         q = sum(x['ok'] / x['tot'] for x in pf if x['tot']) / len(pf) * 100
         mins = [x['min'] for x in pf if x['min'] is not None]
-        L.append(f'   {p}: {len(pf)} из {7 * kinds} · качество {round(q)}%'
+        sched = {cl['title'] for cl in C.scheduled().values()}
+        reg = [x for x in pf if x['kind'] in sched]
+        L.append(f'   {p}: {len(reg)} из {7 * kinds} · качество {round(q)}%'
                  + (f' · в среднем {round(sum(mins) / len(mins))} мин' if mins else ''))
     L.append('')
 
@@ -212,8 +220,8 @@ def week(mon=None, point=None):
     L.append('')
 
     out = []
-    if expect and len(rows) / expect < 0.7:
-        out.append(f'Заполняют {round(len(rows) / expect * 100)}% смен — '
+    if expect and len(reg) / expect < 0.7:
+        out.append(f'Заполняют {round(len(reg) / expect * 100)}% смен — '
                    f'система пока не в работе.')
     for p in pts:
         if not [x for x in rows if x['point'] == p]:

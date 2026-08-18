@@ -111,7 +111,7 @@ def menu_kb(role):
     if C.WEBAPP_URL:
         kb.append([{'text': '📱 Открыть приложение', 'web_app': {'url': C.WEBAPP_URL}}])
     kb += [[{'text': f'🧾 {cl["title"]} (в чате)', 'callback_data': f'cl:go:{k}'}]
-           for k, cl in C.checklists().items()]
+           for k, cl in C.for_role(role).items()]
     kb.append([{'text': {'staff': '📋 Мои последние',
                          'manager': '📋 История точки'}.get(role, '📋 История — все точки'),
                 'callback_data': 'cl:h:' + {'staff': 'me', 'manager': 'point'}.get(role, 'all')}])

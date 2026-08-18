@@ -81,6 +81,23 @@ def checklists():
     return raw
 
 
+def for_role(role):
+    """Чек-листы, доступные роли. Пусто в roles — доступен всем.
+
+    Без этого бариста видит в меню «Визит собственника», а управляющий —
+    чек-лист, который к его работе не относится.
+    """
+    return {key: cl for key, cl in checklists().items()
+            if not cl.get('roles') or role in cl['roles']}
+
+
+def scheduled():
+    """Чек-листы с дедлайном — только их ждут каждый день и по ним считают
+    процент заполнения. Событийные (визит, собеседование, приёмка точки)
+    в норму дня не входят и пропущенными не считаются."""
+    return {k: cl for k, cl in checklists().items() if cl.get('deadline')}
+
+
 def flat(key):
     """[(№, блок, текст)]"""
     cl = checklists()[key]

@@ -40,10 +40,10 @@ def _who(init_data):
 
 
 def init_payload(who):
+    role = S.role_of(who)
     out = {'company': C.COMPANY, 'name': who[0], 'point': who[1],
-           'role': S.role_of(who),
-           'day': C.day_str(), 'lists': {}}
-    for key, cl in C.checklists().items():
+           'role': role, 'day': C.day_str(), 'lists': {}}
+    for key, cl in C.for_role(role).items():
         photos = C.photo_items(key)
         random.shuffle(photos)
         out['lists'][key] = {
