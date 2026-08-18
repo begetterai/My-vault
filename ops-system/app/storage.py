@@ -34,7 +34,16 @@ def session():
 
 
 def _rng(tab, a1=''):
+    """Диапазон для АДРЕСА запроса — имя листа кодируется."""
     return urllib.parse.quote(tab) + (('!' + a1) if a1 else '')
+
+
+def _a1(tab, a1):
+    """Диапазон для ТЕЛА запроса — обычный A1, имя в одинарных кавычках.
+
+    Внутри JSON кодировать нельзя: Google вернёт 400 Bad Request.
+    """
+    return f"'{tab}'!{a1}"
 
 
 def get(tab, a1='', render='FORMATTED_VALUE'):
@@ -76,14 +85,14 @@ def ensure_structure():
     if add:
         s.post(B + C.DATA_SHEET + ':batchUpdate', json={'requests': add}, timeout=60
                ).raise_for_status()
-    data = [{'range': _rng(t, 'A1'), 'values': [h]} for t, h in want.items()]
+    data = [{'range': _a1(t, 'A1'), 'values': [h]} for t, h in want.items()]
     items = []
     for key, cl in C.checklists().items():
         for b in cl['blocks']:
             for it in b['items']:
                 items.append([cl['title'], it['n'], b['name'], it['text'],
                               it.get('norm', ''), 'да' if it.get('photo') else ''])
-    data.append({'range': _rng(C.TABS['items'], 'A2'), 'values': items})
+    data.append({'range': _a1(C.TABS['items'], 'A2'), 'values': items})
     s.post(B + C.DATA_SHEET + '/values:batchUpdate',
            json={'valueInputOption': 'RAW', 'data': data}, timeout=60).raise_for_status()
     return list(want)
