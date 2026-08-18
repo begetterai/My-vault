@@ -48,6 +48,7 @@ def init_payload(who):
         random.shuffle(photos)
         out['lists'][key] = {
             'title': cl['title'], 'code': cl['code'], 'ask_time': cl['ask_time'],
+            'deadline': cl.get('deadline', ''),
             'blocks': [{'name': b['name'], 'items': [
                 {'n': it['n'], 'text': it['text'], 'norm': it.get('norm', '')}
                 for it in b['items']]} for b in cl['blocks']],
