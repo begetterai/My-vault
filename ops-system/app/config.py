@@ -7,7 +7,7 @@
 
 Так система ставится новому клиенту без единой правки кода.
 """
-import os, json, functools
+import os, json, functools, datetime
 
 ENV = os.environ.get
 
@@ -21,6 +21,25 @@ GOOGLE_SA = ENV('GOOGLE_SA_JSON', '')               # сервисный акк�
 GOOGLE_SUBJECT = ENV('GOOGLE_SUBJECT', '').strip()  # если нужен доступ от имени пользователя
 PORT = int(ENV('PORT', '8080'))
 COMPANY = ENV('COMPANY', 'Компания')
+
+# Сервер живёт по UTC, точка — по своему времени. Без сдвига в таблице
+# оказывается чужой час, и все отчёты по времени врут.
+TZ_OFFSET = float(ENV('TZ_OFFSET', '5'))            # Душанбе = UTC+5
+MAX_BODY = int(ENV('MAX_BODY', str(12 * 1024 * 1024)))
+INIT_MAX_AGE = int(ENV('INIT_MAX_AGE', '86400'))    # старше — подпись не принимаем
+
+
+def now():
+    """Местное время точки."""
+    return datetime.datetime.utcnow() + datetime.timedelta(hours=TZ_OFFSET)
+
+
+def today():
+    return now().date()
+
+
+def day_str():
+    return now().strftime('%d.%m.%Y')
 
 # ── поведение ────────────────────────────────────────────────────────────────
 PHOTOS_PER_RUN = int(ENV('PHOTOS_PER_RUN', '2'))

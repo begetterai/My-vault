@@ -160,6 +160,15 @@ def save_photo_data_url(url, name):
 
 
 # ── запись заполнения ────────────────────────────────────────────────────────
+def already_filled(key, day, point):
+    """Кто и во сколько уже заполнял этот чек-лист сегодня на этой точке."""
+    cl = C.checklists()[key]
+    for r in get(cl['tab'], 'A2:D'):
+        if len(r) >= 4 and str(r[0]).strip() == day and str(r[1]).strip() == point:
+            return f'{r[2]} в {r[3]}'
+    return None
+
+
 def save_fill(key, day, point, who, marks, measured, photos, time_s,
               comment, seconds):
     """→ (выполнено, всего, [№ невыполненных], номер строки)"""
@@ -170,7 +179,7 @@ def save_fill(key, day, point, who, marks, measured, photos, time_s,
     ok = tot - len(fails)
     meas = '; '.join(f'{cl["measures"][n]["q"]}: {v}' for n, v in measured.items()
                      if n in cl['measures'])
-    row = [day, point, who, datetime.datetime.utcnow().strftime('%H:%M'), time_s,
+    row = [day, point, who, C.now().strftime('%H:%M'), time_s,
            ok, tot, round(ok / tot, 4) if tot else 0,
            ', '.join(str(n) for n in fails) if fails else '—', comment,
            meas, ' '.join(photos), round(seconds / 60, 1)]
@@ -184,7 +193,7 @@ def save_fill(key, day, point, who, marks, measured, photos, time_s,
 def save_check(key, line, name, verdict, text=''):
     cl = C.checklists()[key]
     put(cl['tab'], f'N{line}:P{line}',
-        [[name, datetime.datetime.utcnow().strftime('%d.%m %H:%M'),
+        [[name, C.now().strftime('%d.%m %H:%M'),
           text if verdict != 'ok' else '']])
 
 

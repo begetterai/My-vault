@@ -3,7 +3,7 @@
 
 Личность приходит от телеграма подписанной — паролей нет, подделать нельзя.
 """
-import os, json, hmac, hashlib, random, datetime, threading, urllib.parse
+import os, json, hmac, hashlib, random, time, datetime, threading, urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from . import config as C
@@ -23,6 +23,9 @@ def check_init_data(init_data, token):
         calc = hmac.new(secret, check.encode(), hashlib.sha256).hexdigest()
         if not hmac.compare_digest(calc, got):
             return None
+        age = time.time() - float(data.get('auth_date', 0))
+        if age > C.INIT_MAX_AGE:
+            return None
         return json.loads(data.get('user', '{}'))
     except Exception:
         return None
@@ -39,7 +42,7 @@ def _who(init_data):
 def init_payload(who):
     out = {'company': C.COMPANY, 'name': who[0], 'point': who[1],
            'role': S.role_of(who),
-           'day': datetime.date.today().strftime('%d.%m.%Y'), 'lists': {}}
+           'day': C.day_str(), 'lists': {}}
     for key, cl in C.checklists().items():
         photos = C.photo_items(key)
         random.shuffle(photos)
@@ -61,7 +64,7 @@ def submit(who, body):
     kind = body.get('kind')
     if kind not in C.checklists():
         return {'ok': False, 'error': 'неизвестный чек-лист'}
-    day = datetime.date.today().strftime('%d.%m.%Y')
+    day = C.day_str()
     marks = {int(k): bool(v) for k, v in (body.get('marks') or {}).items()}
     if len(marks) < C.total(kind):
         return {'ok': False, 'error': 'отмечены не все пункты'}
@@ -82,17 +85,19 @@ def submit(who, body):
               or f'п{p.get("n")}:есть' for p in (body.get('photos') or [])]
     sec = float(body.get('seconds') or 0)
     comment = str(body.get('comment', ''))[:300]
+    dup = S.already_filled(kind, day, who[1])
     ok, tot, fails, line = S.save_fill(
         kind, day, who[1], who[0], marks, measured, photos, hhmm, comment, sec)
     st = {'kind': kind, 'day': day, 'point': who[1], 'who': who[0]}
     try:
-        BOT.notify_check(st, ok, tot, fails, line, comment, sec < C.MIN_SECONDS)
+        BOT.notify_check(st, ok, tot, fails, line, comment,
+                         sec < C.MIN_SECONDS, bool(dup))
     except Exception:
         pass
     for q, val, norm, unit in BOT.norm_alerts(kind, measured):
         BOT.admin(f'🌡 <b>Замер вне нормы</b> · {who[1]} · {who[0]}\n'
                   f'{q}: <b>{val} {unit}</b> при норме {norm}')
-    return {'ok': True, 'done': ok, 'total': tot,
+    return {'ok': True, 'done': ok, 'total': tot, 'dup': dup,
             'minutes': round(sec / 60, 1), 'fast': sec < C.MIN_SECONDS}
 
 
@@ -100,7 +105,7 @@ def note(who, body):
     text = str(body.get('text', '')).strip()
     if len(text.split()) < 3:
         return {'ok': False, 'error': 'Напиши фразой — что не так и что делать'}
-    S.save_note(datetime.date.today().strftime('%d.%m.%Y'), who[0], who[1],
+    S.save_note(C.day_str(), who[0], who[1],
                 body.get('source', 'Mini App'), text[:400])
     BOT.admin(f'💬 <b>Идея с точки {who[1]}</b> · {who[0]}\n«{text[:300]}»')
     return {'ok': True}
@@ -151,6 +156,9 @@ class Handler(BaseHTTPRequestHandler):
         p = urllib.parse.urlparse(self.path).path
         try:
             n = int(self.headers.get('Content-Length', 0))
+            if n > C.MAX_BODY:
+                return self._send(413, {'error': 'Слишком большой запрос. '
+                                                 'Попробуй переснять фото.'})
             body = json.loads(self.rfile.read(n) or b'{}')
         except Exception:
             return self._send(400, {'error': 'плохой запрос'})

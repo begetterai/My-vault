@@ -29,7 +29,7 @@ def main():
     if '--day' in sys.argv:
         import re
         print(re.sub(r'<[^>]+>', '',
-                     R.day_block(datetime.date.today() - datetime.timedelta(days=1))))
+                     R.day_block(C.today() - datetime.timedelta(days=1))))
         return
 
     try:

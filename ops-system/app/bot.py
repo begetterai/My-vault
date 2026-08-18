@@ -142,7 +142,7 @@ def block_screen(st):
 def history(scope, who):
     rows = []
     for key, cl in C.checklists().items():
-        for r in S.get(cl['tab'], 'A2:P500'):
+        for r in S.get(cl['tab'], 'A2:P'):
             if len(r) < 8:
                 continue
             if scope == 'me' and (len(r) < 3 or r[2] != who[0]):
@@ -166,7 +166,7 @@ def history(scope, who):
 
 
 def ideas_text():
-    v = [r for r in S.get(C.TABS['ideas'], 'A2:G200')
+    v = [r for r in S.get(C.TABS['ideas'], 'A2:G')
          if len(r) > 5 and r[5] != 'Закрыта']
     if not v:
         return 'Идей и задач пока нет.'
@@ -202,29 +202,39 @@ def ask_next(chat_id, st):
 
 
 def finish(chat_id, st):
-    sec = (datetime.datetime.utcnow() - st['started']).total_seconds()
+    sec = (C.now() - st['started']).total_seconds()
+    try:
+        dup = S.already_filled(st['kind'], st['day'], st['point'])
+    except Exception:
+        dup = None
     try:
         ok, tot, fails, line = S.save_fill(
             st['kind'], st['day'], st['point'], st['who'], st['marks'],
             st['measured'], st['photos_done'], st.get('time', ''),
             st.get('comment', ''), sec)
     except Exception as e:
-        say(chat_id, f'⚠️ Не смог сохранить: {e}')
-        STATE.pop(chat_id, None)
+        # НЕ стираем ход: человек прошёл 30 пунктов, терять их из-за сбоя сети нельзя
+        say(chat_id, f'⚠️ Не смог сохранить: {e}\n\n'
+                     'Отметки не потеряны. Напиши «ещё раз» — попробую снова.')
+        st['stage'] = 'retry'
         return
     STATE.pop(chat_id, None)
     fast = sec < C.MIN_SECONDS
     say(chat_id, f'✅ Записал. <b>{ok} из {tot}</b> ({round(ok / tot * 100)}%), '
                  f'заняло {round(sec / 60)} мин.'
         + ('\n\n⚠️ Слишком быстро — управляющий это увидит.' if fast else ''))
-    notify_check(st, ok, tot, fails, line, st.get('comment', ''), fast)
+    if dup:
+        say(chat_id, f'♻️ Сегодня этот чек-лист уже заполнял {dup}. '
+                     'Записал обе версии, управляющий увидит.')
+    notify_check(st, ok, tot, fails, line, st.get('comment', ''), fast, bool(dup))
 
 
-def notify_check(st, ok, tot, fails, line, comment, fast):
+def notify_check(st, ok, tot, fails, line, comment, fast, dup=False):
     cl = C.checklists()[st['kind']]
     nm = {n: t for n, _, t in C.flat(st['kind'])}
     lst = '\n'.join(f'   ❌ {n}. {nm[n]}' for n in fails[:8]) or '   всё выполнено'
-    warn = '\n⚠️ заполнено быстрее норматива' if fast else ''
+    warn = ('\n⚠️ заполнено быстрее норматива' if fast else '') \
+        + ('\n♻️ повторное заполнение за сегодня' if dup else '')
     txt = (f'🔎 <b>Проверь заполнение</b>\n{st["point"]} · {cl["title"].lower()} '
            f'{st["day"]} · {st["who"]}\n{ok}/{tot}{warn}\n{lst}'
            + (f'\n💬 {comment}' if comment else ''))
@@ -235,8 +245,26 @@ def notify_check(st, ok, tot, fails, line, comment, fast):
     for cid in S.managers_of(st['point']):
         say(cid, txt, reply_markup=kb)
         sent.add(str(cid))
-    if (fails or fast) and str(C.ADMIN_CHAT) not in sent:
+    if str(C.ADMIN_CHAT) in sent:
+        return
+    if not sent:
+        # некому проверять — молчать нельзя, иначе второй контур просто исчезает
+        say(C.ADMIN_CHAT, f'⚠️ У точки {st["point"]} нет управляющего.\n\n' + txt,
+            reply_markup=kb)
+    elif fails or fast or dup:
         admin(txt)
+
+
+def pct(ok, tot):
+    a, b = _num(ok), _num(tot)
+    return f'{round(a / b * 100)}%' if a is not None and b else '—'
+
+
+def _num(x):
+    try:
+        return float(str(x).replace(',', '.').replace(' ', ''))
+    except (ValueError, TypeError):
+        return None
 
 
 def final_report(kind, line, verdict, checker, note=''):
@@ -249,7 +277,7 @@ def final_report(kind, line, verdict, checker, note=''):
     mark = '✅ подтверждено' if verdict == 'ok' else '⚠️ расхождение'
     L = [f'📋 <b>Итог: {cl["title"].lower()} · {r[1]} · {r[0]}</b>', '',
          f'Заполнил: {r[2]} в {r[3]}, время открытия {r[4]}',
-         f'Выполнено: <b>{r[5]} из {r[6]}</b> ({r[7]})',
+         f'Выполнено: <b>{r[5]} из {r[6]}</b> ({pct(r[5], r[6])})',
          f'Заняло: {r[12]} мин']
     if r[8] and r[8] != '—':
         nm = {n: t for n, _, t in C.flat(kind)}
@@ -264,10 +292,17 @@ def final_report(kind, line, verdict, checker, note=''):
     if r[10]:
         L.append('')
         L.append(f'<b>Замеры:</b> {r[10]}')
-        bad = norm_alerts(kind, {n: v.split(':')[-1].strip()
-                                 for n, v in zip(cl['measures'],
-                                                 str(r[10]).split(';'))})
-        for q, val, norm, unit in bad:
+        # Разбираем по НАЗВАНИЮ замера, а не по порядку: если замер пропущен,
+        # порядковая привязка молча припишет число не тому вопросу.
+        by_q = {m['q'].strip().lower(): n for n, m in cl['measures'].items()}
+        got = {}
+        for part in str(r[10]).split(';'):
+            if ':' in part:
+                q, v = part.rsplit(':', 1)
+                n = by_q.get(q.strip().lower())
+                if n is not None:
+                    got[n] = v.strip()
+        for q, val, norm, unit in norm_alerts(kind, got):
             L.append(f'   ⚠️ {q}: {val} при норме {norm} {unit}')
     if r[11]:
         L.append(f'📷 фото: {len(str(r[11]).split())}')
@@ -340,7 +375,7 @@ def on_message(msg):
     low = t.lower().replace('ё', 'е')
     st = STATE.get(chat_id)
 
-    if low in ('/id', 'id', 'мой id'):
+    if low in ('/id', 'id', 'мой id') and not st:
         say(chat_id, f'Твой ID: <code>{chat_id}</code>')
         return True
 
@@ -375,6 +410,15 @@ def on_message(msg):
             final_report(kind, line, 'bad', name, t[:300])
         except Exception as e:
             print('итоговый отчёт:', e)
+        return True
+
+    if st and st.get('stage') == 'retry':
+        if low in CANCEL:
+            STATE.pop(chat_id, None)
+            say(chat_id, 'Отменил. Ничего не сохранено.')
+        else:
+            say(chat_id, 'Пробую ещё раз…')
+            finish(chat_id, st)
         return True
 
     if st and low in CANCEL:
@@ -547,9 +591,9 @@ def on_callback(cq):
         photos = C.photo_items(kind)
         random.shuffle(photos)
         STATE[chat_id] = {
-            'kind': kind, 'day': datetime.date.today().strftime('%d.%m.%Y'),
+            'kind': kind, 'day': C.day_str(),
             'point': who[1], 'who': who[0], 'i': 0, 'marks': {}, 'stage': 'blocks',
-            'started': datetime.datetime.utcnow(),
+            'started': C.now(),
             'measures_left': list(C.checklists()[kind]['measures'].keys()),
             'measured': {}, 'photos_left': photos[:C.PHOTOS_PER_RUN],
             'photos_done': []}

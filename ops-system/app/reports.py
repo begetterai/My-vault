@@ -9,6 +9,7 @@ from collections import Counter
 
 from . import config as C
 from . import storage as S
+from . import bot as BOT
 
 
 def _d(x):
@@ -42,7 +43,7 @@ def plural(n, one, few, many):
 def fills(since, until):
     out = []
     for key, cl in C.checklists().items():
-        for r in S.get(cl['tab'], 'A2:P1000'):
+        for r in S.get(cl['tab'], 'A2:P'):
             d = _d(r[0]) if r else None
             if not d or not (since <= d <= until) or len(r) < 8:
                 continue
@@ -75,25 +76,39 @@ def day_block(day):
 
 
 def temps_out(rows):
+    """Замеры вне нормы. Нормы берём из чек-листов — другого источника нет.
+
+    Раньше пороги были вписаны сюда числами, и отчёт мог противоречить тому,
+    что система сказала человеку при вводе. Теперь правило одно на всех.
+    """
+    norms = {}
+    for cl in C.checklists().values():
+        for m in cl['measures'].values():
+            norms[m['q'].strip().lower()] = m
     bad = []
     for f in rows:
-        for part in str(f['meas']).split(';'):
-            if ':' not in part:
-                continue
-            name, val = part.split(':', 1)
-            x = _n(val)
-            if x is None:
-                continue
-            n = name.strip().lower()
-            if 'холодильник' in n and not (2 <= x <= 6):
-                bad.append((f['date'], f['point'], name.strip(), x))
-            elif 'морозильник' in n and x > -18:
-                bad.append((f['date'], f['point'], name.strip(), x))
+        for name, x in parse_meas(f['meas']):
+            m = norms.get(name.lower())
+            if m and BOT.out_of_norm(x, m):
+                bad.append((f['date'], f['point'], name, x, m['norm']))
     return bad
 
 
+def parse_meas(text):
+    """«Вопрос: 4; Другой вопрос: -20» → [(вопрос, число)]"""
+    out = []
+    for part in str(text).split(';'):
+        if ':' not in part:
+            continue
+        name, val = part.rsplit(':', 1)
+        x = _n(val)
+        if x is not None:
+            out.append((name.strip(), x))
+    return out
+
+
 def week(mon=None):
-    today = datetime.date.today()
+    today = C.today()
     mon = mon or (today - datetime.timedelta(days=today.weekday() + 7))
     sun = mon + datetime.timedelta(days=6)
     rows = fills(mon, sun)
@@ -127,7 +142,7 @@ def week(mon=None):
         L.append(f'   ⚠️ {x["date"].strftime("%d.%m")} {x["point"]}: {x["diff"][:90]}')
     L.append('')
 
-    fl = [r for r in S.get(C.TABS['fails'], 'A2:G1000')
+    fl = [r for r in S.get(C.TABS['fails'], 'A2:G')
           if len(r) > 6 and _d(r[0]) and mon <= _d(r[0]) <= sun]
     cnt = Counter(r[6] for r in fl)
     L.append('<b>3. Чаще всего не выполняется</b>')
@@ -141,13 +156,14 @@ def week(mon=None):
     bad = temps_out(rows)
     L.append('<b>4. Замеры вне нормы</b>')
     if bad:
-        for d, p, name, x in bad[:6]:
-            L.append(f'   {d.strftime("%d.%m")} {p} · {name}: <b>{x}</b>')
+        for d, p, name, x, norm in bad[:6]:
+            L.append(f'   {d.strftime("%d.%m")} {p} · {name}: <b>{x}</b> '
+                     f'<i>(норма {norm})</i>')
     else:
         L.append('   Все замеры в норме' if rows else '   Данных нет')
     L.append('')
 
-    ideas = [r for r in S.get(C.TABS['ideas'], 'A2:G500')
+    ideas = [r for r in S.get(C.TABS['ideas'], 'A2:G')
              if len(r) > 4 and _d(r[0]) and mon <= _d(r[0]) <= sun]
     L.append('<b>5. Идеи и задачи с точек</b>')
     L += [f'   • {r[4][:90]} <i>({r[1]})</i>' for r in ideas[:6]] or ['   Новых нет']
