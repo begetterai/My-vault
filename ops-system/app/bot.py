@@ -159,8 +159,9 @@ def block_screen(st):
 
 def history(scope, who):
     rows = []
-    for key, cl in C.checklists().items():
-        for r in S.get(cl['tab'], 'A2:P'):
+    cls = list(C.for_role(S.role_of(who)).values())
+    for cl, chunk in zip(cls, S.get_many([(cl['tab'], 'A2:P') for cl in cls])):
+        for r in chunk:
             if len(r) < 8:
                 continue
             if scope == 'me' and (len(r) < 3 or r[2] != who[0]):
@@ -692,9 +693,54 @@ def whoami():
     return u.get('username'), u.get('first_name')
 
 
+# ── разбор входящих ──────────────────────────────────────────────────────────
+WORKERS = int(__import__('os').environ.get('WORKERS', '6'))
+_QS = []
+
+
+def _chat_of(upd):
+    m = upd.get('message') or (upd.get('callback_query') or {}).get('message') or {}
+    return str((m.get('chat') or {}).get('id', ''))
+
+
+def _worker(q):
+    while True:
+        upd = q.get()
+        try:
+            if 'callback_query' in upd:
+                on_callback(upd['callback_query'])
+            elif 'message' in upd:
+                on_message(upd['message'])
+        except Exception as e:
+            print('обработка:', e)
+
+
+def start_workers():
+    """Обновления идут в очереди по числу потоков.
+
+    Раньше бот разбирал их по одному: пока чьё-то сохранение в таблицу шло
+    две секунды, у всех остальных кнопки не отвечали. Теперь очереди
+    работают параллельно, но нажатия ОДНОГО человека всегда попадают в одну
+    и ту же очередь — порядок его шагов не перепутается.
+    """
+    import queue, threading
+    for _ in range(max(1, WORKERS)):
+        q = queue.Queue()
+        _QS.append(q)
+        threading.Thread(target=_worker, args=(q,), daemon=True).start()
+
+
+def dispatch(upd):
+    chat = _chat_of(upd)
+    if not _QS:
+        start_workers()
+    _QS[hash(chat) % len(_QS)].put(upd)
+
+
 def poll():
     offset = 0
     bad = 0
+    start_workers()
     while True:
         try:
             r = tg('getUpdates', offset=offset, timeout=25,
@@ -709,13 +755,7 @@ def poll():
             bad = 0
             for upd in r.get('result') or []:
                 offset = upd['update_id'] + 1
-                try:
-                    if 'callback_query' in upd:
-                        on_callback(upd['callback_query'])
-                    elif 'message' in upd:
-                        on_message(upd['message'])
-                except Exception as e:
-                    print('обработка:', e)
+                dispatch(upd)
         except Exception as e:
             print('цикл:', e)
             import time

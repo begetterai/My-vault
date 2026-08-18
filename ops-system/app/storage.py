@@ -52,6 +52,22 @@ def get(tab, a1='', render='FORMATTED_VALUE'):
     return r.json().get('values', []) if r.ok else []
 
 
+def get_many(pairs):
+    """Несколько диапазонов одним запросом. [(лист, A1)] → [[строки], ...]
+
+    Шесть отдельных чтений — это шесть обращений к квоте Google и шесть
+    сетевых задержек подряд, пока бот стоит. batchGet делает то же за один.
+    """
+    if not pairs:
+        return []
+    q = '&'.join('ranges=' + urllib.parse.quote(f"'{t}'!{a}") for t, a in pairs)
+    r = session().get(B + C.DATA_SHEET + '/values:batchGet?' + q +
+                      '&valueRenderOption=FORMATTED_VALUE', timeout=60)
+    if not r.ok:
+        return [[] for _ in pairs]
+    return [v.get('values', []) for v in r.json().get('valueRanges', [])]
+
+
 def append(tab, rows):
     r = session().post(B + C.DATA_SHEET + '/values/' + _rng(tab, 'A2') + ':append',
                        params={'valueInputOption': 'USER_ENTERED'},

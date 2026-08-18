@@ -42,8 +42,10 @@ def plural(n, one, few, many):
 
 def fills(since, until):
     out = []
-    for key, cl in C.checklists().items():
-        for r in S.get(cl['tab'], 'A2:P'):
+    cls = list(C.checklists().values())
+    chunks = S.get_many([(cl['tab'], 'A2:P') for cl in cls])
+    for cl, rows in zip(cls, chunks):
+        for r in rows:
             d = _d(r[0]) if r else None
             if not d or not (since <= d <= until) or len(r) < 8:
                 continue
