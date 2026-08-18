@@ -56,10 +56,10 @@ def fills(since, until):
     return out
 
 
-def day_block(day):
-    """Короткий блок за день — для утреннего дайджеста."""
+def day_block(day, point=None):
+    """Короткий блок за день. point — сузить до одной точки (для управляющего)."""
     f = fills(day, day)
-    pts = S.points()
+    pts = [point] if point else S.points()
     L = [f'<b>🧾 Чек-листы — {day.strftime("%d.%m.%Y")}</b>']
     for p in pts:
         pf = [x for x in f if x['point'] == p]
@@ -72,6 +72,46 @@ def day_block(day):
             chk = '' if x['chk'] else ' · ⚠️ не проверено'
             L.append(f'• <b>{p}</b> {mark} {x["kind"].lower()} '
                      f'{int(x["ok"])}/{int(x["tot"])} ({pct}%) · {x["who"]}{chk}')
+    return '\n'.join(L)
+
+
+def day_full(day, point=None):
+    """Итог дня целиком: по каждой точке и каждому чек-листу — заполнен или нет,
+    сколько выполнено, подтвердил ли управляющий."""
+    f = fills(day, day)
+    pts = [point] if point else S.points()
+    L = [f'📅 <b>Итог дня — {day.strftime("%d.%m.%Y")}</b>'
+         + (f' · {point}' if point else ''), '']
+    for p in pts:
+        L.append(f'<b>{p}</b>')
+        for key, cl in C.checklists().items():
+            x = next((y for y in f if y['point'] == p and y['kind'] == cl['title']), None)
+            if not x:
+                L.append(f'   ❌ {cl["title"].lower()} — <b>не заполнен</b>')
+                continue
+            pc = round(x['ok'] / x['tot'] * 100) if x['tot'] else 0
+            chk = f'✅ подтвердил {x["chk"]}' if x['chk'] else '⚠️ не подтверждено'
+            L.append(f'   {"✅" if pc == 100 else "⚠️"} {cl["title"].lower()}: '
+                     f'{int(x["ok"])}/{int(x["tot"])} ({pc}%) · {x["who"]}')
+            L.append(f'      {chk}')
+            if x['diff']:
+                L.append(f'      ⚠️ расхождение: {x["diff"][:120]}')
+        L.append('')
+    fl = [r for r in S.get(C.TABS['fails'], 'A2:G')
+          if len(r) > 6 and _d(r[0]) == day and (not point or r[1] == point)]
+    if fl:
+        L.append('<b>Не выполнено за день</b>')
+        L += [f'   ❌ {r[1]} · {r[6][:70]}' for r in fl[:20]]
+        if len(fl) > 20:
+            L.append(f'   … и ещё {len(fl) - 20}')
+    else:
+        L.append('<b>Невыполненных пунктов нет.</b>')
+    bad = temps_out([x for x in f if not point or x['point'] == point])
+    if bad:
+        L.append('')
+        L.append('<b>Замеры вне нормы</b>')
+        L += [f'   ⚠️ {p} · {name}: <b>{x}</b> (норма {norm})'
+              for d, p, name, x, norm in bad]
     return '\n'.join(L)
 
 
@@ -107,12 +147,14 @@ def parse_meas(text):
     return out
 
 
-def week(mon=None):
+def week(mon=None, point=None):
     today = C.today()
     mon = mon or (today - datetime.timedelta(days=today.weekday() + 7))
     sun = mon + datetime.timedelta(days=6)
     rows = fills(mon, sun)
-    pts = S.points()
+    pts = [point] if point else S.points()
+    if point:
+        rows = [x for x in rows if x['point'] == point]
     kinds = len(C.checklists())
     expect = len(pts) * 7 * kinds
 

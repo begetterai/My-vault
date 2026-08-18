@@ -2,6 +2,8 @@
   "open": {
     "title": "Открытие смены",
     "code": "03-CL-01",
+    "deadline": "10:00",
+    "remind_before": 45,
     "ask_time": "Во сколько открылись?",
     "measures": {
       "14": {
@@ -236,6 +238,8 @@
   "close": {
     "title": "Закрытие смены",
     "code": "03-CL-02",
+    "deadline": "23:30",
+    "remind_before": 45,
     "ask_time": "Во сколько закрылись?",
     "measures": {
       "21": {

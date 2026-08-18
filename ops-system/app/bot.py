@@ -31,8 +31,26 @@ def tg(method, **kw):
         return {'ok': False, 'description': f'{type(e).__name__}: {e}'}
 
 
+LIMIT = 3800        # телеграм режет на 4096; оставляем запас на разметку
+
+
 def say(chat_id, text, **kw):
-    return tg('sendMessage', chat_id=chat_id, text=text, parse_mode='HTML', **kw)
+    """Длинный текст режем по строкам — клавиатура уходит с последней частью."""
+    if len(text) <= LIMIT:
+        return tg('sendMessage', chat_id=chat_id, text=text,
+                  parse_mode='HTML', **kw)
+    parts, cur = [], ''
+    for ln in text.split('\n'):
+        if len(cur) + len(ln) + 1 > LIMIT:
+            parts.append(cur); cur = ''
+        cur += ln + '\n'
+    parts.append(cur)
+    r = None
+    for i, part in enumerate(parts):
+        last = i == len(parts) - 1
+        r = tg('sendMessage', chat_id=chat_id, text=part.rstrip(),
+               parse_mode='HTML', **(kw if last else {}))
+    return r
 
 
 def admin(text):
@@ -229,15 +247,31 @@ def finish(chat_id, st):
     notify_check(st, ok, tot, fails, line, st.get('comment', ''), fast, bool(dup))
 
 
+def full_list(kind, fails):
+    """Весь чек-лист по блокам: что сделано и что нет. Не только провалы —
+    руководитель должен видеть объём работы, а не только её обрыв."""
+    cl = C.checklists()[kind]
+    bad = set(int(n) for n in fails)
+    L = []
+    for b in cl['blocks']:
+        done = sum(1 for it in b['items'] if it['n'] not in bad)
+        L.append(f'<b>{b["name"]}</b> — {done}/{len(b["items"])}')
+        for it in b['items']:
+            mark = '❌' if it['n'] in bad else '✅'
+            L.append(f'{mark} {it["n"]}. {it["text"]}')
+        L.append('')
+    return '\n'.join(L)
+
+
 def notify_check(st, ok, tot, fails, line, comment, fast, dup=False):
     cl = C.checklists()[st['kind']]
-    nm = {n: t for n, _, t in C.flat(st['kind'])}
-    lst = '\n'.join(f'   ❌ {n}. {nm[n]}' for n in fails[:8]) or '   всё выполнено'
+    lst = full_list(st['kind'], fails)
     warn = ('\n⚠️ заполнено быстрее норматива' if fast else '') \
         + ('\n♻️ повторное заполнение за сегодня' if dup else '')
     txt = (f'🔎 <b>Проверь заполнение</b>\n{st["point"]} · {cl["title"].lower()} '
-           f'{st["day"]} · {st["who"]}\n{ok}/{tot}{warn}\n{lst}'
-           + (f'\n💬 {comment}' if comment else ''))
+           f'{st["day"]} · {st["who"]}\nВыполнено <b>{ok} из {tot}</b>{warn}\n\n{lst}'
+           + (f'💬 {comment}\n' if comment else '')
+           + '\nПройди по точке и подтверди — или опиши, что не сошлось.')
     kb = {'inline_keyboard': [[
         {'text': '✅ Проверил', 'callback_data': f'cl:ck:ok:{st["kind"]}:{line}'},
         {'text': '⚠️ Расхождение', 'callback_data': f'cl:ck:bad:{st["kind"]}:{line}'}]]}
@@ -279,14 +313,9 @@ def final_report(kind, line, verdict, checker, note=''):
          f'Заполнил: {r[2]} в {r[3]}, время открытия {r[4]}',
          f'Выполнено: <b>{r[5]} из {r[6]}</b> ({pct(r[5], r[6])})',
          f'Заняло: {r[12]} мин']
-    if r[8] and r[8] != '—':
-        nm = {n: t for n, _, t in C.flat(kind)}
-        nums = [x.strip() for x in str(r[8]).split(',') if x.strip().isdigit()]
-        L.append('')
-        L.append('<b>Не выполнено:</b>')
-        L += [f'   ❌ {n}. {nm.get(int(n), "")}' for n in nums[:10]]
-        if len(nums) > 10:
-            L.append(f'   … и ещё {len(nums) - 10}')
+    nums = [int(x) for x in str(r[8]).split(',') if x.strip().isdigit()]
+    L.append('')
+    L.append(full_list(kind, nums))
     if r[9]:
         L.append(f'💬 {r[9]}')
     if r[10]:
@@ -310,7 +339,13 @@ def final_report(kind, line, verdict, checker, note=''):
     L.append(f'<b>Проверка управляющим: {mark}</b> — {checker}')
     if note:
         L.append(f'   {note}')
-    admin('\n'.join(L))
+    txt = '\n'.join(L)
+    sent = set()
+    for cid in S.managers_of(r[1]):
+        say(cid, txt)
+        sent.add(str(cid))
+    if str(C.ADMIN_CHAT) not in sent:
+        admin(txt)
 
 
 # ── подключение человека ─────────────────────────────────────────────────────

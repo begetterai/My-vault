@@ -7,6 +7,7 @@ from . import storage as S
 from . import bot as BOT
 from . import webapp as W
 from . import reports as R
+from . import schedule as SCH
 
 
 def main():
@@ -28,8 +29,12 @@ def main():
 
     if '--day' in sys.argv:
         import re
-        print(re.sub(r'<[^>]+>', '',
-                     R.day_block(C.today() - datetime.timedelta(days=1))))
+        txt = R.day_full(C.today())
+        if '--send' in sys.argv and C.ADMIN_CHAT:
+            BOT.say(C.ADMIN_CHAT, txt)
+            print('отправлено')
+        else:
+            print(re.sub(r'<[^>]+>', '', txt))
         return
 
     try:
@@ -42,6 +47,11 @@ def main():
 
     print(f'{C.COMPANY}: готовлю таблицу…')
     print('листы:', ', '.join(S.ensure_structure()))
+    SCH.start()
+    print('расписание: напоминания за '
+          + ', '.join(f'{cl.get("remind_before", 45)} мин до {cl["deadline"]}'
+                      for cl in C.checklists().values() if cl.get('deadline'))
+          + f'; итог дня {C.DAILY_AT}, неделя пн {C.WEEKLY_AT}')
     _, port = W.serve_in_background()
     print(f'Mini App на порту {port}; WEBAPP_URL={C.WEBAPP_URL or "не задан"}')
     print('бот запущен')

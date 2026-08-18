@@ -47,6 +47,11 @@ MIN_SECONDS = int(ENV('MIN_SECONDS', '180'))        # быстрее — фор�
 REPEAT_FAIL = int(ENV('REPEAT_FAIL', '3'))          # столько провалов = сломан процесс
 CHECK_GAP = float(ENV('CHECK_GAP', '0.7'))          # ниже — второй контур не работает
 
+# ── расписание ───────────────────────────────────────────────────────────────
+DAILY_AT = ENV('DAILY_AT', '21:30')                 # итог дня руководителям
+WEEKLY_AT = ENV('WEEKLY_AT', '09:30')               # сводка недели, по понедельникам
+CHECK_DEADLINE = int(ENV('CHECK_DEADLINE', '120'))  # мин на подтверждение управляющим
+
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CHECKLISTS_FILE = ENV('CHECKLISTS_FILE',
                       os.path.join(HERE, 'checklists.romashka.json'))

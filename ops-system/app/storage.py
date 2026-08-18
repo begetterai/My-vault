@@ -136,6 +136,17 @@ def managers_of(point):
             if v[1] == point and role_of(v) in ('manager', 'coo')]
 
 
+def staff_of(point):
+    """Линейные сотрудники точки — те, кто заполняет."""
+    return [cid for cid, v in team().items()
+            if v[1] == point and role_of(v) == 'staff']
+
+
+def managers():
+    """chat_id → точка, по всем управляющим. COO сюда не входит."""
+    return {cid: v[1] for cid, v in team().items() if role_of(v) == 'manager'}
+
+
 # ── фото ─────────────────────────────────────────────────────────────────────
 def save_photo(raw_bytes, name):
     meta = {'name': name + '.jpg'}
