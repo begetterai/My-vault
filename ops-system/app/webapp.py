@@ -51,7 +51,7 @@ def init_payload(who):
     out = {'company': C.COMPANY, 'name': who[0], 'point': who[1],
            'point_label': S.point_label(who[1]), 'points': pts,
            'role': role, 'day': C.day_str(), 'lists': {}}
-    out['can_fix'] = role in ('manager', 'coo')
+    out['can_fix'] = C.FIX_MODE and role in ('manager', 'coo')
     out['journals'] = [{'key': k, 'title': cl['title'], 'code': cl['code'],
                         'icon': cl.get('icon', '📌'), 'doc': cl.get('doc'),
                         'fields': cl.get('fields', [])}
