@@ -957,9 +957,9 @@ def handle(msg):
 def run():
     for need,name in [(TG_TOKEN,'TELEGRAM_BOT_TOKEN'),(ALLOWED,'TELEGRAM_CHAT_ID'),(GROQ_KEY,'GROQ_API_KEY')]:
         if not need: log.error(f'Нет {name}'); sys.exit(1)
+    # Приветствие в чат не шлём: сервис пересобирается на каждый push в репозиторий,
+    # и каждая пересборка превращалась в сообщение. Факт запуска виден в логах.
     log.info('🌸 Ромашка-агент запущен')
-    try: send('🌸 Агент на связи. Кидай голос или текст.')
-    except Exception: pass
     offset=0
     while True:
         try:
