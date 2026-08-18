@@ -98,7 +98,9 @@ def ensure_structure():
                                'Широта', 'Долгота', 'Радиус, м'],
             C.TABS['shift']: F.SHIFT_COLS,
             C.TABS['score']: ['Дата', 'Точка', 'Кто', 'Событие', 'Баллы',
-                              'За что', 'Ссылка']}
+                              'За что', 'Ссылка'],
+            C.TABS['fixes']: ['Дата', 'Кто', 'Форма', 'Блок', '№', 'Текст пункта',
+                              'Что поправить', 'Документ', 'Статус', 'Решение']}
     for key, cl in C.forms().items():
         cols = F.cols_for(cl)
         if cols:
@@ -294,6 +296,12 @@ def add_member(chat_id, name, point, role):
         append(C.TABS['team'], [[str(chat_id), name, point, role, 'да']])
     team(force=True)
     return True
+
+
+def save_fix(who, form, block, n, text, comment, doc=''):
+    """Правка к пункту — прямо во время обхода, пока видно проблему."""
+    return append(C.TABS['fixes'],
+                  [[C.day_str(), who, form, block, n, text, comment, doc, 'Новая', '']])
 
 
 def save_note(day, who, point, source, text):

@@ -51,11 +51,13 @@ def init_payload(who):
     out = {'company': C.COMPANY, 'name': who[0], 'point': who[1],
            'point_label': S.point_label(who[1]), 'points': pts,
            'role': role, 'day': C.day_str(), 'lists': {}}
+    out['can_fix'] = role in ('manager', 'coo')
     out['journals'] = [{'key': k, 'title': cl['title'], 'code': cl['code'],
-                        'icon': cl.get('icon', '📌'), 'fields': cl.get('fields', [])}
+                        'icon': cl.get('icon', '📌'), 'doc': cl.get('doc'),
+                        'fields': cl.get('fields', [])}
                        for k, cl in C.visible(role, 'journal').items()]
     out['forms'] = [{'key': k, 'title': cl['title'], 'code': cl['code'],
-                     'icon': cl.get('icon', '📋'),
+                     'icon': cl.get('icon', '📋'), 'doc': cl.get('doc'),
                      'columns': cl.get('columns', []),
                      'photo_required': bool(cl.get('photo_required'))}
                     for k, cl in C.visible(role, 'form').items()]
@@ -70,7 +72,7 @@ def init_payload(who):
         out['lists'][key] = {
             'title': cl['title'], 'code': cl['code'], 'ask_time': cl['ask_time'],
             'deadline': cl.get('deadline', ''),
-            'blocks': [{'name': b['name'], 'items': [
+            'blocks': [{'name': b['name'], 'doc': b.get('doc'), 'items': [
                 {'n': it['n'], 'text': it['text'], 'norm': it.get('norm', '')}
                 for it in b['items']]} for b in cl['blocks']],
             'measures': [{'n': n, 'q': m['q'], 'norm': m['norm'], 'unit': m['unit'],
@@ -255,6 +257,19 @@ def submit(who, body):
             'fast': sec < C.MIN_SECONDS or (tempo is not None and tempo < C.MIN_GAP)}
 
 
+def fix(who, body):
+    """Правка к пункту чек-листа. Только руководитель — это правка регламента."""
+    if S.role_of(who) not in ('manager', 'coo'):
+        return {'ok': False, 'error': 'Правки вносит руководитель'}
+    comment = str(body.get('comment', '')).strip()
+    if len(comment.split()) < 2:
+        return {'ok': False, 'error': 'Напиши, что именно поправить'}
+    S.save_fix(who[0], str(body.get('form', ''))[:60], str(body.get('block', ''))[:60],
+               body.get('n', ''), str(body.get('text', ''))[:300],
+               comment[:400], str(body.get('doc', ''))[:20])
+    return {'ok': True}
+
+
 def note(who, body):
     text = str(body.get('text', '')).strip()
     if len(text.split()) < 3:
@@ -324,6 +339,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, submit(who, body))
             if p == '/api/note':
                 return self._send(200, note(who, body))
+            if p == '/api/fix':
+                return self._send(200, fix(who, body))
             if p == '/api/shift':
                 return self._send(200, shift(who, body))
             if p == '/api/journal':

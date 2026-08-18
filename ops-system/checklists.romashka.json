@@ -66,7 +66,12 @@
             "norm": "",
             "photo": false
           }
-        ]
+        ],
+        "doc": {
+          "code": "02-POL-03",
+          "title": "Внешний вид и личная гигиена",
+          "url": ""
+        }
       },
       {
         "name": "2. Помещение и зал",
@@ -101,7 +106,12 @@
             "norm": "",
             "photo": false
           }
-        ]
+        ],
+        "doc": {
+          "code": "04-SOP-05",
+          "title": "Чистота помещений",
+          "url": "https://docs.google.com/document/d/1NA3xZ_w0lIs4PtuJs3boUnoQ0C88CU38aIhj_5QOyew"
+        }
       },
       {
         "name": "3. Оборудование",
@@ -141,7 +151,12 @@
             "norm": "",
             "photo": false
           }
-        ]
+        ],
+        "doc": {
+          "code": "09-SOP-01",
+          "title": "ТО и действия при поломке",
+          "url": ""
+        }
       },
       {
         "name": "4. Продукты и заготовки",
@@ -176,7 +191,12 @@
             "norm": "",
             "photo": false
           }
-        ]
+        ],
+        "doc": {
+          "code": "04-POL-01",
+          "title": "Маркировка и сроки годности",
+          "url": "https://docs.google.com/document/d/13hkUMfYUpA84vsO44oyacJ02WNjO3zal8tcvwPOsjh0"
+        }
       },
       {
         "name": "5. Касса и Poster",
@@ -206,7 +226,12 @@
             "norm": "",
             "photo": false
           }
-        ]
+        ],
+        "doc": {
+          "code": "03-SOP-02",
+          "title": "Работа с кассой и Poster",
+          "url": "https://docs.google.com/document/d/1EhUEaZgXqwDM2XzQz4BUY-JA8hjVfalD3MtPTLxSzqs"
+        }
       },
       {
         "name": "6. Готовность к открытию",
@@ -231,7 +256,12 @@
             "norm": "10:00",
             "photo": false
           }
-        ]
+        ],
+        "doc": {
+          "code": "03-POL-01",
+          "title": "Стандарт обслуживания гостя",
+          "url": "https://docs.google.com/document/d/1Wp9w3EulNKoxmyNMP2UfzbaNtY4DAY6s06o_olKi8ys"
+        }
       }
     ],
     "type": "checklist"
@@ -289,7 +319,12 @@
             "norm": "",
             "photo": false
           }
-        ]
+        ],
+        "doc": {
+          "code": "03-POL-01",
+          "title": "Стандарт обслуживания гостя",
+          "url": "https://docs.google.com/document/d/1Wp9w3EulNKoxmyNMP2UfzbaNtY4DAY6s06o_olKi8ys"
+        }
       },
       {
         "name": "2. Касса и Poster",
@@ -329,7 +364,12 @@
             "norm": "",
             "photo": false
           }
-        ]
+        ],
+        "doc": {
+          "code": "03-SOP-03",
+          "title": "Кассовая дисциплина и инкассация",
+          "url": "https://docs.google.com/document/d/1jAI4suCQ5EyjfeiWLnzzItI2opACDKEfAZuYOl7Z3zA"
+        }
       },
       {
         "name": "3. Продукты и заготовки",
@@ -359,7 +399,12 @@
             "norm": "",
             "photo": false
           }
-        ]
+        ],
+        "doc": {
+          "code": "04-POL-02",
+          "title": "Товарное соседство и хранение",
+          "url": "https://docs.google.com/document/d/17BUgwDqrTkOjemjToHLlQxBUSPGgnvoRjOQZGlw0CyM"
+        }
       },
       {
         "name": "4. Оборудование",
@@ -394,7 +439,12 @@
             "norm": "",
             "photo": false
           }
-        ]
+        ],
+        "doc": {
+          "code": "04-SOP-02",
+          "title": "Чистота теплового оборудования",
+          "url": "https://docs.google.com/document/d/1YRbo2_yiZRPvxdKNLcy7UjF-ABTCE-G_j9IZuxDphzM"
+        }
       },
       {
         "name": "5. Кухня и станции",
@@ -424,7 +474,12 @@
             "norm": "",
             "photo": false
           }
-        ]
+        ],
+        "doc": {
+          "code": "04-SOP-04",
+          "title": "Уборка станции и порядок на рабочем месте",
+          "url": "https://docs.google.com/document/d/1FYJot9glTpU3LrzIsg2x77YG5iCsnevMNhJXBzRSGJ4"
+        }
       },
       {
         "name": "6. Закрытие точки",
@@ -454,7 +509,12 @@
             "norm": "",
             "photo": false
           }
-        ]
+        ],
+        "doc": {
+          "code": "03-SOP-01",
+          "title": "Передача смены",
+          "url": "https://docs.google.com/document/d/1is3kBXPNa6Mc2Pz6AYAS7p3QmVdWtFxybHAaprvJ0sE"
+        }
       }
     ],
     "type": "checklist"
@@ -535,7 +595,12 @@
             "norm": "проверка по реестру",
             "photo": false
           }
-        ]
+        ],
+        "doc": {
+          "code": "02-POL-03",
+          "title": "Внешний вид и личная гигиена",
+          "url": ""
+        }
       },
       {
         "name": "2. Руки и перчатки",
@@ -560,7 +625,12 @@
             "norm": "не ниже 40 °C",
             "photo": false
           }
-        ]
+        ],
+        "doc": {
+          "code": "04-POL-04",
+          "title": "HACCP и пищевая безопасность",
+          "url": "https://docs.google.com/document/d/1EaEzEBmWEafDHt85cHeCABylkGTLd0sZuqzJvAS_MLM"
+        }
       },
       {
         "name": "3. Поверхности и инвентарь",
@@ -590,7 +660,12 @@
             "norm": "концентрация и дата разведения",
             "photo": true
           }
-        ]
+        ],
+        "doc": {
+          "code": "04-SOP-04",
+          "title": "Уборка станции и порядок на рабочем месте",
+          "url": "https://docs.google.com/document/d/1FYJot9glTpU3LrzIsg2x77YG5iCsnevMNhJXBzRSGJ4"
+        }
       },
       {
         "name": "4. Хранение продуктов",
@@ -625,7 +700,12 @@
             "norm": "",
             "photo": false
           }
-        ]
+        ],
+        "doc": {
+          "code": "04-POL-02",
+          "title": "Товарное соседство и хранение",
+          "url": "https://docs.google.com/document/d/17BUgwDqrTkOjemjToHLlQxBUSPGgnvoRjOQZGlw0CyM"
+        }
       },
       {
         "name": "5. Холод и температура",
@@ -645,7 +725,12 @@
             "norm": "при наледи — разморозка",
             "photo": false
           }
-        ]
+        ],
+        "doc": {
+          "code": "04-SOP-03",
+          "title": "Чистота холодильного оборудования",
+          "url": "https://docs.google.com/document/d/1aHrpmChSqpFNQNms_d-Pr_8pOex-EsUREDuBFy20g7I"
+        }
       },
       {
         "name": "6. Помещение и отходы",
@@ -680,7 +765,12 @@
             "norm": "",
             "photo": true
           }
-        ]
+        ],
+        "doc": {
+          "code": "04-SOP-05",
+          "title": "Чистота помещений",
+          "url": "https://docs.google.com/document/d/1NA3xZ_w0lIs4PtuJs3boUnoQ0C88CU38aIhj_5QOyew"
+        }
       },
       {
         "name": "7. Документы",
@@ -700,7 +790,12 @@
             "norm": "",
             "photo": false
           }
-        ]
+        ],
+        "doc": {
+          "code": "04-LOG-01",
+          "title": "Температурный журнал",
+          "url": "https://docs.google.com/document/d/1hTmhitv4PfYPmdNOUNDTaaSSmI-yqeaMY3ujmak0UZA"
+        }
       }
     ],
     "type": "checklist"
@@ -766,7 +861,12 @@
             "norm": "",
             "photo": false
           }
-        ]
+        ],
+        "doc": {
+          "code": "03-POL-01",
+          "title": "Стандарт обслуживания гостя",
+          "url": "https://docs.google.com/document/d/1Wp9w3EulNKoxmyNMP2UfzbaNtY4DAY6s06o_olKi8ys"
+        }
       },
       {
         "name": "2. Персонал в работе",
@@ -796,7 +896,12 @@
             "norm": "",
             "photo": false
           }
-        ]
+        ],
+        "doc": {
+          "code": "02-POL-02",
+          "title": "Правило телефонов",
+          "url": ""
+        }
       },
       {
         "name": "3. Продукт",
@@ -826,7 +931,12 @@
             "norm": "",
             "photo": false
           }
-        ]
+        ],
+        "doc": {
+          "code": "04-TTK-*",
+          "title": "Техкарты, ~68 шт.",
+          "url": ""
+        }
       },
       {
         "name": "4. Процессы",
@@ -856,7 +966,12 @@
             "norm": "",
             "photo": false
           }
-        ]
+        ],
+        "doc": {
+          "code": "00-REF-01",
+          "title": "Реестр документов",
+          "url": "https://docs.google.com/spreadsheets/d/1TzB9gjpJvj_ziBwKdVuOhfKezMVsdXzeLxQMJWz-cQk"
+        }
       },
       {
         "name": "5. Люди и климат",
@@ -881,7 +996,12 @@
             "norm": "",
             "photo": false
           }
-        ]
+        ],
+        "doc": {
+          "code": "02-SOP-06",
+          "title": "График, табель, замены",
+          "url": ""
+        }
       },
       {
         "name": "6. Деньги",
@@ -901,7 +1021,12 @@
             "norm": "проверить 3 позиции",
             "photo": false
           }
-        ]
+        ],
+        "doc": {
+          "code": "06-SOP-01",
+          "title": "Протокол проверки транзакций",
+          "url": ""
+        }
       }
     ],
     "type": "checklist"
@@ -952,7 +1077,12 @@
             "norm": "при отказе — отметить",
             "photo": false
           }
-        ]
+        ],
+        "doc": {
+          "code": "02-SOP-01",
+          "title": "Найм и оформление",
+          "url": ""
+        }
       },
       {
         "name": "2. Готовность к нашему графику",
@@ -977,7 +1107,12 @@
             "norm": "",
             "photo": false
           }
-        ]
+        ],
+        "doc": {
+          "code": "02-SOP-06",
+          "title": "График, табель, замены",
+          "url": ""
+        }
       },
       {
         "name": "3. Отношение к работе",
@@ -1007,7 +1142,12 @@
             "norm": "",
             "photo": false
           }
-        ]
+        ],
+        "doc": {
+          "code": "02-REF-01",
+          "title": "Профили должностей",
+          "url": ""
+        }
       },
       {
         "name": "4. Практика",
@@ -1027,7 +1167,12 @@
             "norm": "",
             "photo": false
           }
-        ]
+        ],
+        "doc": {
+          "code": "02-SOP-03",
+          "title": "Стажировка и наставничество",
+          "url": ""
+        }
       },
       {
         "name": "5. Договорённости",
@@ -1052,7 +1197,12 @@
             "norm": "",
             "photo": false
           }
-        ]
+        ],
+        "doc": {
+          "code": "02-POL-01",
+          "title": "Дисциплинарная сетка",
+          "url": ""
+        }
       }
     ],
     "type": "checklist"
@@ -1111,7 +1261,12 @@
             "norm": "",
             "photo": false
           }
-        ]
+        ],
+        "doc": {
+          "code": "10-REF-01",
+          "title": "Критерии выбора локации",
+          "url": ""
+        }
       },
       {
         "name": "2. Оборудование",
@@ -1141,7 +1296,12 @@
             "norm": "",
             "photo": true
           }
-        ]
+        ],
+        "doc": {
+          "code": "10-REF-02",
+          "title": "Комплектация точки",
+          "url": ""
+        }
       },
       {
         "name": "3. Товар и меню",
@@ -1166,7 +1326,12 @@
             "norm": "",
             "photo": true
           }
-        ]
+        ],
+        "doc": {
+          "code": "05-REF-01",
+          "title": "Реестр поставщиков",
+          "url": "https://docs.google.com/document/d/1Cg6zWTyh9yI91hrE326-s6brK2PWHNfxIb7EbBYxTpo"
+        }
       },
       {
         "name": "4. Команда",
@@ -1196,7 +1361,12 @@
             "norm": "",
             "photo": false
           }
-        ]
+        ],
+        "doc": {
+          "code": "10-SOP-01",
+          "title": "Запуск команды новой точки",
+          "url": ""
+        }
       },
       {
         "name": "5. Готовность к первому дню",
@@ -1226,7 +1396,12 @@
             "norm": "",
             "photo": false
           }
-        ]
+        ],
+        "doc": {
+          "code": "10-CL-01",
+          "title": "Чек-лист открытия точки",
+          "url": "https://docs.google.com/document/d/1cArHFawo4G3UWgDwWorg8_rYo4tIiwPoH3hiW0U5b78/edit?usp=sharing"
+        }
       }
     ],
     "type": "checklist"
@@ -1294,7 +1469,12 @@
         "required": true
       }
     ],
-    "photo": true
+    "photo": true,
+    "doc": {
+      "code": "03-LOG-01",
+      "title": "Журнал происшествий",
+      "url": "https://docs.google.com/document/d/1zUKsr4G4rmGl3idzzM2XNIUJQKLRXncg51iWMQkbheQ"
+    }
   },
   "breakdown": {
     "title": "Поломка оборудования",
@@ -1356,7 +1536,12 @@
         "required": true
       }
     ],
-    "photo": true
+    "photo": true,
+    "doc": {
+      "code": "09-SOP-01",
+      "title": "ТО и действия при поломке",
+      "url": ""
+    }
   },
   "violation": {
     "title": "Нарушение",
@@ -1421,7 +1606,12 @@
         "required": true
       }
     ],
-    "photo": true
+    "photo": true,
+    "doc": {
+      "code": "02-POL-01",
+      "title": "Дисциплинарная сетка",
+      "url": ""
+    }
   },
   "guest": {
     "title": "Жалоба гостя",
@@ -1476,7 +1666,12 @@
         ]
       }
     ],
-    "photo": false
+    "photo": false,
+    "doc": {
+      "code": "03-SOP-04",
+      "title": "Работа с жалобой гостя",
+      "url": "https://docs.google.com/document/d/1yZ6DZbDd8BLrdjnhzFcYVD0osVW7OibLjTprehtd7j8"
+    }
   },
   "writeoff": {
     "title": "Списание",
@@ -1533,7 +1728,12 @@
         "label": "Комментарий",
         "kind": "text"
       }
-    ]
+    ],
+    "doc": {
+      "code": "05-SOP-04",
+      "title": "Списания",
+      "url": "https://docs.google.com/document/d/1DeB_WnSIyjUH-OwGTGdr4xR2IFRITMLgwfV36lKjL2s"
+    }
   },
   "delivery": {
     "title": "Приём поставки",
@@ -1592,7 +1792,12 @@
         "label": "Поставщик и комментарий",
         "kind": "text"
       }
-    ]
+    ],
+    "doc": {
+      "code": "05-SOP-01",
+      "title": "Приём поставки",
+      "url": "https://docs.google.com/document/d/17Rl_n-OqXLDEhEAwCifqG-u7az7EdbyGFcxaej9B-yU"
+    }
   },
   "inventory": {
     "title": "Инвентаризация — сдача листа",
@@ -1652,6 +1857,11 @@
         "label": "Комментарий",
         "kind": "text"
       }
-    ]
+    ],
+    "doc": {
+      "code": "05-SOP-03",
+      "title": "Инвентаризация",
+      "url": "https://docs.google.com/document/d/1KhOydXRawCcWKXn-3aOhXdAO5QpX7r0oEqmDGLarPig"
+    }
   }
 }

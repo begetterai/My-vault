@@ -122,6 +122,11 @@
         border-radius:16px;background:var(--card);
         margin-bottom:8px;transition:border-color .15s,background .15s}
   .item.unset{border-left-color:var(--brand)}
+  .docline{margin:-4px 0 10px;font-size:13px;color:var(--ink-2)}
+  .docline a{color:var(--brand-2);text-decoration:none;font-weight:600}
+  .fix{width:44px;height:50px;border-radius:12px;border:1.5px dashed var(--line);
+       background:transparent;color:var(--ink-2);font-size:16px;cursor:pointer;flex:none}
+  .fix.done{border-style:solid;border-color:var(--brand);color:var(--brand-2)}
   .item .txt{flex:1;min-width:0;font-size:15.5px}
   .item .norm{display:block;color:var(--ink-2);font-size:13px;margin-top:3px}
   .item .num{color:var(--ink-2);font-family:Manrope,sans-serif;font-weight:700;
@@ -361,6 +366,15 @@ $('#btnIn').onclick = () => mark('in');
 $('#btnOut').onclick = () => mark('out');
 
 /* ── журналы ─────────────────────────────────────────────────────────────── */
+function docLine(doc){
+  const d = document.createElement('div'); d.className = 'docline';
+  d.innerHTML = 'по регламенту ' + (doc.url
+    ? '<a href="' + doc.url + '" target="_blank" rel="noopener">'
+      + doc.code + ' · ' + doc.title + '</a>'
+    : '<b>' + doc.code + '</b> · ' + doc.title + ' (документ ещё не написан)');
+  return d;
+}
+
 function cardBtn(box, item, onclick){
   const b = document.createElement('button');
   b.className = 'big';
@@ -402,6 +416,7 @@ function openJournal(j){
   const f = $('#jform'); f.innerHTML = ''; f.classList.remove('hidden');
   const h = document.createElement('h2');
   h.textContent = j.icon + ' ' + j.title; f.appendChild(h);
+  if(j.doc) f.appendChild(docLine(j.doc));
   j.fields.forEach(x => f.appendChild(field(x)));
   const ph = document.createElement('div');
   ph.className = 'photo';
@@ -490,6 +505,7 @@ function openForm(cl){
   const f = $('#bform'); f.innerHTML=''; f.classList.remove('hidden');
   const h = document.createElement('h2');
   h.textContent = cl.icon + ' ' + cl.title; f.appendChild(h);
+  if(cl.doc) f.appendChild(docLine(cl.doc));
   const rows = document.createElement('div'); rows.id='bRows';
   rows.appendChild(lineRow(cl, 0)); f.appendChild(rows);
   const add = document.createElement('button');
@@ -570,7 +586,15 @@ function start(k){
   const f = $('#form'); f.innerHTML = ''; f.classList.remove('hidden');
   L.blocks.forEach(bl => {
     const h = document.createElement('h2'); h.textContent = bl.name; f.appendChild(h);
-    bl.items.forEach(it => f.appendChild(itemRow(it)));
+    if(bl.doc){
+      const d = document.createElement('div'); d.className = 'docline';
+      d.innerHTML = 'по регламенту ' + (bl.doc.url
+        ? '<a href="' + bl.doc.url + '" target="_blank" rel="noopener">'
+          + bl.doc.code + ' · ' + bl.doc.title + '</a>'
+        : '<b>' + bl.doc.code + '</b> · ' + bl.doc.title + ' (документ ещё не написан)');
+      f.appendChild(d);
+    }
+    bl.items.forEach(it => f.appendChild(itemRow(it, bl)));
   });
 
   if(L.measures.length){
@@ -632,7 +656,7 @@ function start(k){
   paint();
 }
 
-function itemRow(it){
+function itemRow(it, bl){
   const d = document.createElement('div');
   d.className = 'item unset'; d.id = 'i' + it.n;
   d.innerHTML = '<span class="num">' + it.n + '</span>' +
@@ -654,7 +678,30 @@ function itemRow(it){
     tog.appendChild(b);
   });
   d.appendChild(tog);
+  if(DATA.can_fix){
+    const fx = document.createElement('button');
+    fx.className = 'fix'; fx.type = 'button'; fx.textContent = '✎';
+    fx.title = 'Поправить формулировку';
+    fx.onclick = () => sendFix(it, bl, fx);
+    d.appendChild(fx);
+  }
   return d;
+}
+
+async function sendFix(it, bl, btn){
+  const t = prompt('Что поправить в пункте?\n\n«' + it.text + '»\n\n'
+    + 'Например: «убрать — дублирует п.4» или «переформулировать: не «чисто», '
+    + 'а «нет налёта на решётке»»');
+  if(!t) return;
+  const r = await fetch('/api/fix', {method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({initData, form: DATA.lists[kind].title,
+      block: bl ? bl.name : '', n: it.n, text: it.text, comment: t,
+      doc: bl && bl.doc ? bl.doc.code : ''})});
+  const j = await r.json();
+  if(!j.ok) return alert(j.error || 'не записалось');
+  btn.classList.add('done'); btn.textContent = '✓';
+  tg?.HapticFeedback?.notificationOccurred?.('success');
 }
 
 function photoRow(p){
