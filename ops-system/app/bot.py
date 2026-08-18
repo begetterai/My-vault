@@ -154,7 +154,7 @@ def begin(chat_id, mid, kind, who, point):
         'i': 0, 'marks': {}, 'stage': 'blocks', 'started': C.now(),
         'measures_left': list(C.checklists()[kind]['measures'].keys()),
         'measured': {}, 'photos_left': photos[:C.PHOTOS_PER_RUN],
-        'photos_done': []}
+        'photos_done': [], 'done_measures': [], 'done_photos': []}
     txt, kb = block_screen(STATE[chat_id])
     tg('editMessageText', chat_id=chat_id, message_id=mid, text=txt,
        parse_mode='HTML', reply_markup=kb)
@@ -189,7 +189,8 @@ def block_screen(st):
         tail = '\n\n<i>Блок отмечен полностью.</i>'
         kb.append([{'text': 'Далее ▶' if not last else '▶ К замерам',
                     'callback_data': 'cl:next'}])
-    kb.append([{'text': '💬 Заметка / задача', 'callback_data': 'cl:note'},
+    kb.append([{'text': '◀ Назад', 'callback_data': 'cl:prev'},
+               {'text': '💬 Заметка', 'callback_data': 'cl:note'},
                {'text': '✖️ Отмена', 'callback_data': 'cl:cancel'}])
     return head + '\n'.join(body) + tail, {'inline_keyboard': kb}
 
@@ -233,28 +234,95 @@ def ideas_text():
 
 
 # ── ход заполнения ───────────────────────────────────────────────────────────
+def step_kb():
+    """На любом шаге-вопросе должен быть выход. Иначе человек упирается в тупик
+    и бросает заполнение на середине."""
+    return {'inline_keyboard': [[
+        {'text': '◀ Назад', 'callback_data': 'cl:back'},
+        {'text': '💬 Заметка', 'callback_data': 'cl:note'},
+        {'text': '✖️ Отмена', 'callback_data': 'cl:cancel'}]]}
+
+
 def ask_next(chat_id, st):
     cl = C.checklists()[st['kind']]
     if st['measures_left']:
         st['stage'] = 'measure'
         m = cl['measures'][st['measures_left'][0]]
         return say(chat_id, f'📏 <b>{m["q"]}</b>\nНорма: {m["norm"]} {m["unit"]}'
-                            f'\n\nНапиши число.')
+                            f'\n\nНапиши число.', reply_markup=step_kb())
     if st['photos_left']:
         st['stage'] = 'photo'
         return say(chat_id, f'📷 <b>Пришли фото:</b> {st["photos_left"][0][1]}\n\n'
-                            f'<i>Снимок должен быть сделан сейчас.</i>')
+                            f'<i>Снимок должен быть сделан сейчас.</i>',
+                   reply_markup=step_kb())
     if 'time' not in st:
         st['stage'] = 'time'
-        return say(chat_id, cl['ask_time'] + ' Напиши время, например 10:00')
+        return say(chat_id, cl['ask_time'] + ' Напиши время, например 10:00',
+                   reply_markup=step_kb())
     fails = sorted(n for n, v in st['marks'].items() if v is False)
     if fails and 'comment' not in st:
         st['stage'] = 'comment'
         nm = {n: t for n, _, t in C.flat(st['kind'])}
         return say(chat_id, 'Не выполнено:\n'
                    + '\n'.join(f'❌ {n}. {nm[n]}' for n in fails)
-                   + '\n\nНапиши коротко, почему по каждому.')
+                   + '\n\nНапиши коротко, почему по каждому.',
+                   reply_markup=step_kb())
     finish(chat_id, st)
+
+
+def step_back(chat_id, st):
+    """Шаг назад отменяет последний ответ, а не просто перерисовывает экран.
+
+    Ошибся в замере — вернулся и переписал. Иначе единственный выход —
+    отмена всего заполнения.
+    """
+    stage = st.get('stage')
+    if stage == 'note':
+        st['stage'] = st.pop('note_return', 'blocks')
+        return ask_next(chat_id, st) if st['stage'] != 'blocks' \
+            else to_blocks(chat_id, st)
+    if stage == 'comment':
+        st.pop('comment', None)
+        st.pop('time', None)
+        return ask_next(chat_id, st)
+    if stage == 'time':
+        if st.get('photos_done'):
+            st['photos_done'].pop()
+            st['photos_left'].insert(0, st['done_photos'].pop())
+            return ask_next(chat_id, st)
+        if st.get('done_measures'):
+            n = st['done_measures'].pop()
+            st['measured'].pop(n, None)
+            st['measures_left'].insert(0, n)
+            return ask_next(chat_id, st)
+        return to_blocks(chat_id, st)
+    if stage == 'photo':
+        if st.get('done_photos'):
+            st['photos_done'].pop()
+            st['photos_left'].insert(0, st['done_photos'].pop())
+            return ask_next(chat_id, st)
+        if st.get('done_measures'):
+            n = st['done_measures'].pop()
+            st['measured'].pop(n, None)
+            st['measures_left'].insert(0, n)
+            return ask_next(chat_id, st)
+        return to_blocks(chat_id, st)
+    if stage == 'measure':
+        if st.get('done_measures'):
+            n = st['done_measures'].pop()
+            st['measured'].pop(n, None)
+            st['measures_left'].insert(0, n)
+            return ask_next(chat_id, st)
+        return to_blocks(chat_id, st)
+    return to_blocks(chat_id, st)
+
+
+def to_blocks(chat_id, st):
+    """Возврат к пунктам — на последний блок."""
+    st['stage'] = 'blocks'
+    st['i'] = len(C.checklists()[st['kind']]['blocks']) - 1
+    txt, kb = block_screen(st)
+    return say(chat_id, txt, reply_markup=kb)
 
 
 def finish(chat_id, st):
@@ -577,7 +645,9 @@ def on_message(msg):
         if err:
             say(chat_id, err)
             return True
-        st['measured'][st['measures_left'].pop(0)] = t.strip()[:20]
+        n = st['measures_left'].pop(0)
+        st['measured'][n] = t.strip()[:20]
+        st.setdefault('done_measures', []).append(n)
         if out_of_norm(v, m):
             say(chat_id, f'⚠️ <b>{v} {m.get("unit", "")} — вне нормы</b> '
                          f'({m["norm"]} {m.get("unit", "")}).\n'
@@ -593,7 +663,9 @@ def on_message(msg):
         if 'photo' not in msg:
             say(chat_id, 'Нужно именно фото. Сфотографируй и пришли.')
             return True
-        n, _ = st['photos_left'].pop(0)
+        pair = st['photos_left'].pop(0)
+        n = pair[0]
+        st.setdefault('done_photos', []).append(pair)
         link = ''
         try:
             f = tg('getFile', file_id=msg['photo'][-1]['file_id'])
@@ -650,7 +722,9 @@ def on_callback(cq):
         ADD[chat_id] = {'step': 'id'}
         tg('editMessageText', chat_id=chat_id, message_id=mid,
            text='Пришли ID человека. Чтобы его узнать — пусть напишет '
-                'этому боту «id», бот ответит номером.')
+                'этому боту «id», бот ответит номером.',
+           reply_markup={'inline_keyboard': [[
+               {'text': '◀ Отмена', 'callback_data': 'cl:menu'}]]})
         return ack() or True
     if data.startswith('cl:add:'):
         if S.role_of(who or ('', '', '')) not in ('manager', 'coo'):
@@ -658,7 +732,9 @@ def on_callback(cq):
         ADD[chat_id] = {'id': data.split(':', 2)[2], 'step': 'name'}
         tg('editMessageText', chat_id=chat_id, message_id=mid,
            text='Добавляем. Как его зовут? Напиши имя — так он будет '
-                'подписан во всех отчётах.')
+                'подписан во всех отчётах.',
+           reply_markup={'inline_keyboard': [[
+               {'text': '◀ Отмена', 'callback_data': 'cl:menu'}]]})
         return ack() or True
     if data.startswith('cl:ap:') and chat_id in ADD:
         p = data.split(':', 2)[2]
@@ -676,6 +752,7 @@ def on_callback(cq):
         return ack('Нет доступа') or True
 
     if data == 'cl:menu':
+        ADD.pop(chat_id, None)
         tg('editMessageText', chat_id=chat_id, message_id=mid, parse_mode='HTML',
            text=f'<b>{who[0]}</b>\n{S.point_label(who[1])}\nЧто делаем?',
            reply_markup=menu_kb(S.role_of(who)))
@@ -728,11 +805,21 @@ def on_callback(cq):
         return ack() or True
 
     st = STATE.get(chat_id)
+
+    # «Назад» нужен как раз на шагах-вопросах, поэтому стоит ДО проверки стадии
+    if data == 'cl:back':
+        if not st:
+            return ack('Заполнение уже закрыто') or True
+        step_back(chat_id, st)
+        return ack() or True
+
     if not st or st['stage'] not in ('blocks',):
         if data == 'cl:note' and st:
             st['note_return'] = st['stage']; st['stage'] = 'note'
             say(chat_id, '💬 <b>Что добавить в регламент или что сделать?</b>\n\n'
-                         'Пиши целой фразой, чтобы через неделю было понятно.')
+                         'Пиши целой фразой, чтобы через неделю было понятно.',
+                reply_markup={'inline_keyboard': [[
+                    {'text': '◀ Назад', 'callback_data': 'cl:back'}]]})
             return ack() or True
         return ack('Начни заново: напиши «чек-лист»') or True
 
@@ -741,7 +828,9 @@ def on_callback(cq):
         say(chat_id, '💬 <b>Что добавить в регламент или что сделать?</b>\n\n'
                      'Пиши целой фразой, чтобы через неделю было понятно.\n\n'
                      '<i>Например: «Купить второй термощуп, одного на две станции '
-                     'не хватает»</i>')
+                     'не хватает»</i>',
+            reply_markup={'inline_keyboard': [[
+                {'text': '◀ Назад', 'callback_data': 'cl:back'}]]})
         return ack() or True
 
     if data.startswith('cl:t:'):
@@ -752,6 +841,21 @@ def on_callback(cq):
         tg('editMessageText', chat_id=chat_id, message_id=mid, text=txt,
            parse_mode='HTML', reply_markup=kb)
         return ack('выполнено' if st['marks'][n] else 'НЕ выполнено') or True
+
+    if data == 'cl:prev':
+        if not st:
+            return ack('Заполнение уже закрыто') or True
+        if st['i'] > 0:
+            st['i'] -= 1
+            txt, kb = block_screen(st)
+            tg('editMessageText', chat_id=chat_id, message_id=mid, text=txt,
+               parse_mode='HTML', reply_markup=kb)
+        else:
+            STATE.pop(chat_id, None)
+            tg('editMessageText', chat_id=chat_id, message_id=mid, parse_mode='HTML',
+               text=f'<b>{who[0]}</b>\n{S.point_label(who[1])}\nЧто делаем?',
+               reply_markup=menu_kb(S.role_of(who)))
+        return ack() or True
 
     if data == 'cl:next':
         cl = C.checklists()[st['kind']]
