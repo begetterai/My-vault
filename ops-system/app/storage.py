@@ -188,5 +188,19 @@ def save_check(key, line, name, verdict, text=''):
           text if verdict != 'ok' else '']])
 
 
+def add_member(chat_id, name, point, role):
+    """Строка в «Команду». Повторный вызов обновляет, а не дублирует."""
+    rows = get(C.TABS['team'], 'A2:E200')
+    for i, r in enumerate(rows):
+        if r and str(r[0]).strip() == str(chat_id):
+            put(C.TABS['team'], f'A{i + 2}:E{i + 2}',
+                [[str(chat_id), name, point, role, 'да']])
+            break
+    else:
+        append(C.TABS['team'], [[str(chat_id), name, point, role, 'да']])
+    team(force=True)
+    return True
+
+
 def save_note(day, who, point, source, text):
     append(C.TABS['ideas'], [[day, who, point, source, text, 'Новая', '']])

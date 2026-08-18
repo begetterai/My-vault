@@ -97,6 +97,8 @@ def menu_kb(role):
     kb.append([{'text': {'staff': '📋 Мои последние',
                          'manager': '📋 История точки'}.get(role, '📋 История — все точки'),
                 'callback_data': 'cl:h:' + {'staff': 'me', 'manager': 'point'}.get(role, 'all')}])
+    if role in ('manager', 'coo'):
+        kb.append([{'text': '➕ Добавить человека', 'callback_data': 'cl:addnew'}])
     if role == 'coo':
         kb.append([{'text': '💬 Идеи и задачи', 'callback_data': 'cl:h:ideas'}])
     kb.append([{'text': '✖️ Закрыть', 'callback_data': 'cl:cancel'}])
@@ -285,22 +287,50 @@ def full_name(u):
         or (u.get('username') or 'без имени')
 
 
+ROLES = ['Управляющий', 'Бариста', 'Кассир', 'Повар', 'Старший повар',
+         'Уборщица', 'Закупщик']
+ADD = {}            # chat_id руководителя → кого добавляем
+
+
 def unknown(chat_id, u):
-    """Человека нет в «Команде»: показываем ему его id и зовём руководителя."""
+    """Человека нет в «Команде»: ему — его id, руководителю — кнопку «Добавить»."""
     name = full_name(u)
     tag = ('@' + u['username']) if u.get('username') else '—'
     say(chat_id, 'Тебя ещё нет в системе.\n\n'
                  f'<b>Твой ID: <code>{chat_id}</code></b>\n\n'
-                 'Нажми на номер — он скопируется. Отправь его руководителю, '
-                 'он добавит тебя, и меню появится.')
+                 'Руководителю уже ушёл запрос. Как добавит — напиши «меню».')
     if chat_id not in _SEEN:
         _SEEN.add(chat_id)
-        admin('👤 <b>Просится в систему</b>\n'
-              f'Имя в телеграме: {name} · {tag}\n'
-              f'ID: <code>{chat_id}</code>\n\n'
-              'Добавь строкой в лист «Команда»:\n'
-              f'<code>{chat_id}</code> · Имя · Точка · Роль · да')
+        say(C.ADMIN_CHAT or chat_id,
+            '👤 <b>Просится в систему</b>\n'
+            f'{name} · {tag}\nID: <code>{chat_id}</code>',
+            reply_markup={'inline_keyboard': [[
+                {'text': f'➕ Добавить {name}', 'callback_data': f'cl:add:{chat_id}'}]]})
     return True
+
+
+def add_ask_point(boss, add):
+    pts = S.points()
+    kb = [[{'text': p, 'callback_data': f'cl:ap:{p}'}] for p in pts]
+    kb.append([{'text': '✏️ Другая точка', 'callback_data': 'cl:ap:'}])
+    say(boss, f'Точка для <b>{add["name"]}</b>?',
+        reply_markup={'inline_keyboard': kb})
+
+
+def add_ask_role(boss, add):
+    kb = [[{'text': r, 'callback_data': f'cl:ar:{r}'}] for r in ROLES]
+    say(boss, f'Роль <b>{add["name"]}</b> на точке {add["point"]}?\n\n'
+              'От роли зависит меню: управляющий видит историю точки '
+              'и подтверждает заполнения, остальные — только свои.',
+        reply_markup={'inline_keyboard': kb})
+
+
+def add_done(boss, add):
+    S.add_member(add['id'], add['name'], add['point'], add['role'])
+    say(boss, f'✅ Добавил.\n<b>{add["name"]}</b> · {add["point"]} · {add["role"]}\n\n'
+              'Пусть напишет боту «меню» — увидит своё.')
+    say(add['id'], f'Готово. Ты в системе: <b>{add["point"]}</b> · {add["role"]}.\n'
+                   'Напиши «меню» — покажу, что делать.')
 
 
 # ── входные точки ────────────────────────────────────────────────────────────
@@ -312,6 +342,29 @@ def on_message(msg):
 
     if low in ('/id', 'id', 'мой id'):
         say(chat_id, f'Твой ID: <code>{chat_id}</code>')
+        return True
+
+    add = ADD.get(chat_id)
+    if add and not st:
+        if low in CANCEL:
+            ADD.pop(chat_id, None)
+            say(chat_id, 'Отменил, никого не добавил.')
+        elif add['step'] == 'id':
+            if not t.strip().lstrip('-').isdigit():
+                say(chat_id, 'ID — это только цифры. Пришли номер или «отмена».')
+                return True
+            add['id'], add['step'] = t.strip(), 'name'
+            say(chat_id, 'Как его зовут? Так он будет подписан во всех отчётах.')
+        elif add['step'] == 'name':
+            add['name'], add['step'] = t[:60], 'point'
+            add_ask_point(chat_id, add)
+        elif add['step'] == 'point':
+            add['point'], add['step'] = t[:40], 'role'
+            add_ask_role(chat_id, add)
+        elif add['step'] == 'role':
+            add['role'] = t[:40]
+            ADD.pop(chat_id, None)
+            add_done(chat_id, add)
         return True
 
     if chat_id in CHECK and not st:
@@ -426,6 +479,35 @@ def on_callback(cq):
         return ack() or True
     if data == 'cl:need':
         return ack('Сначала отметь все пункты блока') or True
+
+    if data == 'cl:addnew':
+        if S.role_of(who or ('', '', '')) not in ('manager', 'coo'):
+            return ack('Добавляет только руководитель') or True
+        ADD[chat_id] = {'step': 'id'}
+        tg('editMessageText', chat_id=chat_id, message_id=mid,
+           text='Пришли ID человека. Чтобы его узнать — пусть напишет '
+                'этому боту «id», бот ответит номером.')
+        return ack() or True
+    if data.startswith('cl:add:'):
+        if S.role_of(who or ('', '', '')) not in ('manager', 'coo'):
+            return ack('Добавляет только руководитель') or True
+        ADD[chat_id] = {'id': data.split(':', 2)[2], 'step': 'name'}
+        tg('editMessageText', chat_id=chat_id, message_id=mid,
+           text='Добавляем. Как его зовут? Напиши имя — так он будет '
+                'подписан во всех отчётах.')
+        return ack() or True
+    if data.startswith('cl:ap:') and chat_id in ADD:
+        p = data.split(':', 2)[2]
+        if not p:
+            return ack('Напиши название точки текстом') or True
+        ADD[chat_id]['point'], ADD[chat_id]['step'] = p, 'role'
+        add_ask_role(chat_id, ADD[chat_id])
+        return ack() or True
+    if data.startswith('cl:ar:') and chat_id in ADD:
+        ADD[chat_id]['role'] = data.split(':', 2)[2]
+        add_done(chat_id, ADD.pop(chat_id))
+        return ack() or True
+
     if not who:
         return ack('Нет доступа') or True
 
