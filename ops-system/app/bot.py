@@ -17,10 +17,18 @@ CANCEL = ('отмена', 'стоп', '/отмена')
 
 
 def tg(method, **kw):
+    """Вызов телеграма.
+
+    Долгий опрос (getUpdates) держит соединение до kw['timeout'] секунд,
+    поэтому ждать ответ надо ЗАВЕДОМО дольше — иначе связь рвётся раньше,
+    чем приходит ответ, и бот молчит.
+    """
+    wait = int(kw.get('timeout', 0)) + 20
     try:
-        return requests.post(f'{API}{C.BOT_TOKEN}/{method}', json=kw, timeout=25).json()
-    except Exception:
-        return {'ok': False}
+        return requests.post(f'{API}{C.BOT_TOKEN}/{method}',
+                             json=kw, timeout=wait).json()
+    except Exception as e:
+        return {'ok': False, 'description': f'{type(e).__name__}: {e}'}
 
 
 def say(chat_id, text, **kw):
