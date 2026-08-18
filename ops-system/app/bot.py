@@ -276,12 +276,43 @@ def final_report(kind, line, verdict, checker, note=''):
     admin('\n'.join(L))
 
 
+# ── подключение человека ─────────────────────────────────────────────────────
+_SEEN = set()               # кому уже сказали id — не спамим руководителю
+
+
+def full_name(u):
+    return ' '.join(x for x in (u.get('first_name'), u.get('last_name')) if x) \
+        or (u.get('username') or 'без имени')
+
+
+def unknown(chat_id, u):
+    """Человека нет в «Команде»: показываем ему его id и зовём руководителя."""
+    name = full_name(u)
+    tag = ('@' + u['username']) if u.get('username') else '—'
+    say(chat_id, 'Тебя ещё нет в системе.\n\n'
+                 f'<b>Твой ID: <code>{chat_id}</code></b>\n\n'
+                 'Нажми на номер — он скопируется. Отправь его руководителю, '
+                 'он добавит тебя, и меню появится.')
+    if chat_id not in _SEEN:
+        _SEEN.add(chat_id)
+        admin('👤 <b>Просится в систему</b>\n'
+              f'Имя в телеграме: {name} · {tag}\n'
+              f'ID: <code>{chat_id}</code>\n\n'
+              'Добавь строкой в лист «Команда»:\n'
+              f'<code>{chat_id}</code> · Имя · Точка · Роль · да')
+    return True
+
+
 # ── входные точки ────────────────────────────────────────────────────────────
 def on_message(msg):
     chat_id = str(msg.get('chat', {}).get('id', ''))
     t = (msg.get('text') or '').strip()
     low = t.lower().replace('ё', 'е')
     st = STATE.get(chat_id)
+
+    if low in ('/id', 'id', 'мой id'):
+        say(chat_id, f'Твой ID: <code>{chat_id}</code>')
+        return True
 
     if chat_id in CHECK and not st:
         kind, line, name = CHECK.pop(chat_id)
@@ -303,8 +334,7 @@ def on_message(msg):
             return False
         who = S.team().get(chat_id)
         if not who:
-            say(chat_id, 'Тебя нет в списке заполняющих. Обратись к управляющему.')
-            return True
+            return unknown(chat_id, msg.get('from') or {})
         say(chat_id, f'<b>{who[0]}</b> · {who[1]}\nЧто делаем?',
             reply_markup=menu_kb(S.role_of(who)))
         return True

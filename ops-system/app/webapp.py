@@ -131,10 +131,19 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(500, {'error': str(e)})
         if p.path == '/api/init':
             init = urllib.parse.parse_qs(p.query).get('initData', [''])[0]
-            _, who = _who(init)
+            u = check_init_data(init, C.BOT_TOKEN)
+            if not u:
+                return self._send(403, {'error': 'Открой страницу через бота — '
+                                                 'иначе телеграм не подтверждает, кто ты.'})
+            cid = str(u.get('id', ''))
+            who = S.team().get(cid)
             if not who:
-                return self._send(403, {'error': 'Тебя нет в списке заполняющих. '
-                                                 'Обратись к управляющему.'})
+                try:
+                    BOT.unknown(cid, u)
+                except Exception:
+                    pass
+                return self._send(403, {'error': 'Тебя ещё нет в системе.',
+                                        'chat_id': cid})
             return self._send(200, init_payload(who))
         self._send(404, {'error': 'not found'})
 

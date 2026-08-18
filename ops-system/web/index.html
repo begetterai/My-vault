@@ -62,7 +62,7 @@
         color:var(--bg);font-size:17px;font-weight:700;cursor:pointer}
   .send[disabled]{opacity:.4}
   .msg{padding:12px;border-radius:12px;border:1px solid var(--line);
-       background:var(--card);margin:12px 0;font-size:14px}
+       background:var(--card);margin:12px 0;font-size:14px;white-space:pre-line}
   .note{width:100%;padding:14px;border:1px solid var(--line);border-radius:12px;
         background:transparent;font-weight:600;margin-top:8px;cursor:pointer}
   .done{text-align:center;padding:40px 20px}
@@ -112,7 +112,12 @@ async function boot(){
   try{
     const r = await fetch('/api/init?initData=' + encodeURIComponent(initData));
     const j = await r.json();
-    if(!r.ok){ $('#who').textContent = 'Нет доступа'; return fail(j.error || ''); }
+    if(!r.ok){
+      $('#who').textContent = 'Нет доступа';
+      return fail((j.error || '') + (j.chat_id
+        ? '\n\nТвой ID: ' + j.chat_id + '\nПередай его руководителю — он добавит тебя.'
+        : ''));
+    }
     DATA = j;
     $('#who').textContent = j.name + ' · ' + j.point;
     document.title = (j.company || '') + ' — чек-лист';
