@@ -3,7 +3,7 @@
 
 Всё, что бот знает о компании, приходит из конфига и листа «Команда».
 """
-import datetime, random, requests
+import datetime, random, re, requests
 
 from . import config as C
 from . import storage as S
@@ -38,6 +38,53 @@ def say(chat_id, text, **kw):
 def admin(text):
     if C.ADMIN_CHAT:
         say(C.ADMIN_CHAT, text)
+
+
+# ── проверки ввода ───────────────────────────────────────────────────────────
+TIME_RE = re.compile(r'^([01]?\d|2[0-3])[:.\s]?([0-5]\d)$')
+
+
+def parse_time(t):
+    """«10:00», «10.00», «1000», «9:5» → «10:00» либо None."""
+    m = TIME_RE.match(str(t).strip())
+    return f'{int(m.group(1)):02d}:{m.group(2)}' if m else None
+
+
+def parse_measure(t, m):
+    """Число в границах ввода → (значение, ошибка)."""
+    try:
+        v = float(str(t).strip().replace(',', '.').replace('−', '-'))
+    except ValueError:
+        return None, 'Нужно число. Например: 4 или -19'
+    lo, hi = m.get('min'), m.get('max')
+    if lo is not None and v < lo or hi is not None and v > hi:
+        return None, f'Значение вне допустимого: от {lo} до {hi} {m.get("unit", "")}'
+    return v, None
+
+
+def out_of_norm(v, m):
+    """Число принято, но вне нормы — это сигнал, а не ошибка ввода."""
+    lo, hi = m.get('ok_min'), m.get('ok_max')
+    if lo is None and hi is None:
+        return False
+    return (lo is not None and v < lo) or (hi is not None and v > hi)
+
+
+def norm_alerts(kind, measured):
+    """[(вопрос, значение, норма)] по всем замерам вне нормы."""
+    ms = C.checklists()[kind]['measures']
+    out = []
+    for n, val in measured.items():
+        m = ms.get(n)
+        if not m:
+            continue
+        try:
+            v = float(str(val).replace(',', '.'))
+        except ValueError:
+            continue
+        if out_of_norm(v, m):
+            out.append((m['q'], val, m['norm'], m.get('unit', '')))
+    return out
 
 
 # ── экраны ───────────────────────────────────────────────────────────────────
@@ -182,10 +229,51 @@ def notify_check(st, ok, tot, fails, line, comment, fast):
     kb = {'inline_keyboard': [[
         {'text': '✅ Проверил', 'callback_data': f'cl:ck:ok:{st["kind"]}:{line}'},
         {'text': '⚠️ Расхождение', 'callback_data': f'cl:ck:bad:{st["kind"]}:{line}'}]]}
+    sent = set()
     for cid in S.managers_of(st['point']):
         say(cid, txt, reply_markup=kb)
-    if fails or fast:
+        sent.add(str(cid))
+    if (fails or fast) and str(C.ADMIN_CHAT) not in sent:
         admin(txt)
+
+
+def final_report(kind, line, verdict, checker, note=''):
+    """Оба круга пройдены — COO получает итог. Это конец цикла по заполнению."""
+    cl = C.checklists()[kind]
+    rows = S.get(cl['tab'], f'A{line}:P{line}')
+    if not rows:
+        return
+    r = rows[0] + [''] * (16 - len(rows[0]))
+    mark = '✅ подтверждено' if verdict == 'ok' else '⚠️ расхождение'
+    L = [f'📋 <b>Итог: {cl["title"].lower()} · {r[1]} · {r[0]}</b>', '',
+         f'Заполнил: {r[2]} в {r[3]}, время открытия {r[4]}',
+         f'Выполнено: <b>{r[5]} из {r[6]}</b> ({r[7]})',
+         f'Заняло: {r[12]} мин']
+    if r[8] and r[8] != '—':
+        nm = {n: t for n, _, t in C.flat(kind)}
+        nums = [x.strip() for x in str(r[8]).split(',') if x.strip().isdigit()]
+        L.append('')
+        L.append('<b>Не выполнено:</b>')
+        L += [f'   ❌ {n}. {nm.get(int(n), "")}' for n in nums[:10]]
+        if len(nums) > 10:
+            L.append(f'   … и ещё {len(nums) - 10}')
+    if r[9]:
+        L.append(f'💬 {r[9]}')
+    if r[10]:
+        L.append('')
+        L.append(f'<b>Замеры:</b> {r[10]}')
+        bad = norm_alerts(kind, {n: v.split(':')[-1].strip()
+                                 for n, v in zip(cl['measures'],
+                                                 str(r[10]).split(';'))})
+        for q, val, norm, unit in bad:
+            L.append(f'   ⚠️ {q}: {val} при норме {norm} {unit}')
+    if r[11]:
+        L.append(f'📷 фото: {len(str(r[11]).split())}')
+    L.append('')
+    L.append(f'<b>Проверка управляющим: {mark}</b> — {checker}')
+    if note:
+        L.append(f'   {note}')
+    admin('\n'.join(L))
 
 
 # ── входные точки ────────────────────────────────────────────────────────────
@@ -199,7 +287,10 @@ def on_message(msg):
         kind, line, name = CHECK.pop(chat_id)
         S.save_check(kind, line, name, 'bad', t[:300])
         say(chat_id, 'Записал расхождение.')
-        admin(f'⚠️ <b>Расхождение при проверке</b> · {name}\n{t[:300]}')
+        try:
+            final_report(kind, line, 'bad', name, t[:300])
+        except Exception as e:
+            print('итоговый отчёт:', e)
         return True
 
     if st and low in CANCEL:
@@ -234,12 +325,21 @@ def on_message(msg):
         return True
 
     if stage == 'measure':
-        try:
-            float(t.replace(',', '.').replace('−', '-'))
-        except ValueError:
-            say(chat_id, 'Нужно число. Например: 4 или -19')
+        n = st['measures_left'][0]
+        m = C.checklists()[st['kind']]['measures'][n]
+        v, err = parse_measure(t, m)
+        if err:
+            say(chat_id, err)
             return True
-        st['measured'][st['measures_left'].pop(0)] = t[:20]
+        st['measured'][st['measures_left'].pop(0)] = t.strip()[:20]
+        if out_of_norm(v, m):
+            say(chat_id, f'⚠️ <b>{v} {m.get("unit", "")} — вне нормы</b> '
+                         f'({m["norm"]} {m.get("unit", "")}).\n'
+                         f'Запишу как есть. Если это не ошибка ввода — '
+                         f'сообщи управляющему сейчас, не жди конца смены.')
+            admin(f'🌡 <b>Замер вне нормы</b> · {st["point"]} · {st["who"]}\n'
+                  f'{m["q"]}: <b>{v} {m.get("unit", "")}</b> '
+                  f'при норме {m["norm"]}')
         ask_next(chat_id, st)
         return True
 
@@ -264,7 +364,11 @@ def on_message(msg):
         return True
 
     if stage == 'time':
-        st['time'] = t[:20]
+        hhmm = parse_time(t)
+        if not hhmm:
+            say(chat_id, 'Нужно время в формате <b>ЧЧ:ММ</b> — например 10:00')
+            return True
+        st['time'] = hhmm
         ask_next(chat_id, st)
         return True
 
@@ -315,6 +419,10 @@ def on_callback(cq):
             S.save_check(kind, line, who[0], 'ok')
             tg('editMessageText', chat_id=chat_id, message_id=mid,
                text=cq['message'].get('text', '') + f'\n\n✅ Проверил: {who[0]}')
+            try:
+                final_report(kind, line, 'ok', who[0])
+            except Exception as e:
+                print('итоговый отчёт:', e)
             return ack('Записал') or True
         CHECK[chat_id] = (kind, line, who[0])
         say(chat_id, 'Напиши, что именно не сошлось.')

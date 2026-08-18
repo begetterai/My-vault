@@ -48,7 +48,9 @@ def init_payload(who):
             'blocks': [{'name': b['name'], 'items': [
                 {'n': it['n'], 'text': it['text'], 'norm': it.get('norm', '')}
                 for it in b['items']]} for b in cl['blocks']],
-            'measures': [{'n': n, 'q': m['q'], 'norm': m['norm'], 'unit': m['unit']}
+            'measures': [{'n': n, 'q': m['q'], 'norm': m['norm'], 'unit': m['unit'],
+                          'min': m.get('min'), 'max': m.get('max'),
+                          'ok_min': m.get('ok_min'), 'ok_max': m.get('ok_max')}
                          for n, m in cl['measures'].items()],
             'photos': [{'n': n, 'text': t} for n, t in photos[:C.PHOTOS_PER_RUN]],
         }
@@ -63,20 +65,33 @@ def submit(who, body):
     marks = {int(k): bool(v) for k, v in (body.get('marks') or {}).items()}
     if len(marks) < C.total(kind):
         return {'ok': False, 'error': 'отмечены не все пункты'}
-    measured = {int(k): str(v)[:20] for k, v in (body.get('measures') or {}).items()}
+    measured = {}
+    for k, v in (body.get('measures') or {}).items():
+        m = C.checklists()[kind]['measures'].get(int(k))
+        if not m:
+            continue
+        val, err = BOT.parse_measure(v, m)
+        if err:
+            return {'ok': False, 'error': f'{m["q"]}: {err}'}
+        measured[int(k)] = str(v).strip()[:20]
+    hhmm = BOT.parse_time(body.get('time', ''))
+    if not hhmm:
+        return {'ok': False, 'error': 'Время нужно в формате ЧЧ:ММ'}
     photos = [S.save_photo_data_url(p.get('data', ''),
                                     f'{who[1]}-{day}-п{p.get("n")}')
               or f'п{p.get("n")}:есть' for p in (body.get('photos') or [])]
     sec = float(body.get('seconds') or 0)
     comment = str(body.get('comment', ''))[:300]
     ok, tot, fails, line = S.save_fill(
-        kind, day, who[1], who[0], marks, measured, photos,
-        str(body.get('time', ''))[:20], comment, sec)
+        kind, day, who[1], who[0], marks, measured, photos, hhmm, comment, sec)
     st = {'kind': kind, 'day': day, 'point': who[1], 'who': who[0]}
     try:
         BOT.notify_check(st, ok, tot, fails, line, comment, sec < C.MIN_SECONDS)
     except Exception:
         pass
+    for q, val, norm, unit in BOT.norm_alerts(kind, measured):
+        BOT.admin(f'🌡 <b>Замер вне нормы</b> · {who[1]} · {who[0]}\n'
+                  f'{q}: <b>{val} {unit}</b> при норме {norm}')
     return {'ok': True, 'done': ok, 'total': tot,
             'minutes': round(sec / 60, 1), 'fast': sec < C.MIN_SECONDS}
 

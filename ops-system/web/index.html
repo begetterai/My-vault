@@ -50,6 +50,7 @@
       background:var(--card);color:var(--fg);font:inherit}
   textarea{min-height:88px;resize:vertical}
   .hint{color:var(--muted);font-size:13px;margin-top:4px}
+  .hint.bad{color:var(--bad);font-weight:600}
   .photo{border:1px dashed var(--line);border-radius:14px;padding:14px;
          background:var(--card);margin-bottom:10px}
   .photo img{width:100%;border-radius:10px;margin-top:10px;display:block}
@@ -147,10 +148,33 @@ function start(k){
     const h = document.createElement('h2'); h.textContent = 'Замеры'; f.appendChild(h);
     L.measures.forEach(m => {
       const w = document.createElement('div');
+      const lim = (m.min != null ? ' min="' + m.min + '"' : '')
+                + (m.max != null ? ' max="' + m.max + '"' : '');
       w.innerHTML = '<label>' + m.q + '</label>' +
-        '<input type="number" step="any" inputmode="decimal" id="m' + m.n + '">' +
-        '<div class="hint">Норма: ' + m.norm + ' ' + m.unit + '</div>';
-      w.querySelector('input').oninput = e => { measures[m.n] = e.target.value; paint(); };
+        '<input type="number" step="any" inputmode="decimal" id="m' + m.n + '"' + lim + '>' +
+        '<div class="hint" id="h' + m.n + '">Норма: ' + m.norm + ' ' + m.unit
+        + (m.min != null ? ' · ввод от ' + m.min + ' до ' + m.max : '') + '</div>';
+      const inp = w.querySelector('input'), hint = w.querySelector('.hint');
+      inp.oninput = e => {
+        const raw = e.target.value.trim();
+        const v = parseFloat(raw.replace(',', '.'));
+        measures[m.n] = raw;
+        hint.classList.remove('bad');
+        if (raw === '' || isNaN(v)) {
+          hint.textContent = 'Норма: ' + m.norm + ' ' + m.unit;
+        } else if ((m.min != null && v < m.min) || (m.max != null && v > m.max)) {
+          hint.textContent = 'Так не бывает. Допустимо от ' + m.min + ' до ' + m.max;
+          hint.classList.add('bad');
+          measures[m.n] = '';
+        } else if ((m.ok_min != null && v < m.ok_min) || (m.ok_max != null && v > m.ok_max)) {
+          hint.textContent = '⚠️ ' + v + ' ' + m.unit + ' — вне нормы (' + m.norm
+            + '). Запишем как есть, управляющему уйдёт сигнал.';
+          hint.classList.add('bad');
+        } else {
+          hint.textContent = 'Норма: ' + m.norm + ' ' + m.unit + ' — в норме';
+        }
+        paint();
+      };
       f.appendChild(w);
     });
   }
@@ -163,7 +187,7 @@ function start(k){
   const h = document.createElement('h2'); h.textContent = 'Итог'; f.appendChild(h);
   const t = document.createElement('div');
   t.innerHTML = '<label>' + L.ask_time + '</label>' +
-    '<input type="text" id="time" inputmode="numeric" placeholder="10:00">' +
+    '<input type="time" id="time" step="60">' +
     '<label>Комментарий по невыполненным</label>' +
     '<textarea id="comment" placeholder="Что не так и что с этим делаешь"></textarea>' +
     '<div class="hint" id="chint"></div>';
@@ -253,7 +277,7 @@ function paint(){
   const needC = fails > 0;
   const okM = L.measures.every(m => (measures[m.n] ?? '') !== '');
   const okP = L.photos.every(p => photos[p.n]);
-  const okT = ($('#time')?.value || '').trim().length >= 3;
+  const okT = /^\d{1,2}:\d{2}$/.test(($('#time')?.value || '').trim());
   const okC = !needC || ($('#comment')?.value || '').trim().length > 2;
   if($('#chint')) $('#chint').textContent = needC
     ? 'Не выполнено пунктов: ' + fails + ' — комментарий обязателен'
