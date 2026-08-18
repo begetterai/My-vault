@@ -3,12 +3,13 @@
 
 Личность приходит от телеграма подписанной — паролей нет, подделать нельзя.
 """
-import os, json, hmac, hashlib, random, time, datetime, threading, urllib.parse
+import os, json, hmac, hashlib, base64, random, time, datetime, threading, urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from . import config as C
 from . import storage as S
 from . import bot as BOT
+from . import vision as V
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PAGE = os.path.join(HERE, 'web', 'index.html')
@@ -81,9 +82,17 @@ def submit(who, body):
     hhmm = BOT.parse_time(body.get('time', ''))
     if not hhmm:
         return {'ok': False, 'error': 'Время нужно в формате ЧЧ:ММ'}
-    photos = [S.save_photo_data_url(p.get('data', ''),
-                                    f'{who[1]}-{day}-п{p.get("n")}')
-              or f'п{p.get("n")}:есть' for p in (body.get('photos') or [])]
+    photos, shots = [], []
+    for ph in (body.get('photos') or []):
+        raw = b''
+        try:
+            raw = base64.b64decode(str(ph.get('data', '')).split(',', 1)[1])
+        except Exception:
+            pass
+        n = ph.get('n')
+        photos.append(S.save_photo(raw, f'{who[1]}-{day}-п{n}') if raw else f'п{n}:есть')
+        if raw:
+            shots.append((int(n), raw))
     sec = float(body.get('seconds') or 0)
     comment = str(body.get('comment', ''))[:300]
     dup = S.already_filled(kind, day, who[1])
@@ -95,6 +104,8 @@ def submit(who, body):
                          sec < C.MIN_SECONDS, bool(dup))
     except Exception:
         pass
+    if V.enabled():
+        V.review_async(kind, line, who[1], who[0], shots)
     for q, val, norm, unit in BOT.norm_alerts(kind, measured):
         BOT.admin(f'🌡 <b>Замер вне нормы</b> · {who[1]} · {who[0]}\n'
                   f'{q}: <b>{val} {unit}</b> при норме {norm}')

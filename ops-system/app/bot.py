@@ -246,6 +246,9 @@ def finish(chat_id, st):
         say(chat_id, f'♻️ Сегодня этот чек-лист уже заполнял {dup}. '
                      'Записал обе версии, управляющий увидит.')
     notify_check(st, ok, tot, fails, line, st.get('comment', ''), fast, bool(dup))
+    from . import vision as V
+    if V.enabled() and st.get('shots'):
+        V.review_async(st['kind'], line, st['point'], st['who'], st['shots'])
 
 
 def full_list(kind, fails):
@@ -520,6 +523,7 @@ def on_message(msg):
                     f'https://api.telegram.org/file/bot{C.BOT_TOKEN}/{path}',
                     timeout=60).content
                 link = S.save_photo(raw, f'{st["point"]}-{st["day"]}-п{n}')
+                st.setdefault('shots', []).append((n, raw))
         except Exception:
             pass
         st['photos_done'].append(link or f'п{n}:есть')
