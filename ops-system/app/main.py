@@ -32,6 +32,14 @@ def main():
                      R.day_block(datetime.date.today() - datetime.timedelta(days=1))))
         return
 
+    try:
+        name, title = BOT.whoami()
+        print(f'бот: @{name} ({title})')
+    except Exception as e:
+        print('ОШИБКА: ' + str(e))
+        print('Проверь переменную BOT_TOKEN — она пустая, с опечаткой или отозвана.')
+        sys.exit(1)
+
     print(f'{C.COMPANY}: готовлю таблицу…')
     print('листы:', ', '.join(S.ensure_structure()))
     _, port = W.serve_in_background()

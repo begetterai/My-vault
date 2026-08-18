@@ -375,12 +375,31 @@ def on_callback(cq):
     return False
 
 
+def whoami():
+    """Спрашиваем у телеграма, кто мы. Молчащий бот — почти всегда плохой токен."""
+    r = tg('getMe')
+    if not r.get('ok'):
+        raise RuntimeError('Телеграм отклонил токен: '
+                           + str(r.get('description') or r))
+    u = r['result']
+    return u.get('username'), u.get('first_name')
+
+
 def poll():
     offset = 0
+    bad = 0
     while True:
         try:
             r = tg('getUpdates', offset=offset, timeout=25,
                    allowed_updates=['message', 'callback_query'])
+            if not r.get('ok'):
+                bad += 1
+                if bad in (1, 10, 100):      # не засоряем лог каждые 25 секунд
+                    print('телеграм не отвечает:', r.get('description') or r)
+                import time
+                time.sleep(3)
+                continue
+            bad = 0
             for upd in r.get('result') or []:
                 offset = upd['update_id'] + 1
                 try:
