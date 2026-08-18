@@ -10,6 +10,8 @@ from . import config as C
 from . import storage as S
 from . import bot as BOT
 from . import vision as V
+from . import forms as F
+from . import score as SC
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PAGE = os.path.join(HERE, 'web', 'index.html')
@@ -49,6 +51,19 @@ def init_payload(who):
     out = {'company': C.COMPANY, 'name': who[0], 'point': who[1],
            'point_label': S.point_label(who[1]), 'points': pts,
            'role': role, 'day': C.day_str(), 'lists': {}}
+    out['journals'] = [{'key': k, 'title': cl['title'], 'code': cl['code'],
+                        'icon': cl.get('icon', '📌'), 'fields': cl.get('fields', [])}
+                       for k, cl in C.visible(role, 'journal').items()]
+    out['forms'] = [{'key': k, 'title': cl['title'], 'code': cl['code'],
+                     'icon': cl.get('icon', '📋'),
+                     'columns': cl.get('columns', []),
+                     'photo_required': bool(cl.get('photo_required'))}
+                    for k, cl in C.visible(role, 'form').items()]
+    out['shift'] = shift_state(who)
+    try:
+        out['score'] = SC.card(who[0], who[1])
+    except Exception:
+        out['score'] = None
     for key, cl in C.for_role(role).items():
         photos = C.photo_items(key)
         random.shuffle(photos)
@@ -65,6 +80,120 @@ def init_payload(who):
             'photos': [{'n': n, 'text': t} for n, t in photos[:C.PHOTOS_PER_RUN]],
         }
     return out
+
+
+def shift_state(who):
+    """Что с явкой сегодня: отмечен приход, отмечен уход."""
+    try:
+        found = F.shift_row(C.day_str(), who[1], who[0])
+    except Exception:
+        return {'in': '', 'out': ''}
+    if not found:
+        return {'in': '', 'out': ''}
+    r = found[1]
+    return {'in': r[3], 'out': r[4], 'hours': r[5], 'late': r[6]}
+
+
+def shift(who, body):
+    d = 'out' if body.get('direction') == 'out' else 'in'
+    lat, lon = body.get('lat'), body.get('lon')
+    msg, flag, line = F.mark_shift(d, C.day_str(), who[1], who[0], lat, lon,
+                                   plan=body.get('plan'))
+    if d == 'in':
+        SC.add(who[1], who[0], 'geo_missing' if lat is None else 'shift_on_time')
+    if flag:
+        txt = f'📍 <b>Явка</b> · {who[1]} · {who[0]}\n' + msg.replace('✅ ', '')
+        for cid in S.managers_of(who[1]):
+            BOT.say(cid, txt)
+    return {'ok': True, 'message': msg, 'shift': shift_state(who)}
+
+
+def journal(who, body):
+    key = body.get('key')
+    cl = C.forms().get(key)
+    if not cl or cl['type'] != 'journal':
+        return {'ok': False, 'error': 'неизвестная форма'}
+    vals = {f['key']: str((body.get('values') or {}).get(f['key'], ''))[:400]
+            for f in cl.get('fields', [])}
+    for f in cl.get('fields', []):
+        if f.get('required') and not vals.get(f['key']):
+            return {'ok': False, 'error': f'Заполни: {f["label"]}'}
+        if f.get('min_words') and len(vals.get(f['key'], '').split()) < f['min_words']:
+            return {'ok': False, 'error': f'«{f["label"]}» — напиши фразой, '
+                                          f'не одним словом'}
+    point = pick_point(who, body)
+    link = ''
+    raw = photo_bytes(body.get('photo'))
+    if raw:
+        link = S.save_photo(raw, f'{point}-{C.day_str()}-{cl["code"]}')
+    line = F.save_journal(key, point, who[0], vals, link,
+                          body.get('lat'), body.get('lon'))
+    SC.add(point, who[0], 'journal', cl['code'])
+    sev = vals.get('severity', '')
+    txt = (f'{cl.get("icon", "📌")} <b>{cl["title"]}</b> · {point} · {who[0]}\n'
+           + '\n'.join(f'<b>{f["label"]}:</b> {vals[f["key"]]}'
+                        for f in cl.get('fields', []) if vals.get(f['key'])))
+    sent = set()
+    for cid in S.managers_of(point):
+        BOT.say(cid, txt)
+        sent.add(str(cid))
+    if (sev in ('Серьёзное', 'Критично') or not sent) \
+            and str(C.ADMIN_CHAT) not in sent:
+        BOT.admin(txt)
+    return {'ok': True, 'line': line}
+
+
+def blank(who, body):
+    key = body.get('key')
+    cl = C.forms().get(key)
+    if not cl or cl['type'] != 'form':
+        return {'ok': False, 'error': 'неизвестная форма'}
+    lines = [ln for ln in (body.get('lines') or [])
+             if str(ln.get('item', '')).strip()]
+    if not lines:
+        return {'ok': False, 'error': 'Добавь хотя бы одну позицию'}
+    if len(lines) > 200:
+        return {'ok': False, 'error': 'Слишком много строк за раз'}
+    point = pick_point(who, body)
+    raw = photo_bytes(body.get('photo'))
+    if cl.get('photo_required') and not raw:
+        return {'ok': False, 'error': 'Нужно фото — без него запись не принимается'}
+    link = S.save_photo(raw, f'{point}-{C.day_str()}-{cl["code"]}') if raw else ''
+    line = F.save_form(key, point, who[0], lines, link,
+                       body.get('lat'), body.get('lon'))
+    total = sum(_num(ln.get('qty')) for ln in lines)
+    txt = (f'{cl.get("icon", "📋")} <b>{cl["title"]}</b> · {point} · {who[0]}\n'
+           f'Позиций: <b>{len(lines)}</b>, всего {round(total, 2)}\n'
+           + '\n'.join(f'   {ln.get("item")} — {ln.get("qty")} {ln.get("unit", "")}'
+                        f' · {ln.get("reason", "")}' for ln in lines[:10]))
+    sent = set()
+    for cid in S.managers_of(point):
+        BOT.say(cid, txt)
+        sent.add(str(cid))
+    if str(C.ADMIN_CHAT) not in sent:
+        BOT.admin(txt)
+    return {'ok': True, 'line': line, 'count': len(lines)}
+
+
+def _num(x):
+    try:
+        return float(str(x).replace(',', '.'))
+    except (ValueError, TypeError):
+        return 0.0
+
+
+def pick_point(who, body):
+    p = str(body.get('point') or '').strip() or who[1]
+    if p != who[1] and S.role_of(who) not in ('manager', 'coo'):
+        return who[1]
+    return p if p in S.points() else who[1]
+
+
+def photo_bytes(data_url):
+    try:
+        return base64.b64decode(str(data_url).split(',', 1)[1])
+    except Exception:
+        return b''
 
 
 def submit(who, body):
@@ -104,14 +233,16 @@ def submit(who, body):
         if raw:
             shots.append((int(n), raw))
     sec = float(body.get('seconds') or 0)
+    tempo = BOT.tempo(body.get('marks_ts') or [])
     comment = str(body.get('comment', ''))[:300]
     dup = S.already_filled(kind, day, point)
     ok, tot, fails, line = S.save_fill(
         kind, day, point, who[0], marks, measured, photos, hhmm, comment, sec)
     st = {'kind': kind, 'day': day, 'point': point, 'who': who[0]}
     try:
-        BOT.notify_check(st, ok, tot, fails, line, comment,
-                         sec < C.MIN_SECONDS, bool(dup))
+        fast = sec < C.MIN_SECONDS or (tempo is not None and tempo < C.MIN_GAP)
+        BOT.notify_check(st, ok, tot, fails, line, comment, fast, bool(dup))
+        BOT.award_fill(st, ok, tot, fails, fast, BOT.is_late(kind))
     except Exception:
         pass
     if V.enabled():
@@ -120,7 +251,8 @@ def submit(who, body):
         BOT.admin(f'🌡 <b>Замер вне нормы</b> · {point} · {who[0]}\n'
                   f'{q}: <b>{val} {unit}</b> при норме {norm}')
     return {'ok': True, 'done': ok, 'total': tot, 'dup': dup,
-            'minutes': round(sec / 60, 1), 'fast': sec < C.MIN_SECONDS}
+            'minutes': round(sec / 60, 1),
+            'fast': sec < C.MIN_SECONDS or (tempo is not None and tempo < C.MIN_GAP)}
 
 
 def note(who, body):
@@ -192,6 +324,12 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, submit(who, body))
             if p == '/api/note':
                 return self._send(200, note(who, body))
+            if p == '/api/shift':
+                return self._send(200, shift(who, body))
+            if p == '/api/journal':
+                return self._send(200, journal(who, body))
+            if p == '/api/form':
+                return self._send(200, blank(who, body))
         except Exception as e:
             return self._send(500, {'ok': False, 'error': str(e)})
         self._send(404, {'error': 'not found'})

@@ -80,6 +80,21 @@ def parse_measure(t, m):
     return v, None
 
 
+def tempo(marks_ts):
+    """Средний интервал между отметками, секунд.
+
+    Общего секундомера мало: можно протыкать все пункты за 20 секунд, а потом
+    пять минут возиться с фото — итоговое время окажется нормальным.
+    Темп отметок показывает именно скорость проставления галочек.
+    """
+    ts = sorted(float(x) for x in marks_ts if x)
+    if len(ts) < 5:
+        return None
+    gaps = [b - a for a, b in zip(ts, ts[1:])]
+    gaps.sort()
+    return round(gaps[len(gaps) // 2], 1)
+
+
 def out_of_norm(v, m):
     """Число принято, но вне нормы — это сигнал, а не ошибка ввода."""
     lo, hi = m.get('ok_min'), m.get('ok_max')
@@ -267,6 +282,10 @@ def finish(chat_id, st):
     if dup:
         say(chat_id, f'♻️ Сегодня этот чек-лист уже заполнял {dup}. '
                      'Записал обе версии, управляющий увидит.')
+    try:
+        award_fill(st, ok, tot, fails, fast, is_late(st['kind']))
+    except Exception as e:
+        print('баллы:', e)
     notify_check(st, ok, tot, fails, line, st.get('comment', ''), fast, bool(dup))
     from . import vision as V
     if V.enabled() and st.get('shots'):
@@ -287,6 +306,26 @@ def full_list(kind, fails):
             L.append(f'{mark} {it["n"]}. {it["text"]}')
         L.append('')
     return '\n'.join(L)
+
+
+def award_fill(st, ok, tot, fails, fast, late):
+    """Баллы за заполнение. За количество ✅ баллов НЕТ — см. score.py."""
+    from . import score as SC
+    point, who = st['point'], st['who']
+    SC.add(point, who, 'fill_late' if late else 'fill_on_time', st['kind'])
+    if fast:
+        SC.add(point, who, 'too_fast', st['kind'])
+    for _ in fails:
+        SC.add(point, who, 'found_issue', st['kind'])
+
+
+def is_late(kind):
+    cl = C.checklists()[kind]
+    if not cl.get('deadline'):
+        return False
+    n = C.now()
+    h, m = cl['deadline'].split(':')
+    return n.hour * 60 + n.minute > int(h) * 60 + int(m)
 
 
 def notify_check(st, ok, tot, fails, line, comment, fast, dup=False):
@@ -325,6 +364,24 @@ def _num(x):
         return float(str(x).replace(',', '.').replace(' ', ''))
     except (ValueError, TypeError):
         return None
+
+
+def _award_check(kind, line, checker, verdict):
+    """Проверяющему — за то, что дошёл. Заполнявшему — за честность.
+
+    Точку берём из самой строки заполнения: проверяющий мог смотреть чужую.
+    """
+    from . import score as SC
+    try:
+        r = S.get(C.checklists()[kind]['tab'], f'A{line}:C{line}')
+        if not r or len(r[0]) < 3:
+            return
+        point, filler = r[0][1], r[0][2]
+        SC.add(point, checker, 'check_done', kind)
+        if filler and filler != checker:
+            SC.add(point, filler, 'confirmed' if verdict == 'ok' else 'mismatch', kind)
+    except Exception as e:
+        print('баллы проверки:', e)
 
 
 def final_report(kind, line, verdict, checker, note=''):
@@ -466,6 +523,7 @@ def on_message(msg):
     if chat_id in CHECK and not st:
         kind, line, name = CHECK.pop(chat_id)
         S.save_check(kind, line, name, 'bad', t[:300])
+        _award_check(kind, line, name, 'bad')
         say(chat_id, 'Записал расхождение.')
         try:
             final_report(kind, line, 'bad', name, t[:300])
@@ -635,6 +693,7 @@ def on_callback(cq):
         _, _, verdict, kind, line = data.split(':')
         if verdict == 'ok':
             S.save_check(kind, line, who[0], 'ok')
+            _award_check(kind, line, who[0], 'ok')
             tg('editMessageText', chat_id=chat_id, message_id=mid,
                text=cq['message'].get('text', '') + f'\n\n✅ Проверил: {who[0]}')
             try:

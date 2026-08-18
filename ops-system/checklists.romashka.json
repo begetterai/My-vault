@@ -233,7 +233,8 @@
           }
         ]
       }
-    ]
+    ],
+    "type": "checklist"
   },
   "close": {
     "title": "Закрытие смены",
@@ -455,7 +456,8 @@
           }
         ]
       }
-    ]
+    ],
+    "type": "checklist"
   },
   "sanit": {
     "title": "Санитарный чек-лист",
@@ -700,7 +702,8 @@
           }
         ]
       }
-    ]
+    ],
+    "type": "checklist"
   },
   "visit": {
     "title": "Визит собственника",
@@ -900,7 +903,8 @@
           }
         ]
       }
-    ]
+    ],
+    "type": "checklist"
   },
   "hire": {
     "title": "Собеседование",
@@ -1050,7 +1054,8 @@
           }
         ]
       }
-    ]
+    ],
+    "type": "checklist"
   },
   "launch": {
     "title": "Открытие точки",
@@ -1222,6 +1227,430 @@
             "photo": false
           }
         ]
+      }
+    ],
+    "type": "checklist"
+  },
+  "shift": {
+    "title": "Смена",
+    "code": "02-LOG-02",
+    "type": "shift",
+    "icon": "⏱",
+    "geo": true,
+    "tab": "Явка"
+  },
+  "incident": {
+    "title": "Происшествие",
+    "code": "03-LOG-01",
+    "type": "journal",
+    "icon": "🚨",
+    "roles": [],
+    "fields": [
+      {
+        "key": "what",
+        "label": "Что случилось",
+        "kind": "text",
+        "required": true,
+        "min_words": 3,
+        "hint": "Одной фразой: что именно произошло"
+      },
+      {
+        "key": "where",
+        "label": "Где",
+        "kind": "choice",
+        "options": [
+          "Зал",
+          "Кухня",
+          "Склад",
+          "Касса",
+          "Санузел",
+          "Улица и вход"
+        ],
+        "required": true
+      },
+      {
+        "key": "details",
+        "label": "Подробности",
+        "kind": "long",
+        "hint": "Кто участвовал, во сколько, при каких обстоятельствах"
+      },
+      {
+        "key": "action",
+        "label": "Что сделали прямо сейчас",
+        "kind": "text",
+        "required": true,
+        "min_words": 3
+      },
+      {
+        "key": "severity",
+        "label": "Насколько серьёзно",
+        "kind": "choice",
+        "options": [
+          "Мелочь",
+          "Заметное",
+          "Серьёзное",
+          "Критично"
+        ],
+        "required": true
+      }
+    ],
+    "photo": true
+  },
+  "breakdown": {
+    "title": "Поломка оборудования",
+    "code": "09-LOG-01",
+    "type": "journal",
+    "icon": "🔧",
+    "roles": [],
+    "fields": [
+      {
+        "key": "what",
+        "label": "Что сломалось",
+        "kind": "text",
+        "required": true,
+        "hint": "Название и место: «Холодильник на кухне, левый»"
+      },
+      {
+        "key": "where",
+        "label": "Где",
+        "kind": "choice",
+        "options": [
+          "Зал",
+          "Кухня",
+          "Склад",
+          "Касса",
+          "Санузел",
+          "Улица и вход"
+        ],
+        "required": true
+      },
+      {
+        "key": "details",
+        "label": "Как проявляется",
+        "kind": "long",
+        "required": true,
+        "min_words": 3,
+        "hint": "Не работает совсем, шумит, не держит температуру"
+      },
+      {
+        "key": "action",
+        "label": "Можно ли работать дальше",
+        "kind": "choice",
+        "required": true,
+        "options": [
+          "Да, работаем",
+          "Работаем с ограничением",
+          "Нет, остановились"
+        ]
+      },
+      {
+        "key": "severity",
+        "label": "Насколько срочно",
+        "kind": "choice",
+        "options": [
+          "Мелочь",
+          "Заметное",
+          "Серьёзное",
+          "Критично"
+        ],
+        "required": true
+      }
+    ],
+    "photo": true
+  },
+  "violation": {
+    "title": "Нарушение",
+    "code": "07-LOG-01",
+    "type": "journal",
+    "icon": "⚖️",
+    "roles": [
+      "manager",
+      "coo"
+    ],
+    "fields": [
+      {
+        "key": "what",
+        "label": "Что нарушено",
+        "kind": "text",
+        "required": true,
+        "min_words": 2,
+        "hint": "Со ссылкой на правило: «Телефон на рабочем месте»"
+      },
+      {
+        "key": "details",
+        "label": "Кто и при каких обстоятельствах",
+        "kind": "long",
+        "required": true,
+        "min_words": 3
+      },
+      {
+        "key": "where",
+        "label": "Где",
+        "kind": "choice",
+        "options": [
+          "Зал",
+          "Кухня",
+          "Склад",
+          "Касса",
+          "Санузел",
+          "Улица и вход"
+        ]
+      },
+      {
+        "key": "action",
+        "label": "Какая мера применена",
+        "kind": "choice",
+        "required": true,
+        "options": [
+          "Устное замечание",
+          "Письменное замечание",
+          "Разбор на планёрке",
+          "По дисциплинарной сетке"
+        ]
+      },
+      {
+        "key": "severity",
+        "label": "Тяжесть",
+        "kind": "choice",
+        "options": [
+          "Мелочь",
+          "Заметное",
+          "Серьёзное",
+          "Критично"
+        ],
+        "required": true
+      }
+    ],
+    "photo": true
+  },
+  "guest": {
+    "title": "Жалоба гостя",
+    "code": "07-LOG-02",
+    "type": "journal",
+    "icon": "🗣",
+    "roles": [],
+    "fields": [
+      {
+        "key": "what",
+        "label": "Суть жалобы",
+        "kind": "text",
+        "required": true,
+        "min_words": 3
+      },
+      {
+        "key": "where",
+        "label": "Где",
+        "kind": "choice",
+        "options": [
+          "Зал",
+          "Кухня",
+          "Склад",
+          "Касса",
+          "Санузел",
+          "Улица и вход"
+        ]
+      },
+      {
+        "key": "details",
+        "label": "Что заказывал гость, во сколько",
+        "kind": "long"
+      },
+      {
+        "key": "action",
+        "label": "Как решили на месте",
+        "kind": "text",
+        "required": true,
+        "min_words": 3,
+        "hint": "Заменили блюдо, вернули деньги, извинились"
+      },
+      {
+        "key": "severity",
+        "label": "Гость ушёл",
+        "kind": "choice",
+        "required": true,
+        "options": [
+          "Довольным",
+          "Нейтрально",
+          "Недовольным",
+          "Скандал"
+        ]
+      }
+    ],
+    "photo": false
+  },
+  "writeoff": {
+    "title": "Списание",
+    "code": "05-FRM-01",
+    "type": "form",
+    "icon": "🗑",
+    "roles": [],
+    "photo_required": true,
+    "columns": [
+      {
+        "key": "item",
+        "label": "Позиция",
+        "kind": "text",
+        "required": true
+      },
+      {
+        "key": "qty",
+        "label": "Кол-во",
+        "kind": "number",
+        "required": true,
+        "min": 0,
+        "max": 100000
+      },
+      {
+        "key": "unit",
+        "label": "Ед.",
+        "kind": "choice",
+        "options": [
+          "кг",
+          "г",
+          "л",
+          "мл",
+          "шт",
+          "упак"
+        ],
+        "required": true
+      },
+      {
+        "key": "reason",
+        "label": "Причина",
+        "kind": "choice",
+        "required": true,
+        "options": [
+          "Просрочка",
+          "Брак поставщика",
+          "Бой",
+          "Порча при хранении",
+          "Ошибка приготовления",
+          "Не продалось"
+        ]
+      },
+      {
+        "key": "note",
+        "label": "Комментарий",
+        "kind": "text"
+      }
+    ]
+  },
+  "delivery": {
+    "title": "Приём поставки",
+    "code": "05-FRM-03",
+    "type": "form",
+    "icon": "📦",
+    "roles": [
+      "manager",
+      "coo"
+    ],
+    "photo_required": true,
+    "columns": [
+      {
+        "key": "item",
+        "label": "Позиция",
+        "kind": "text",
+        "required": true
+      },
+      {
+        "key": "qty",
+        "label": "Принято",
+        "kind": "number",
+        "required": true,
+        "min": 0,
+        "max": 100000
+      },
+      {
+        "key": "unit",
+        "label": "Ед.",
+        "kind": "choice",
+        "options": [
+          "кг",
+          "г",
+          "л",
+          "мл",
+          "шт",
+          "упак"
+        ],
+        "required": true
+      },
+      {
+        "key": "reason",
+        "label": "Состояние",
+        "kind": "choice",
+        "required": true,
+        "options": [
+          "Принято полностью",
+          "Недовоз",
+          "Пересорт",
+          "Брак — вернули",
+          "Просрочка — вернули"
+        ]
+      },
+      {
+        "key": "note",
+        "label": "Поставщик и комментарий",
+        "kind": "text"
+      }
+    ]
+  },
+  "inventory": {
+    "title": "Инвентаризация — сдача листа",
+    "code": "05-FRM-02",
+    "type": "form",
+    "icon": "📊",
+    "roles": [
+      "manager",
+      "coo"
+    ],
+    "photo_required": true,
+    "note": "Пересчёт ведётся на БУМАЖНОМ листе — так требует регламент. Здесь фиксируются только итоги и фото листа.",
+    "columns": [
+      {
+        "key": "item",
+        "label": "Позиция с расхождением",
+        "kind": "text",
+        "required": true
+      },
+      {
+        "key": "qty",
+        "label": "Расхождение",
+        "kind": "number",
+        "required": true,
+        "min": -100000,
+        "max": 100000
+      },
+      {
+        "key": "unit",
+        "label": "Ед.",
+        "kind": "choice",
+        "options": [
+          "кг",
+          "г",
+          "л",
+          "мл",
+          "шт",
+          "упак"
+        ],
+        "required": true
+      },
+      {
+        "key": "reason",
+        "label": "Причина",
+        "kind": "choice",
+        "required": true,
+        "options": [
+          "Недостача",
+          "Излишек",
+          "Ошибка учёта",
+          "Не списали ранее",
+          "Причина не установлена"
+        ]
+      },
+      {
+        "key": "note",
+        "label": "Комментарий",
+        "kind": "text"
       }
     ]
   }

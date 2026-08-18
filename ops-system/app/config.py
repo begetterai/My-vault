@@ -44,6 +44,7 @@ def day_str():
 # ── поведение ────────────────────────────────────────────────────────────────
 PHOTOS_PER_RUN = int(ENV('PHOTOS_PER_RUN', '2'))
 MIN_SECONDS = int(ENV('MIN_SECONDS', '180'))        # быстрее — формальное заполнение
+MIN_GAP = float(ENV('MIN_GAP', '2.0'))              # секунд между отметками; меньше — тыкал не глядя
 REPEAT_FAIL = int(ENV('REPEAT_FAIL', '3'))          # столько провалов = сломан процесс
 CHECK_GAP = float(ENV('CHECK_GAP', '0.7'))          # ниже — второй контур не работает
 
@@ -58,6 +59,8 @@ CHECKLISTS_FILE = ENV('CHECKLISTS_FILE',
 
 TABS = {
     'points': 'Точки',
+    'shift': 'Явка',
+    'score': 'Баллы',
     'team': 'Команда',
     'ideas': 'Идеи и задачи',
     'fails': 'Невыполнено',
@@ -65,31 +68,55 @@ TABS = {
 }
 
 
+# Типы форм. Приложение умеет четыре — всё остальное описывается данными.
+#   checklist — обход по расписанию: пункты, замеры, фото, дедлайн
+#   shift     — явка: одна отметка прихода или ухода, с геометкой
+#   journal   — событие: случилось, записал; дедлайна нет
+#   form      — бланк: таблица позиций, строки добавляются на ходу
+TYPES = ('checklist', 'shift', 'journal', 'form')
+
+
 @functools.lru_cache(maxsize=1)
-def checklists():
-    """{key: {title, code, ask_time, blocks:[{name, items:[{text,norm,photo}]}],
-              measures:{№: {q,norm,unit}}}} — с проставленной сквозной нумерацией."""
+def forms():
+    """Все формы приложения из JSON, с проставленной нумерацией пунктов."""
     raw = json.load(open(CHECKLISTS_FILE, encoding='utf-8'))
     for key, cl in raw.items():
+        cl['key'] = key
+        cl.setdefault('type', 'checklist')
+        cl['tab'] = cl.get('tab') or cl['title']
         n = 0
-        for b in cl['blocks']:
+        for b in cl.get('blocks') or []:
             for it in b['items']:
                 n += 1
                 it['n'] = n
         cl['total'] = n
-        cl['tab'] = cl.get('tab') or cl['title']
         cl['measures'] = {int(k): v for k, v in (cl.get('measures') or {}).items()}
     return raw
 
 
-def for_role(role):
-    """Чек-листы, доступные роли. Пусто в roles — доступен всем.
+def checklists():
+    """Только чек-листы — обходы по пунктам."""
+    return {k: cl for k, cl in forms().items() if cl['type'] == 'checklist'}
+
+
+def by_type(t):
+    return {k: cl for k, cl in forms().items() if cl['type'] == t}
+
+
+def visible(role, t=None):
+    """Формы, доступные роли. Пусто в roles — доступна всем.
 
     Без этого бариста видит в меню «Визит собственника», а управляющий —
-    чек-лист, который к его работе не относится.
+    форму, которая к его работе не относится.
     """
-    return {key: cl for key, cl in checklists().items()
-            if not cl.get('roles') or role in cl['roles']}
+    return {k: cl for k, cl in forms().items()
+            if (not cl.get('roles') or role in cl['roles'])
+            and (t is None or cl['type'] == t)}
+
+
+def for_role(role):
+    """Чек-листы, доступные роли."""
+    return visible(role, 'checklist')
 
 
 def scheduled():
@@ -97,6 +124,10 @@ def scheduled():
     процент заполнения. Событийные (визит, собеседование, приёмка точки)
     в норму дня не входят и пропущенными не считаются."""
     return {k: cl for k, cl in checklists().items() if cl.get('deadline')}
+
+
+def form(key):
+    return forms()[key]
 
 
 def flat(key):

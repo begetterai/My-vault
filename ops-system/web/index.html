@@ -72,6 +72,41 @@
               line-height:1.25;text-align:center}
   .seg button[aria-pressed="true"]{border-color:var(--brand);background:var(--brand);
               color:var(--on-brand);font-weight:700}
+  .card{border:1px solid var(--line);border-radius:18px;background:var(--card);
+        padding:16px;box-shadow:var(--shadow);margin:16px 0 12px}
+  .shift{display:flex;gap:10px;margin-top:12px}
+  .shift button{flex:1;padding:16px 10px;border-radius:14px;border:0;
+        font-family:Manrope,"Golos Text",sans-serif;font-weight:800;font-size:15px;
+        background:var(--brand);color:var(--on-brand);cursor:pointer}
+  .shift button.out{background:var(--wash);color:var(--ink);
+        border:1.5px solid var(--line)}
+  .shift button[disabled]{opacity:.45;cursor:default}
+  .kv{display:flex;justify-content:space-between;align-items:baseline;gap:12px}
+  .kv b{font-family:Manrope,sans-serif;font-variant-numeric:tabular-nums}
+  .lvl{display:inline-block;padding:4px 10px;border-radius:99px;
+       background:var(--brand);color:var(--on-brand);font-weight:700;font-size:12.5px}
+  .stats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:12px}
+  .stat{background:var(--wash);border-radius:12px;padding:10px;text-align:center}
+  .stat b{display:block;font-family:Manrope,sans-serif;font-size:20px;font-weight:800;
+          font-variant-numeric:tabular-nums}
+  .stat span{color:var(--ink-2);font-size:11.5px;text-transform:uppercase;
+             letter-spacing:.05em}
+  .rank{display:flex;justify-content:space-between;padding:7px 0;font-size:14.5px;
+        border-bottom:1px solid var(--line)}
+  .rank:last-child{border:0}
+  .rank.me{font-weight:700;color:var(--brand-2)}
+  .rowline{display:grid;grid-template-columns:1fr 84px 80px;gap:8px;
+           background:var(--wash);border:1px solid var(--line);border-radius:14px;
+           padding:10px;margin-bottom:10px}
+  .rowline input,.rowline select{padding:12px;font-size:15px;background:var(--card)}
+  .rowline .x{grid-column:1/-1;display:flex;gap:8px}
+  .rowline .x select{flex:1}
+  .del{border:1.5px solid var(--line);background:transparent;border-radius:12px;
+       padding:0 14px;color:var(--bad);font-weight:700;cursor:pointer}
+  select{width:100%;padding:15px;border:1.5px solid var(--line);border-radius:14px;
+         background:var(--wash);color:var(--ink);font:inherit}
+  .add{width:100%;padding:14px;border:1.5px dashed var(--line);border-radius:14px;
+       background:transparent;font-weight:600;cursor:pointer;color:var(--ink-2)}
   .big{display:block;width:100%;padding:20px 18px;border:1px solid var(--line);
        background:var(--card);border-radius:18px;text-align:left;
        font-family:Manrope,"Golos Text",sans-serif;font-size:19px;font-weight:700;
@@ -171,9 +206,43 @@
       <h2>Заведение</h2>
       <div class="seg" id="pointSeg"></div>
     </div>
-    <h2>Что заполняем</h2>
+
+    <div id="shiftCard" class="card hidden">
+      <div class="kv"><span>Смена сегодня</span><b id="shiftInfo">—</b></div>
+      <div class="shift">
+        <button id="btnIn">Пришёл</button>
+        <button id="btnOut" class="out">Ушёл</button>
+      </div>
+      <div class="hint" id="shiftHint">Отметка ставит время и подтверждает, что ты на точке.</div>
+    </div>
+
+    <h2>Чек-листы</h2>
     <div class="pick" id="pickList"></div>
+
+    <div id="jBox" class="hidden">
+      <h2>Записать событие</h2>
+      <div class="pick" id="jList"></div>
+    </div>
+
+    <div id="fBox" class="hidden">
+      <h2>Бланки</h2>
+      <div class="pick" id="fList"></div>
+    </div>
+
+    <div id="scoreCard" class="card hidden" style="margin-top:26px">
+      <div class="kv"><span class="lvl" id="lvl">—</span><b id="ptsTotal">0</b></div>
+      <div class="stats">
+        <div class="stat"><b id="ptsWeek">0</b><span>неделя</span></div>
+        <div class="stat"><b id="ptsStreak">0</b><span>дней подряд</span></div>
+        <div class="stat"><b id="ptsPlace">—</b><span>место</span></div>
+      </div>
+      <div class="hint" id="lvlNext"></div>
+      <div id="board" style="margin-top:12px"></div>
+    </div>
   </div>
+
+  <div id="jform" class="hidden"></div>
+  <div id="bform" class="hidden"></div>
 
   <div id="form" class="hidden"></div>
 
@@ -196,6 +265,7 @@ tg?.ready(); tg?.expand();
 const initData = tg?.initData || '';
 const $ = s => document.querySelector(s);
 let DATA = null, kind = null, marks = {}, measures = {}, photos = {}, started = 0;
+let markTs = [];   // когда нажали каждый пункт — по ним считается темп
 let point = null;
 
 const fail = m => { $('#err').textContent = m; $('#err').classList.remove('hidden'); };
@@ -243,12 +313,253 @@ async function boot(){
       b.onclick = () => start(k);
       box.appendChild(b);
     }
+    renderShift(); renderJournals(); renderForms(); renderScore();
     $('#pick').classList.remove('hidden');
   }catch(e){ fail('Не открылось: ' + e.message); }
 }
 
+/* ── явка ────────────────────────────────────────────────────────────────── */
+function geo(){
+  return new Promise(res => {
+    if(!navigator.geolocation) return res({});
+    const done = p => res({lat: p.coords.latitude, lon: p.coords.longitude});
+    navigator.geolocation.getCurrentPosition(done, () => res({}),
+      {enableHighAccuracy: true, timeout: 8000, maximumAge: 0});
+  });
+}
+
+function renderShift(){
+  const sh = DATA.shift || {};
+  $('#shiftCard').classList.remove('hidden');
+  const info = sh.in
+    ? (sh.out ? sh.in + ' — ' + sh.out + ' · ' + (sh.hours || '?') + ' ч'
+              : 'с ' + sh.in)
+    : 'не отмечена';
+  $('#shiftInfo').textContent = info;
+  $('#btnIn').disabled = !!sh.in;
+  $('#btnOut').disabled = !sh.in || !!sh.out;
+  $('#btnIn').textContent = sh.in ? 'Пришёл ✓' : 'Пришёл';
+  $('#btnOut').textContent = sh.out ? 'Ушёл ✓' : 'Ушёл';
+  if(sh.late && +sh.late > 0)
+    $('#shiftHint').textContent = 'Опоздание ' + sh.late + ' мин — управляющий видит.';
+}
+
+async function mark(direction){
+  const btn = direction === 'in' ? $('#btnIn') : $('#btnOut');
+  btn.disabled = true; btn.textContent = 'Определяю место…';
+  const g = await geo();
+  const r = await fetch('/api/shift', {method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({initData, direction, lat: g.lat ?? null, lon: g.lon ?? null})});
+  const j = await r.json();
+  if(j.shift){ DATA.shift = j.shift; }
+  renderShift();
+  alert((j.message || '').replace(/<[^>]+>/g, ''));
+  tg?.HapticFeedback?.notificationOccurred?.('success');
+}
+$('#btnIn').onclick = () => mark('in');
+$('#btnOut').onclick = () => mark('out');
+
+/* ── журналы ─────────────────────────────────────────────────────────────── */
+function cardBtn(box, item, onclick){
+  const b = document.createElement('button');
+  b.className = 'big';
+  b.innerHTML = (item.icon || '') + ' ' + item.title +
+    '<div class="sub">' + item.code + '</div>';
+  b.onclick = onclick;
+  box.appendChild(b);
+}
+
+function renderJournals(){
+  const list = DATA.journals || [];
+  if(!list.length) return;
+  const box = $('#jList'); box.innerHTML = '';
+  list.forEach(j => cardBtn(box, j, () => openJournal(j)));
+  $('#jBox').classList.remove('hidden');
+}
+
+function field(f){
+  const w = document.createElement('div');
+  const req = f.required ? ' *' : '';
+  if(f.kind === 'choice'){
+    w.innerHTML = '<label>' + f.label + req + '</label><select id="jf_' + f.key + '">'
+      + '<option value="">— выбери —</option>'
+      + f.options.map(o => '<option>' + o + '</option>').join('') + '</select>';
+  } else if(f.kind === 'long'){
+    w.innerHTML = '<label>' + f.label + req + '</label>'
+      + '<textarea id="jf_' + f.key + '" placeholder="' + (f.hint || '') + '"></textarea>';
+  } else {
+    w.innerHTML = '<label>' + f.label + req + '</label>'
+      + '<input type="text" id="jf_' + f.key + '" placeholder="' + (f.hint || '') + '">';
+  }
+  return w;
+}
+
+let jPhoto = null;
+function openJournal(j){
+  jPhoto = null;
+  $('#pick').classList.add('hidden');
+  const f = $('#jform'); f.innerHTML = ''; f.classList.remove('hidden');
+  const h = document.createElement('h2');
+  h.textContent = j.icon + ' ' + j.title; f.appendChild(h);
+  j.fields.forEach(x => f.appendChild(field(x)));
+  const ph = document.createElement('div');
+  ph.className = 'photo';
+  ph.innerHTML = '<div><b>Фото</b></div><div class="hint">Если есть что показать</div>';
+  const inp = document.createElement('input');
+  inp.type='file'; inp.accept='image/*'; inp.capture='environment'; inp.style.display='none';
+  const lab = document.createElement('span');
+  lab.className='shoot'; lab.textContent='📷 Сфотографировать';
+  lab.onclick = () => inp.click();
+  const img = document.createElement('img'); img.className='hidden';
+  inp.onchange = async () => { const file = inp.files[0]; if(!file) return;
+    lab.textContent='Обрабатываю…'; jPhoto = await shrink(file);
+    img.src = jPhoto; img.classList.remove('hidden'); lab.textContent='📷 Переснять'; };
+  ph.append(lab, inp, img); f.appendChild(ph);
+
+  const send = document.createElement('button');
+  send.className='send'; send.style.marginTop='16px'; send.textContent='Записать';
+  send.onclick = () => sendJournal(j, send);
+  f.appendChild(send);
+  const back = document.createElement('button');
+  back.className='note'; back.textContent='◀ Назад';
+  back.onclick = () => { f.classList.add('hidden'); $('#pick').classList.remove('hidden'); };
+  f.appendChild(back);
+  window.scrollTo(0, 0);
+}
+
+async function sendJournal(j, btn){
+  const values = {};
+  j.fields.forEach(x => { values[x.key] = ($('#jf_' + x.key)?.value || '').trim(); });
+  btn.disabled = true; btn.textContent = 'Отправляю…';
+  const g = await geo();
+  const r = await fetch('/api/journal', {method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({initData, key: j.key, point, values, photo: jPhoto,
+                          lat: g.lat ?? null, lon: g.lon ?? null})});
+  const res = await r.json();
+  btn.disabled = false; btn.textContent = 'Записать';
+  if(!res.ok) return alert(res.error || 'не записалось');
+  tg?.HapticFeedback?.notificationOccurred?.('success');
+  alert('Записал. Управляющему ушло сообщение.');
+  location.reload();
+}
+
+/* ── бланки ──────────────────────────────────────────────────────────────── */
+let bPhoto = null, bLines = [];
+function renderForms(){
+  const list = DATA.forms || [];
+  if(!list.length) return;
+  const box = $('#fList'); box.innerHTML = '';
+  list.forEach(x => cardBtn(box, x, () => openForm(x)));
+  $('#fBox').classList.remove('hidden');
+}
+
+function lineRow(cl, idx){
+  const d = document.createElement('div'); d.className='rowline';
+  const c = cl.columns;
+  const sel = c.find(x => x.kind === 'choice' && x.key === 'unit');
+  const reason = c.find(x => x.key === 'reason');
+  d.innerHTML =
+    '<input type="text" placeholder="Позиция" data-k="item">'
+    + '<input type="text" inputmode="decimal" placeholder="К-во" data-k="qty">'
+    + '<select data-k="unit">' + (sel ? sel.options.map(o=>'<option>'+o+'</option>').join('') : '') + '</select>'
+    + '<div class="x"><select data-k="reason"><option value="">— причина —</option>'
+    + (reason ? reason.options.map(o=>'<option>'+o+'</option>').join('') : '')
+    + '</select><button class="del" type="button">✕</button></div>';
+  d.querySelector('.del').onclick = () => { d.remove(); collect(); };
+  d.querySelectorAll('input,select').forEach(x => x.oninput = collect);
+  return d;
+}
+
+function collect(){
+  bLines = [...document.querySelectorAll('#bform .rowline')].map(d => {
+    const o = {};
+    d.querySelectorAll('[data-k]').forEach(x => o[x.dataset.k] = x.value.trim());
+    return o;
+  }).filter(o => o.item);
+  const b = $('#bSend');
+  if(b) b.textContent = bLines.length ? 'Отправить · позиций ' + bLines.length
+                                      : 'Добавь хотя бы одну позицию';
+  if(b) b.disabled = !bLines.length;
+}
+
+function openForm(cl){
+  bPhoto = null; bLines = [];
+  $('#pick').classList.add('hidden');
+  const f = $('#bform'); f.innerHTML=''; f.classList.remove('hidden');
+  const h = document.createElement('h2');
+  h.textContent = cl.icon + ' ' + cl.title; f.appendChild(h);
+  const rows = document.createElement('div'); rows.id='bRows';
+  rows.appendChild(lineRow(cl, 0)); f.appendChild(rows);
+  const add = document.createElement('button');
+  add.className='add'; add.textContent='+ Ещё позиция';
+  add.onclick = () => { rows.appendChild(lineRow(cl, rows.children.length)); collect(); };
+  f.appendChild(add);
+
+  const ph = document.createElement('div'); ph.className='photo';
+  ph.innerHTML = '<div><b>Фото' + (cl.photo_required ? ' — обязательно' : '') + '</b></div>'
+    + '<div class="hint">Снимок листа или позиций</div>';
+  const inp = document.createElement('input');
+  inp.type='file'; inp.accept='image/*'; inp.capture='environment'; inp.style.display='none';
+  const lab = document.createElement('span'); lab.className='shoot';
+  lab.textContent='📷 Сфотографировать'; lab.onclick=()=>inp.click();
+  const img = document.createElement('img'); img.className='hidden';
+  inp.onchange = async () => { const file=inp.files[0]; if(!file) return;
+    lab.textContent='Обрабатываю…'; bPhoto = await shrink(file);
+    img.src=bPhoto; img.classList.remove('hidden'); lab.textContent='📷 Переснять'; };
+  ph.append(lab, inp, img); f.appendChild(ph);
+
+  const send = document.createElement('button');
+  send.className='send'; send.id='bSend'; send.style.marginTop='16px';
+  send.onclick = () => sendForm(cl, send);
+  f.appendChild(send);
+  const back = document.createElement('button');
+  back.className='note'; back.textContent='◀ Назад';
+  back.onclick = () => { f.classList.add('hidden'); $('#pick').classList.remove('hidden'); };
+  f.appendChild(back);
+  collect(); window.scrollTo(0, 0);
+}
+
+async function sendForm(cl, btn){
+  if(cl.photo_required && !bPhoto) return alert('Нужно фото — без него запись не принимается.');
+  btn.disabled = true; btn.textContent='Отправляю…';
+  const g = await geo();
+  const r = await fetch('/api/form', {method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({initData, key: cl.key, point, lines: bLines,
+                          photo: bPhoto, lat: g.lat ?? null, lon: g.lon ?? null})});
+  const res = await r.json();
+  if(!res.ok){ btn.disabled=false; collect(); return alert(res.error || 'не записалось'); }
+  tg?.HapticFeedback?.notificationOccurred?.('success');
+  alert('Записал ' + res.count + ' позиций.');
+  location.reload();
+}
+
+/* ── баллы ───────────────────────────────────────────────────────────────── */
+function renderScore(){
+  const s = DATA.score;
+  if(!s) return;
+  $('#scoreCard').classList.remove('hidden');
+  $('#lvl').textContent = s.level;
+  $('#ptsTotal').textContent = s.total + ' баллов';
+  $('#ptsWeek').textContent = s.week;
+  $('#ptsStreak').textContent = s.streak;
+  $('#ptsPlace').textContent = s.place ? s.place + ' из ' + s.of : '—';
+  $('#lvlNext').textContent = s.next
+    ? 'До уровня «' + s.next.title + '» — ' + s.next.need + ' баллов'
+    : 'Максимальный уровень';
+  const b = $('#board'); b.innerHTML = '';
+  (s.board || []).forEach(x => {
+    const d = document.createElement('div');
+    d.className = 'rank' + (x.who === DATA.name ? ' me' : '');
+    d.innerHTML = '<span>' + x.who + '</span><b>' + x.pts + '</b>';
+    b.appendChild(d);
+  });
+}
+
 function start(k){
-  kind = k; started = Date.now(); marks = {}; measures = {}; photos = {};
+  kind = k; started = Date.now(); marks = {}; measures = {}; photos = {}; markTs = [];
   const L = DATA.lists[k];
   $('#pick').classList.add('hidden');
   $('#bar').classList.remove('hidden');
@@ -333,6 +644,7 @@ function itemRow(it){
     b.dataset.v = v; b.textContent = ch; b.setAttribute('aria-pressed','false');
     b.onclick = () => {
       marks[it.n] = v === '1';
+      markTs.push((Date.now() - started) / 1000);
       tog.querySelectorAll('button').forEach(x =>
         x.setAttribute('aria-pressed', x.dataset.v === v ? 'true' : 'false'));
       d.classList.remove('unset');
@@ -425,7 +737,8 @@ async function submit(){
     photos: Object.entries(photos).map(([n,data]) => ({n:+n, data})),
     time: $('#time').value.trim(),
     comment: $('#comment').value.trim(),
-    seconds: Math.round((Date.now() - started) / 1000)
+    seconds: Math.round((Date.now() - started) / 1000),
+    marks_ts: markTs
   };
   try{
     const r = await fetch('/api/submit', {method:'POST',

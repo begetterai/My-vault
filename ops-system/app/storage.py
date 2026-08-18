@@ -87,13 +87,22 @@ def put(tab, a1, rows):
 # ── подготовка таблицы ───────────────────────────────────────────────────────
 def ensure_structure():
     """Создаёт недостающие листы и шапки. Идемпотентно."""
+    from . import forms as F          # внутри: forms сам обращается к storage
     s = session()
     want = {C.TABS['fails']: ['Дата', 'Точка', 'Кто', 'Документ', '№', 'Блок', 'Пункт'],
             C.TABS['ideas']: ['Дата', 'Кто', 'Точка', 'Откуда', 'Текст', 'Статус', 'Решение'],
             C.TABS['items']: ['Документ', '№', 'Блок', 'Пункт', 'Норматив', 'Фото',
                               'Эталонное фото — вставь ссылку'],
             C.TABS['team']: ['chat_id', 'Имя', 'Точка', 'Роль', 'Активен'],
-            C.TABS['points']: ['Код', 'Название', 'Адрес', 'Активна']}
+            C.TABS['points']: ['Код', 'Название', 'Адрес', 'Активна',
+                               'Широта', 'Долгота', 'Радиус, м'],
+            C.TABS['shift']: F.SHIFT_COLS,
+            C.TABS['score']: ['Дата', 'Точка', 'Кто', 'Событие', 'Баллы',
+                              'За что', 'Ссылка']}
+    for key, cl in C.forms().items():
+        cols = F.cols_for(cl)
+        if cols:
+            want[cl['tab']] = cols
     for key, cl in C.checklists().items():
         want[cl['tab']] = FILL_COLS
     meta = s.get(B + C.DATA_SHEET, params={'fields': 'sheets.properties'}, timeout=60).json()
@@ -146,7 +155,7 @@ def role_of(who):
     return 'staff'
 
 
-_PTS = {'ts': None, 'map': {}}
+_PTS = {'ts': None, 'map': {}, 'geo': {}}
 
 
 def points_map(force=False):
@@ -158,15 +167,30 @@ def points_map(force=False):
     now = datetime.datetime.utcnow()
     if not force and _PTS['ts'] and (now - _PTS['ts']).seconds < 600:
         return _PTS['map']
-    m = {}
-    for r in get(C.TABS['points'], 'A2:D50'):
-        if r and str(r[0]).strip():
-            act = (r[3].strip().lower() if len(r) > 3 and r[3] else 'да')
-            if act in ('да', 'yes', '1', 'true', ''):
-                m[str(r[0]).strip()] = (str(r[1]).strip() if len(r) > 1 else '',
-                                        str(r[2]).strip() if len(r) > 2 else '')
-    _PTS['ts'], _PTS['map'] = now, m
+    m, geo = {}, {}
+    for r in get(C.TABS['points'], 'A2:G50'):
+        r = list(r) + [''] * (7 - len(r))
+        code = str(r[0]).strip()
+        if not code:
+            continue
+        act = (r[3].strip().lower() if r[3] else 'да')
+        if act not in ('да', 'yes', '1', 'true', ''):
+            continue
+        m[code] = (str(r[1]).strip(), str(r[2]).strip())
+        try:
+            lat, lon = float(str(r[4]).replace(',', '.')), float(str(r[5]).replace(',', '.'))
+            rad = float(str(r[6]).replace(',', '.')) if str(r[6]).strip() else 150.0
+            geo[code] = (lat, lon, rad)
+        except (ValueError, TypeError):
+            pass
+    _PTS['ts'], _PTS['map'], _PTS['geo'] = now, m, geo
     return m
+
+
+def point_geo(code):
+    """(широта, долгота, радиус в метрах) или None, если координаты не заданы."""
+    points_map()
+    return _PTS.get('geo', {}).get(code)
 
 
 def point_label(code):
