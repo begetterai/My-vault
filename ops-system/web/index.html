@@ -45,6 +45,10 @@
   header{position:sticky;top:0;z-index:5;background:var(--bg);
          border-bottom:1px solid var(--line);padding:12px 16px 10px}
   .brandline{display:flex;align-items:center;gap:10px}
+  .back{flex:none;width:38px;height:38px;border-radius:12px;border:1.5px solid var(--line);
+        background:var(--card);color:var(--ink);font-size:20px;line-height:1;
+        cursor:pointer;display:flex;align-items:center;justify-content:center}
+  .back:active{background:var(--wash)}
   .mark{flex:none;width:30px;height:30px}
   .titles{min-width:0;flex:1}
   .who{font-family:Manrope,"Golos Text",sans-serif;font-weight:800;
@@ -184,6 +188,7 @@
 <body>
 <header>
   <div class="brandline">
+    <button class="back hidden" id="btnBack" type="button" aria-label="Назад">‹</button>
     <svg class="mark" viewBox="0 0 40 40" aria-hidden="true">
       <g fill="var(--brand)">
         <ellipse cx="20" cy="8"  rx="4.4" ry="7"/>
@@ -255,7 +260,7 @@
     <div style="font-size:46px">✅</div>
     <div class="k" id="doneK"></div>
     <div id="doneT" class="sub"></div>
-    <button class="note" onclick="location.reload()">Заполнить ещё</button>
+    <button class="note" onclick="goHome()">Заполнить ещё</button>
   </div>
 
   <div id="err" class="msg hidden"></div>
@@ -274,6 +279,29 @@ let markTs = [];   // когда нажали каждый пункт — по �
 let point = null;
 
 const fail = m => { $('#err').textContent = m; $('#err').classList.remove('hidden'); };
+
+/* ── возврат на главный экран ────────────────────────────────────────────── */
+function goHome(){
+  ['#form', '#jform', '#bform', '#done', '#foot', '#bar'].forEach(x =>
+    $(x).classList.add('hidden'));
+  $('#form').innerHTML = ''; $('#jform').innerHTML = ''; $('#bform').innerHTML = '';
+  kind = null; marks = {}; measures = {}; photos = {}; markTs = [];
+  jPhoto = null; bPhoto = null; bLines = [];
+  $('#pick').classList.remove('hidden');
+  $('#err').classList.add('hidden');
+  if(DATA) $('#sub').textContent = (DATA.point_label || DATA.point) + ' · ' + DATA.day;
+  $('#btnBack').classList.add('hidden');
+  tg?.BackButton?.hide?.();
+  window.scrollTo(0, 0);
+}
+
+function enterScreen(){
+  $('#btnBack').classList.remove('hidden');
+  tg?.BackButton?.show?.();
+}
+
+$('#btnBack').onclick = goHome;
+tg?.BackButton?.onClick?.(goHome);
 
 async function boot(){
   try{
@@ -414,6 +442,7 @@ function openJournal(j){
   jPhoto = null;
   $('#pick').classList.add('hidden');
   const f = $('#jform'); f.innerHTML = ''; f.classList.remove('hidden');
+  enterScreen();
   const h = document.createElement('h2');
   h.textContent = j.icon + ' ' + j.title; f.appendChild(h);
   if(j.doc) f.appendChild(docLine(j.doc));
@@ -438,7 +467,7 @@ function openJournal(j){
   f.appendChild(send);
   const back = document.createElement('button');
   back.className='note'; back.textContent='◀ Назад';
-  back.onclick = () => { f.classList.add('hidden'); $('#pick').classList.remove('hidden'); };
+  back.onclick = goHome;
   f.appendChild(back);
   window.scrollTo(0, 0);
 }
@@ -457,7 +486,7 @@ async function sendJournal(j, btn){
   if(!res.ok) return alert(res.error || 'не записалось');
   tg?.HapticFeedback?.notificationOccurred?.('success');
   alert('Записал. Управляющему ушло сообщение.');
-  location.reload();
+  goHome();
 }
 
 /* ── бланки ──────────────────────────────────────────────────────────────── */
@@ -503,6 +532,7 @@ function openForm(cl){
   bPhoto = null; bLines = [];
   $('#pick').classList.add('hidden');
   const f = $('#bform'); f.innerHTML=''; f.classList.remove('hidden');
+  enterScreen();
   const h = document.createElement('h2');
   h.textContent = cl.icon + ' ' + cl.title; f.appendChild(h);
   if(cl.doc) f.appendChild(docLine(cl.doc));
@@ -532,7 +562,7 @@ function openForm(cl){
   f.appendChild(send);
   const back = document.createElement('button');
   back.className='note'; back.textContent='◀ Назад';
-  back.onclick = () => { f.classList.add('hidden'); $('#pick').classList.remove('hidden'); };
+  back.onclick = goHome;
   f.appendChild(back);
   collect(); window.scrollTo(0, 0);
 }
@@ -549,7 +579,7 @@ async function sendForm(cl, btn){
   if(!res.ok){ btn.disabled=false; collect(); return alert(res.error || 'не записалось'); }
   tg?.HapticFeedback?.notificationOccurred?.('success');
   alert('Записал ' + res.count + ' позиций.');
-  location.reload();
+  goHome();
 }
 
 /* ── баллы ───────────────────────────────────────────────────────────────── */
@@ -584,6 +614,7 @@ function start(k){
   $('#sub').textContent = (pl ? pl.label : point) + ' · ' + L.title;
 
   const f = $('#form'); f.innerHTML = ''; f.classList.remove('hidden');
+  enterScreen();
   L.blocks.forEach(bl => {
     const h = document.createElement('h2'); h.textContent = bl.name; f.appendChild(h);
     if(bl.doc){

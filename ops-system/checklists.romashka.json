@@ -1863,5 +1863,1071 @@
       "title": "Инвентаризация",
       "url": "https://docs.google.com/document/d/1KhOydXRawCcWKXn-3aOhXdAO5QpX7r0oEqmDGLarPig"
     }
+  },
+  "onboarding": {
+    "title": "Онбординг: день первый",
+    "code": "02-SOP-02",
+    "type": "checklist",
+    "roles": [
+      "manager",
+      "coo"
+    ],
+    "ask_time": "Во сколько закончили первый день?",
+    "measures": {
+      "21": {
+        "q": "Часов отработал под наставником",
+        "norm": "не меньше 2",
+        "unit": "ч",
+        "min": 0,
+        "max": 24,
+        "ok_min": 2,
+        "ok_max": 24
+      }
+    },
+    "blocks": [
+      {
+        "name": "1. До прихода",
+        "items": [
+          {
+            "text": "Рабочее место и шкафчик готовы",
+            "norm": "",
+            "photo": false
+          },
+          {
+            "text": "Форма подобрана по размеру и выдана",
+            "norm": "",
+            "photo": false
+          },
+          {
+            "text": "Наставник назначен и предупреждён",
+            "norm": "обязательно",
+            "photo": false
+          },
+          {
+            "text": "Смена знает, что сегодня выходит новый человек",
+            "norm": "",
+            "photo": false
+          }
+        ],
+        "doc": {
+          "code": "02-SOP-02",
+          "title": "Онбординг: день первый",
+          "url": ""
+        }
+      },
+      {
+        "name": "2. Документы и доступы",
+        "items": [
+          {
+            "text": "Паспорт и медкнижка приняты, копии сделаны",
+            "norm": "без медкнижки к работе не допускаем",
+            "photo": false
+          },
+          {
+            "text": "Трудовой договор подписан",
+            "norm": "под подпись",
+            "photo": false
+          },
+          {
+            "text": "Договор материальной ответственности подписан",
+            "norm": "для кассиров и поваров",
+            "photo": false
+          },
+          {
+            "text": "Добавлен в систему: бот, точка, роль",
+            "norm": "",
+            "photo": false
+          },
+          {
+            "text": "Внесён в график смен",
+            "norm": "",
+            "photo": false
+          }
+        ],
+        "doc": {
+          "code": "02-FRM-01",
+          "title": "Трудовой договор",
+          "url": ""
+        }
+      },
+      {
+        "name": "3. Знакомство с точкой",
+        "items": [
+          {
+            "text": "Показаны зоны: зал, кухня, склад, санузел, раздевалка",
+            "norm": "",
+            "photo": false
+          },
+          {
+            "text": "Показано, где что хранится и где инвентарь",
+            "norm": "",
+            "photo": false
+          },
+          {
+            "text": "Показаны эвакуационные выходы и огнетушители",
+            "norm": "",
+            "photo": false
+          },
+          {
+            "text": "Представлен смене поимённо",
+            "norm": "",
+            "photo": false
+          }
+        ],
+        "doc": {
+          "code": "02-SOP-02",
+          "title": "Онбординг: день первый",
+          "url": ""
+        }
+      },
+      {
+        "name": "4. Правила под подпись",
+        "items": [
+          {
+            "text": "Дисциплинарная сетка выдана и объяснена",
+            "norm": "под подпись",
+            "photo": false
+          },
+          {
+            "text": "Правило телефонов объяснено",
+            "norm": "под подпись",
+            "photo": false
+          },
+          {
+            "text": "Стандарт внешнего вида и гигиены объяснён",
+            "norm": "",
+            "photo": false
+          },
+          {
+            "text": "Правила по кассе и деньгам объяснены",
+            "norm": "",
+            "photo": false
+          },
+          {
+            "text": "График, время прихода и опоздания объяснены",
+            "norm": "",
+            "photo": false
+          }
+        ],
+        "doc": {
+          "code": "02-POL-01",
+          "title": "Дисциплинарная сетка",
+          "url": ""
+        }
+      },
+      {
+        "name": "5. Первая работа",
+        "items": [
+          {
+            "text": "Показано, как отмечать приход и уход в приложении",
+            "norm": "",
+            "photo": false
+          },
+          {
+            "text": "Показан чек-лист смены",
+            "norm": "",
+            "photo": false
+          },
+          {
+            "text": "Отработал под наблюдением наставника не меньше 2 часов",
+            "norm": "",
+            "photo": false
+          },
+          {
+            "text": "Задал вопросы, получил ответы",
+            "norm": "",
+            "photo": false
+          }
+        ],
+        "doc": {
+          "code": "02-SOP-03",
+          "title": "Стажировка и наставничество",
+          "url": ""
+        }
+      },
+      {
+        "name": "6. Итог дня",
+        "items": [
+          {
+            "text": "Разговор с новичком в конце дня проведён",
+            "norm": "обязательно",
+            "photo": false
+          },
+          {
+            "text": "План на завтра проговорён",
+            "norm": "",
+            "photo": false
+          },
+          {
+            "text": "Впечатление наставника записано",
+            "norm": "",
+            "photo": false
+          }
+        ],
+        "doc": {
+          "code": "02-SOP-02",
+          "title": "Онбординг: день первый",
+          "url": ""
+        }
+      }
+    ]
+  },
+  "probation": {
+    "title": "Испытательный срок — светофор",
+    "code": "02-SOP-04",
+    "type": "checklist",
+    "roles": [
+      "manager",
+      "coo"
+    ],
+    "ask_time": "Во сколько подводили итог?",
+    "measures": {
+      "1": {
+        "q": "Опозданий за период",
+        "norm": "не больше 1",
+        "unit": "раз",
+        "min": 0,
+        "max": 100,
+        "ok_min": 0,
+        "ok_max": 1
+      },
+      "16": {
+        "q": "Оценка по итогу: 1 красный, 2 жёлтый, 3 зелёный",
+        "norm": "2 и выше",
+        "unit": "",
+        "min": 1,
+        "max": 3,
+        "ok_min": 2,
+        "ok_max": 3
+      }
+    },
+    "blocks": [
+      {
+        "name": "1. Дисциплина",
+        "items": [
+          {
+            "text": "Опозданий за период нет",
+            "norm": "по табелю",
+            "photo": false
+          },
+          {
+            "text": "Смены не срывал, замен не просил без причины",
+            "norm": "",
+            "photo": false
+          },
+          {
+            "text": "Правило телефонов соблюдает",
+            "norm": "",
+            "photo": false
+          },
+          {
+            "text": "Внешний вид по стандарту",
+            "norm": "",
+            "photo": false
+          }
+        ],
+        "doc": {
+          "code": "02-POL-01",
+          "title": "Дисциплинарная сетка",
+          "url": ""
+        }
+      },
+      {
+        "name": "2. Работа",
+        "items": [
+          {
+            "text": "Освоил свою станцию, работает без подсказок",
+            "norm": "",
+            "photo": false
+          },
+          {
+            "text": "Скорость на уровне смены",
+            "norm": "",
+            "photo": false
+          },
+          {
+            "text": "Качество не хуже стандарта, переделок нет",
+            "norm": "",
+            "photo": false
+          },
+          {
+            "text": "Чек-листы заполняет сам и вовремя",
+            "norm": "по системе",
+            "photo": false
+          },
+          {
+            "text": "Порядок на рабочем месте держит",
+            "norm": "",
+            "photo": false
+          }
+        ],
+        "doc": {
+          "code": "02-REF-01",
+          "title": "Профили должностей",
+          "url": ""
+        }
+      },
+      {
+        "name": "3. Люди",
+        "items": [
+          {
+            "text": "С гостями держится по стандарту",
+            "norm": "",
+            "photo": false
+          },
+          {
+            "text": "Со сменой ладит, конфликтов не было",
+            "norm": "",
+            "photo": false
+          },
+          {
+            "text": "Замечания принимает без спора",
+            "norm": "",
+            "photo": false
+          },
+          {
+            "text": "Обратился за помощью, когда не знал — а не сделал наугад",
+            "norm": "",
+            "photo": false
+          }
+        ],
+        "doc": {
+          "code": "02-REF-01",
+          "title": "Профили должностей",
+          "url": ""
+        }
+      },
+      {
+        "name": "4. Решение",
+        "items": [
+          {
+            "text": "Наставник дал заключение",
+            "norm": "обязательно",
+            "photo": false
+          },
+          {
+            "text": "Разговор с сотрудником проведён",
+            "norm": "",
+            "photo": false
+          },
+          {
+            "text": "Решение принято: оставляем, продлеваем или расстаёмся",
+            "norm": "",
+            "photo": false
+          },
+          {
+            "text": "Решение объявлено сотруднику",
+            "norm": "",
+            "photo": false
+          }
+        ],
+        "doc": {
+          "code": "02-SOP-04",
+          "title": "Испытательный срок и светофор",
+          "url": ""
+        }
+      }
+    ]
+  },
+  "attestation": {
+    "title": "Аттестация",
+    "code": "02-SOP-05",
+    "type": "checklist",
+    "roles": [
+      "manager",
+      "coo"
+    ],
+    "ask_time": "Во сколько проводили аттестацию?",
+    "measures": {
+      "9": {
+        "q": "Время сборки блюда",
+        "norm": "по нормативу",
+        "unit": "сек",
+        "min": 0,
+        "max": 3600
+      },
+      "10": {
+        "q": "Отклонение веса от карты",
+        "norm": "не больше 5",
+        "unit": "%",
+        "min": 0,
+        "max": 100,
+        "ok_min": 0,
+        "ok_max": 5
+      }
+    },
+    "blocks": [
+      {
+        "name": "1. Знание продукта",
+        "items": [
+          {
+            "text": "Назвал состав трёх блюд по памяти",
+            "norm": "",
+            "photo": false
+          },
+          {
+            "text": "Знает сроки годности и правила маркировки",
+            "norm": "",
+            "photo": false
+          },
+          {
+            "text": "Знает вес порций по техкартам",
+            "norm": "",
+            "photo": false
+          },
+          {
+            "text": "Знает, что делать с просрочкой",
+            "norm": "",
+            "photo": false
+          }
+        ],
+        "doc": {
+          "code": "04-TTK-*",
+          "title": "Техкарты, ~68 шт.",
+          "url": ""
+        }
+      },
+      {
+        "name": "2. Санитария",
+        "items": [
+          {
+            "text": "Правила мытья рук и смены перчаток называет верно",
+            "norm": "",
+            "photo": false
+          },
+          {
+            "text": "Знает нормы температур в камерах",
+            "norm": "",
+            "photo": false
+          },
+          {
+            "text": "Знает товарное соседство",
+            "norm": "",
+            "photo": false
+          },
+          {
+            "text": "Знает, чем и как чистить своё оборудование",
+            "norm": "",
+            "photo": false
+          }
+        ],
+        "doc": {
+          "code": "04-POL-04",
+          "title": "HACCP и пищевая безопасность",
+          "url": "https://docs.google.com/document/d/1EaEzEBmWEafDHt85cHeCABylkGTLd0sZuqzJvAS_MLM"
+        }
+      },
+      {
+        "name": "3. Практика",
+        "items": [
+          {
+            "text": "Собрал блюдо по техкарте на время",
+            "norm": "сверить с нормативом",
+            "photo": true
+          },
+          {
+            "text": "Вес порции в допуске",
+            "norm": "",
+            "photo": false
+          },
+          {
+            "text": "Рабочее место после — чистое",
+            "norm": "",
+            "photo": true
+          }
+        ],
+        "doc": {
+          "code": "04-TTK-*",
+          "title": "Техкарты, ~68 шт.",
+          "url": ""
+        }
+      },
+      {
+        "name": "4. Касса и гость",
+        "items": [
+          {
+            "text": "Провёл заказ в Poster без ошибок",
+            "norm": "",
+            "photo": false
+          },
+          {
+            "text": "Знает порядок действий при жалобе гостя",
+            "norm": "",
+            "photo": false
+          },
+          {
+            "text": "Знает, что делать при расхождении в кассе",
+            "norm": "",
+            "photo": false
+          }
+        ],
+        "doc": {
+          "code": "03-SOP-02",
+          "title": "Работа с кассой и Poster",
+          "url": "https://docs.google.com/document/d/1EhUEaZgXqwDM2XzQz4BUY-JA8hjVfalD3MtPTLxSzqs"
+        }
+      },
+      {
+        "name": "5. Итог",
+        "items": [
+          {
+            "text": "Результат объявлен сотруднику",
+            "norm": "",
+            "photo": false
+          },
+          {
+            "text": "Слабые места записаны, назначено обучение",
+            "norm": "",
+            "photo": false
+          }
+        ],
+        "doc": {
+          "code": "02-SOP-05",
+          "title": "Аттестация",
+          "url": ""
+        }
+      }
+    ]
+  },
+  "inventory_run": {
+    "title": "Инвентаризация: проведение",
+    "code": "05-CL-01",
+    "type": "checklist",
+    "roles": [
+      "manager",
+      "coo"
+    ],
+    "ask_time": "Во сколько начали пересчёт?",
+    "measures": {
+      "14": {
+        "q": "Позиций с расхождением",
+        "norm": "чем меньше, тем лучше",
+        "unit": "шт",
+        "min": 0,
+        "max": 10000
+      },
+      "17": {
+        "q": "Сумма недостачи",
+        "norm": "по нормативу точки",
+        "unit": "сомони",
+        "min": 0,
+        "max": 1000000
+      }
+    },
+    "blocks": [
+      {
+        "name": "1. Подготовка",
+        "items": [
+          {
+            "text": "Точка закрыта для продаж или движение остановлено",
+            "norm": "обязательно",
+            "photo": false
+          },
+          {
+            "text": "Все списания и приёмы за период проведены в системе",
+            "norm": "",
+            "photo": false
+          },
+          {
+            "text": "Бумажный инвентаризационный лист распечатан",
+            "norm": "считаем только на бумаге",
+            "photo": true
+          },
+          {
+            "text": "Весы проверены и обнулены",
+            "norm": "",
+            "photo": false
+          },
+          {
+            "text": "Считают двое: материально ответственный и проверяющий",
+            "norm": "",
+            "photo": false
+          }
+        ],
+        "doc": {
+          "code": "05-SOP-03",
+          "title": "Инвентаризация",
+          "url": "https://docs.google.com/document/d/1KhOydXRawCcWKXn-3aOhXdAO5QpX7r0oEqmDGLarPig"
+        }
+      },
+      {
+        "name": "2. Пересчёт",
+        "items": [
+          {
+            "text": "Склад пересчитан полностью",
+            "norm": "",
+            "photo": false
+          },
+          {
+            "text": "Холодильники и морозильники пересчитаны",
+            "norm": "",
+            "photo": false
+          },
+          {
+            "text": "Заготовки на кухне пересчитаны",
+            "norm": "",
+            "photo": false
+          },
+          {
+            "text": "Бар и витрина пересчитаны",
+            "norm": "",
+            "photo": false
+          },
+          {
+            "text": "Упаковка и расходники пересчитаны",
+            "norm": "",
+            "photo": false
+          },
+          {
+            "text": "Открытые упаковки взвешены, а не посчитаны штуками",
+            "norm": "",
+            "photo": false
+          }
+        ],
+        "doc": {
+          "code": "05-SOP-03",
+          "title": "Инвентаризация",
+          "url": "https://docs.google.com/document/d/1KhOydXRawCcWKXn-3aOhXdAO5QpX7r0oEqmDGLarPig"
+        }
+      },
+      {
+        "name": "3. Оформление",
+        "items": [
+          {
+            "text": "Лист подписан обоими считавшими",
+            "norm": "под подпись",
+            "photo": true
+          },
+          {
+            "text": "Данные внесены в систему",
+            "norm": "",
+            "photo": false
+          },
+          {
+            "text": "Расхождения выписаны отдельно",
+            "norm": "",
+            "photo": false
+          },
+          {
+            "text": "По каждому расхождению записана причина",
+            "norm": "без причины расхождение не закрывается",
+            "photo": false
+          }
+        ],
+        "doc": {
+          "code": "05-FRM-02",
+          "title": "Ведомость инвентаризации",
+          "url": "https://docs.google.com/document/d/1CUg39gWQ1Q-wRxQtyY4GCs3rgF0LYVGC80vY7Rl-6h0"
+        }
+      },
+      {
+        "name": "4. Разбор",
+        "items": [
+          {
+            "text": "Расхождения разобраны с материально ответственным",
+            "norm": "",
+            "photo": false
+          },
+          {
+            "text": "Решение по недостаче принято",
+            "norm": "",
+            "photo": false
+          },
+          {
+            "text": "Списания оформлены",
+            "norm": "",
+            "photo": false
+          }
+        ],
+        "doc": {
+          "code": "05-SOP-04",
+          "title": "Списания",
+          "url": "https://docs.google.com/document/d/1DeB_WnSIyjUH-OwGTGdr4xR2IFRITMLgwfV36lKjL2s"
+        }
+      }
+    ]
+  },
+  "mystery": {
+    "title": "Тайный гость",
+    "code": "07-FRM-01",
+    "type": "checklist",
+    "roles": [
+      "manager",
+      "coo"
+    ],
+    "ask_time": "Во сколько был визит?",
+    "measures": {
+      "11": {
+        "q": "Время от заказа до выдачи",
+        "norm": "не больше 8",
+        "unit": "мин",
+        "min": 0,
+        "max": 120,
+        "ok_min": 0,
+        "ok_max": 8
+      },
+      "21": {
+        "q": "Общая оценка визита",
+        "norm": "8 и выше",
+        "unit": "из 10",
+        "min": 1,
+        "max": 10,
+        "ok_min": 8,
+        "ok_max": 10
+      }
+    },
+    "blocks": [
+      {
+        "name": "1. Подход к точке",
+        "items": [
+          {
+            "text": "Вывеска видна и подсвечена",
+            "norm": "",
+            "photo": true
+          },
+          {
+            "text": "Вход и площадка чистые",
+            "norm": "",
+            "photo": true
+          },
+          {
+            "text": "Меню на входе читаемо и актуально",
+            "norm": "",
+            "photo": false
+          }
+        ],
+        "doc": {
+          "code": "03-POL-01",
+          "title": "Стандарт обслуживания гостя",
+          "url": "https://docs.google.com/document/d/1Wp9w3EulNKoxmyNMP2UfzbaNtY4DAY6s06o_olKi8ys"
+        }
+      },
+      {
+        "name": "2. Встреча",
+        "items": [
+          {
+            "text": "Заметили в первые 10 секунд",
+            "norm": "",
+            "photo": false
+          },
+          {
+            "text": "Поздоровались первыми",
+            "norm": "",
+            "photo": false
+          },
+          {
+            "text": "Кассир не занят разговором и не в телефоне",
+            "norm": "",
+            "photo": false
+          }
+        ],
+        "doc": {
+          "code": "03-POL-01",
+          "title": "Стандарт обслуживания гостя",
+          "url": "https://docs.google.com/document/d/1Wp9w3EulNKoxmyNMP2UfzbaNtY4DAY6s06o_olKi8ys"
+        }
+      },
+      {
+        "name": "3. Заказ",
+        "items": [
+          {
+            "text": "Помогли с выбором, если спросил",
+            "norm": "",
+            "photo": false
+          },
+          {
+            "text": "Предложили дополнение к заказу",
+            "norm": "",
+            "photo": false
+          },
+          {
+            "text": "Сумму назвали вслух",
+            "norm": "",
+            "photo": false
+          },
+          {
+            "text": "Чек выдали без напоминания",
+            "norm": "",
+            "photo": true
+          }
+        ],
+        "doc": {
+          "code": "03-SOP-02",
+          "title": "Работа с кассой и Poster",
+          "url": "https://docs.google.com/document/d/1EhUEaZgXqwDM2XzQz4BUY-JA8hjVfalD3MtPTLxSzqs"
+        }
+      },
+      {
+        "name": "4. Ожидание и подача",
+        "items": [
+          {
+            "text": "Уложились в норматив по времени",
+            "norm": "",
+            "photo": false
+          },
+          {
+            "text": "Блюдо подано горячим",
+            "norm": "",
+            "photo": false
+          },
+          {
+            "text": "Внешний вид блюда как на фото-эталоне",
+            "norm": "",
+            "photo": true
+          },
+          {
+            "text": "Порция выглядит полной",
+            "norm": "",
+            "photo": false
+          },
+          {
+            "text": "Упаковка целая, ничего не протекает",
+            "norm": "",
+            "photo": false
+          }
+        ],
+        "doc": {
+          "code": "04-REF-02",
+          "title": "Нормативы времени отдачи блюд",
+          "url": ""
+        }
+      },
+      {
+        "name": "5. Зал",
+        "items": [
+          {
+            "text": "Столы чистые, свободные есть",
+            "norm": "",
+            "photo": false
+          },
+          {
+            "text": "Салфетки и приборы в наличии",
+            "norm": "",
+            "photo": false
+          },
+          {
+            "text": "Санузел чистый, мыло и бумага есть",
+            "norm": "",
+            "photo": true
+          },
+          {
+            "text": "Музыка и температура комфортные",
+            "norm": "",
+            "photo": false
+          }
+        ],
+        "doc": {
+          "code": "04-SOP-05",
+          "title": "Чистота помещений",
+          "url": "https://docs.google.com/document/d/1NA3xZ_w0lIs4PtuJs3boUnoQ0C88CU38aIhj_5QOyew"
+        }
+      },
+      {
+        "name": "6. Уход",
+        "items": [
+          {
+            "text": "Попрощались",
+            "norm": "",
+            "photo": false
+          },
+          {
+            "text": "Вернулся бы сюда ещё раз",
+            "norm": "честный ответ",
+            "photo": false
+          }
+        ],
+        "doc": {
+          "code": "03-POL-01",
+          "title": "Стандарт обслуживания гостя",
+          "url": "https://docs.google.com/document/d/1Wp9w3EulNKoxmyNMP2UfzbaNtY4DAY6s06o_olKi8ys"
+        }
+      }
+    ]
+  },
+  "prep": {
+    "title": "План заготовок на день",
+    "code": "04-SOP-01",
+    "type": "form",
+    "icon": "🔪",
+    "roles": [
+      "manager",
+      "coo"
+    ],
+    "photo_required": false,
+    "columns": [
+      {
+        "key": "item",
+        "label": "Заготовка",
+        "kind": "text",
+        "required": true
+      },
+      {
+        "key": "qty",
+        "label": "Сколько сделать",
+        "kind": "number",
+        "required": true,
+        "min": 0,
+        "max": 100000
+      },
+      {
+        "key": "unit",
+        "label": "Ед.",
+        "kind": "choice",
+        "options": [
+          "кг",
+          "г",
+          "л",
+          "мл",
+          "шт",
+          "упак"
+        ],
+        "required": true
+      },
+      {
+        "key": "reason",
+        "label": "Приоритет",
+        "kind": "choice",
+        "required": true,
+        "options": [
+          "Срочно — заканчивается",
+          "На сегодня",
+          "На завтра",
+          "Про запас"
+        ]
+      },
+      {
+        "key": "note",
+        "label": "Кто делает",
+        "kind": "text"
+      }
+    ],
+    "doc": {
+      "code": "04-SOP-01",
+      "title": "План заготовок на день",
+      "url": ""
+    }
+  },
+  "bazaar": {
+    "title": "Закупка на базаре",
+    "code": "05-SOP-02",
+    "type": "form",
+    "icon": "🧺",
+    "roles": [
+      "manager",
+      "coo"
+    ],
+    "photo_required": true,
+    "columns": [
+      {
+        "key": "item",
+        "label": "Позиция",
+        "kind": "text",
+        "required": true
+      },
+      {
+        "key": "qty",
+        "label": "Куплено",
+        "kind": "number",
+        "required": true,
+        "min": 0,
+        "max": 100000
+      },
+      {
+        "key": "unit",
+        "label": "Ед.",
+        "kind": "choice",
+        "options": [
+          "кг",
+          "г",
+          "л",
+          "мл",
+          "шт",
+          "упак"
+        ],
+        "required": true
+      },
+      {
+        "key": "reason",
+        "label": "Цена за единицу",
+        "kind": "text",
+        "required": true
+      },
+      {
+        "key": "note",
+        "label": "Продавец и комментарий",
+        "kind": "text"
+      }
+    ],
+    "doc": {
+      "code": "05-SOP-02",
+      "title": "Закупка на базаре",
+      "url": "https://docs.google.com/document/d/1R_kQ7TwVrgYjV_eipy0dZY6SG88zsaJtN99nCufXlH8"
+    }
+  },
+  "claim": {
+    "title": "Претензия поставщику",
+    "code": "05-SOP-05",
+    "type": "form",
+    "icon": "📣",
+    "roles": [
+      "manager",
+      "coo"
+    ],
+    "photo_required": true,
+    "columns": [
+      {
+        "key": "item",
+        "label": "Позиция",
+        "kind": "text",
+        "required": true
+      },
+      {
+        "key": "qty",
+        "label": "Количество",
+        "kind": "number",
+        "required": true,
+        "min": 0,
+        "max": 100000
+      },
+      {
+        "key": "unit",
+        "label": "Ед.",
+        "kind": "choice",
+        "options": [
+          "кг",
+          "г",
+          "л",
+          "мл",
+          "шт",
+          "упак"
+        ],
+        "required": true
+      },
+      {
+        "key": "reason",
+        "label": "Что не так",
+        "kind": "choice",
+        "required": true,
+        "options": [
+          "Недовоз",
+          "Пересорт",
+          "Брак",
+          "Просрочка",
+          "Нарушена упаковка",
+          "Не тот вес",
+          "Цена выше договорённой"
+        ]
+      },
+      {
+        "key": "note",
+        "label": "Поставщик, накладная, что требуем",
+        "kind": "text"
+      }
+    ],
+    "doc": {
+      "code": "05-SOP-05",
+      "title": "Претензия поставщику",
+      "url": "https://docs.google.com/document/d/1ZVnQLD9ZMydoSf7GewFbJ5_zJZTGn3eWzlKvRV5Wdio"
+    }
   }
 }
