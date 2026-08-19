@@ -36,6 +36,7 @@ TG_TOKEN   = os.environ.get('TELEGRAM_BOT_TOKEN', '').strip() or _read('telegram
 ALLOWED    = os.environ.get('TELEGRAM_CHAT_ID', '').strip() or _read('telegram_chat_id.txt')
 GROQ_KEY   = os.environ.get('GROQ_API_KEY', '').strip() or _read('groq.token')
 ANTHRO_KEY = os.environ.get('ANTHROPIC_API_KEY', '').strip() or _read('anthropic.token')
+CLAUDE_MODEL = os.environ.get('CLAUDE_MODEL', 'claude-opus-5').strip()
 
 SS_ID = '1bTDELaAo8Ft9WIQqeWDFQQzp5rrDDHiRZ4VpFo-D4m8'
 AUDIT_TAB = 'Аудит_агента'
@@ -61,7 +62,16 @@ SHEETS = AuthorizedSession(load_sa())
 
 # ── Telegram ──────────────────────────────────────────────────────────────────
 def tg(method, **kw):
-    return requests.post(f'https://api.telegram.org/bot{TG_TOKEN}/{method}', json=kw, timeout=25).json()
+    """Вызов телеграма.
+
+    getUpdates держит соединение до kw['timeout'] секунд. HTTP-таймаут должен
+    быть ЗАВЕДОМО больше, иначе связь рвётся ровно в момент ответа: раньше
+    здесь стояло 25 при опросе на 25 — каждый цикл падал в ReadTimeout,
+    лог забивался «net: ...», и бот терял по 5 секунд на пустом месте.
+    """
+    wait = int(kw.get('timeout', 0)) + 20
+    return requests.post(f'https://api.telegram.org/bot{TG_TOKEN}/{method}',
+                         json=kw, timeout=wait).json()
 def send(text):
     tg('sendMessage', chat_id=ALLOWED, text=text, parse_mode='HTML', disable_web_page_preview=True)
 def typing():
@@ -130,7 +140,8 @@ def analyze_receipt(content):
          'Если сумма не видна — total:0.')
     r = requests.post('https://api.anthropic.com/v1/messages',
         headers={'x-api-key':ANTHRO_KEY,'anthropic-version':'2023-06-01','content-type':'application/json'},
-        json={'model':'claude-3-5-sonnet-20241022','max_tokens':400,
+        json={'model':CLAUDE_MODEL,'max_tokens':4096,
+              'output_config':{'effort':'low'},
               'messages':[{'role':'user','content':[
                 {'type':'image','source':{'type':'base64','media_type':'image/jpeg','data':b64}},
                 {'type':'text','text':q}]}]}, timeout=60)
@@ -148,7 +159,8 @@ def analyze_image(content, caption=''):
                     'чистота, перчатки, порядок, поведение персонала. Кратко, по делу.')
     r = requests.post('https://api.anthropic.com/v1/messages',
         headers={'x-api-key':ANTHRO_KEY,'anthropic-version':'2023-06-01','content-type':'application/json'},
-        json={'model':'claude-3-5-sonnet-20241022','max_tokens':500,
+        json={'model':CLAUDE_MODEL,'max_tokens':4096,
+              'output_config':{'effort':'low'},
               'messages':[{'role':'user','content':[
                 {'type':'image','source':{'type':'base64','media_type':'image/jpeg','data':b64}},
                 {'type':'text','text':q}]}]}, timeout=60)
@@ -783,8 +795,9 @@ def _brain_anthropic(history):
             'input_schema':t['function']['parameters']} for t in TOOLS_SPEC]
     r=requests.post('https://api.anthropic.com/v1/messages',
         headers={'x-api-key':ANTHRO_KEY,'anthropic-version':'2023-06-01','content-type':'application/json'},
-        json={'model':'claude-3-5-sonnet-20241022','max_tokens':1024,'system':SYSTEM,
-              'messages':history,'tools':tools},timeout=60)
+        json={'model':CLAUDE_MODEL,'max_tokens':16000,'system':SYSTEM,
+              'output_config':{'effort':'low'},
+              'messages':history,'tools':tools},timeout=180)
     r.raise_for_status(); data=r.json()
     calls=[]; texts=[]
     for block in data.get('content',[]):
@@ -918,9 +931,9 @@ def handle(msg):
     multi, bad = _parse_quick_lines(text)
     if multi:
         acts, lines, loose_n = [], [], 0
-        for kind,cat,amount,iso,com,loose in multi:
+        for k2,cat,amount,iso,com,loose in multi:
             amt_s = str(int(amount)) if float(amount).is_integer() else str(amount)
-            a={'amount':amt_s,'category':cat,'kind':kind,'comment':com}
+            a={'amount':amt_s,'category':cat,'kind':k2,'comment':com}
             if iso: a['date']=iso
             acts.append(('add_budget_entry',a))
             when = iso if iso else 'сегодня'
@@ -928,10 +941,10 @@ def handle(msg):
             if loose: loose_n += 1
             lines.append(f'{describe_action("add_budget_entry",a)} · {when}{mark}')
         PENDING[ALLOWED]=acts
-        msg=f'❓ Подтверди — {len(acts)} операц.:\n\n' + '\n'.join(lines)
+        out=f'❓ Подтверди — {len(acts)} операц.:\n\n' + '\n'.join(lines)
         if bad:
-            msg += '\n\n⚠️ НЕ РАСПОЗНАЛ (не запишу):\n' + '\n'.join('· '+b[:60] for b in bad)
-        send(msg + '\n\nОтветь «да» или «нет».')
+            out += '\n\n⚠️ НЕ РАСПОЗНАЛ (не запишу):\n' + '\n'.join('· '+b[:60] for b in bad)
+        send(out + '\n\nОтветь «да» или «нет».')
         audit('quick-multi', text, f'ожидает подтверждения: {len(acts)} шт '
               f'(в «Прочее» без категории: {loose_n}), не распознано {len(bad)}')
         return
@@ -939,9 +952,9 @@ def handle(msg):
     # Быстрый ввод бюджета — точный формат; категория задана явно, но пишем после «да»
     q=_parse_quick(text)
     if q:
-        kind,cat,amount,iso,com,_loose=q
+        k2,cat,amount,iso,com,_loose=q
         amt_s = str(int(amount)) if float(amount).is_integer() else str(amount)
-        args={'amount':amt_s,'category':cat,'kind':kind,'comment':com}
+        args={'amount':amt_s,'category':cat,'kind':k2,'comment':com}
         if iso: args['date']=iso
         PENDING[ALLOWED]=[('add_budget_entry',args)]
         when = f' · {iso}' if iso else ' · сегодня'
@@ -955,8 +968,12 @@ def handle(msg):
     send(reply); audit(kind,text,reply)
 
 def run():
-    for need,name in [(TG_TOKEN,'TELEGRAM_BOT_TOKEN'),(ALLOWED,'TELEGRAM_CHAT_ID'),(GROQ_KEY,'GROQ_API_KEY')]:
+    for need,name in [(TG_TOKEN,'TELEGRAM_BOT_TOKEN'),(ALLOWED,'TELEGRAM_CHAT_ID')]:
         if not need: log.error(f'Нет {name}'); sys.exit(1)
+    if not GROQ_KEY and not ANTHRO_KEY:
+        log.error('Нужен GROQ_API_KEY или ANTHROPIC_API_KEY'); sys.exit(1)
+    if not GROQ_KEY:
+        log.warning('Нет GROQ_API_KEY — расшифровка голоса работать не будет')
     # Приветствие в чат не шлём: сервис пересобирается на каждый push в репозиторий,
     # и каждая пересборка превращалась в сообщение. Факт запуска виден в логах.
     log.info('🌸 Ромашка-агент запущен')
@@ -964,6 +981,9 @@ def run():
     while True:
         try:
             res=tg('getUpdates', offset=offset, timeout=25, allowed_updates=['message','my_chat_member'])
+            if not res.get('ok'):
+                log.warning(f"телеграм: {res.get('description') or res}")
+                time.sleep(3); continue
             for upd in res.get('result') or []:
                 offset=upd['update_id']+1
                 if 'message' in upd:
