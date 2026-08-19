@@ -37,6 +37,8 @@ ALLOWED    = os.environ.get('TELEGRAM_CHAT_ID', '').strip() or _read('telegram_c
 GROQ_KEY   = os.environ.get('GROQ_API_KEY', '').strip() or _read('groq.token')
 ANTHRO_KEY = os.environ.get('ANTHROPIC_API_KEY', '').strip() or _read('anthropic.token')
 CLAUDE_MODEL = os.environ.get('CLAUDE_MODEL', 'claude-opus-5').strip()
+# Groq снял llama-3.3-70b-versatile — вызовы отдавали 404 «Сбой мозга».
+GROQ_MODEL = os.environ.get('GROQ_MODEL', 'openai/gpt-oss-120b').strip()
 
 SS_ID = '1bTDELaAo8Ft9WIQqeWDFQQzp5rrDDHiRZ4VpFo-D4m8'
 AUDIT_TAB = 'Аудит_агента'
@@ -124,7 +126,7 @@ def plain_llm(prompt):
     """Чистый ответ LLM без инструментов — для анализа и обратной связи."""
     r=requests.post('https://api.groq.com/openai/v1/chat/completions',
         headers={'Authorization':f'Bearer {GROQ_KEY}','Content-Type':'application/json'},
-        json={'model':'llama-3.3-70b-versatile','temperature':0.3,
+        json={'model':GROQ_MODEL,'temperature':0.3,
               'messages':[{'role':'system','content':SYSTEM},{'role':'user','content':prompt}]},timeout=60)
     r.raise_for_status()
     return r.json()['choices'][0]['message'].get('content','').strip()
@@ -356,6 +358,25 @@ def _quick_map():
       'кофе':('расход','Кафе'),'ресторан':('расход','Кафе'),'обед':('расход','Кафе'),
       'интернет':('расход','Подписки'),'телефон':('расход','Подписки'),'связь':('расход','Подписки'),
       'мойка':('расход','Машина'),'ремонт авто':('расход','Машина'),
+      # сервисы и подписки — на них ломался ввод «Сервер railway 46,35»
+      'сервер':('расход','Подписки'),'хостинг':('расход','Подписки'),
+      'railway':('расход','Подписки'),'домен':('расход','Подписки'),
+      'подписка':('расход','Подписки'),'оплата подписки':('расход','Подписки'),
+      'claude':('расход','Подписки'),'icloud':('расход','Подписки'),
+      'telegram':('расход','Подписки'),'google':('расход','Подписки'),
+      'чатгпт':('расход','Подписки'),'нейросеть':('расход','Подписки'),
+      # прочие частые
+      'вода и стики':('расход','Продукты'),
+      'проезд':('расход','Прочее'),'маршрутка':('расход','Прочее'),
+      'штраф':('расход','Прочее'),'комиссия':('расход','Прочее'),
+      'стоматолог':('расход','Лечение / Медикаменты'),
+      'зубной':('расход','Лечение / Медикаменты'),'зубы':('расход','Лечение / Медикаменты'),
+      'лор':('расход','Лечение / Медикаменты'),'анализы':('расход','Лечение / Медикаменты'),
+      'книга':('расход','Обучение'),'курс':('расход','Обучение'),
+      'кино':('расход','Развлечение'),'игра':('расход','Развлечение'),
+      'жена':('расход','Семья'),'дети':('расход','Семья'),'мама':('расход','Семья'),
+      'отец':('расход','Семья'),'родители':('расход','Семья'),
+      'билет':('расход','Путешествие'),'отель':('расход','Путешествие'),
     }.items(): add(alias,k,c)
     return m
 QUICK_CATS=_quick_map()
@@ -441,6 +462,20 @@ def _parse_quick_loose(text):
     if any(w in com.lower().replace('ё','е') for w in NOT_SPEND): return None
     return 'расход','Прочее',amount,iso,com,True
 
+def _amount_first(text):
+    """«250 помощь брату» → «помощь брату 250».
+
+    Люди пишут сумму то впереди, то в конце. Раньше строка с суммой впереди
+    не разбиралась и уходила в модель — а если модель недоступна, запись
+    просто терялась. Переставляем и отдаём обычным разборщикам.
+    """
+    t = ' '.join(str(text).strip().split())
+    m = re.match(r'^(\d+(?:[.,]\d+)?)\s+(\D.*)$', t)
+    if not m:
+        return None
+    return f'{m.group(2).strip()} {m.group(1)}'
+
+
 def _parse_quick_lines(text):
     """Многострочный быстрый ввод: разбирает КАЖДУЮ строку отдельно.
     Возвращает (список разобранных операций, список неразобранных строк).
@@ -451,6 +486,10 @@ def _parse_quick_lines(text):
     ok, bad = [], []
     for ln in lines:
         q = _parse_quick(ln) or _parse_quick_loose(ln)
+        if not q:
+            swapped = _amount_first(ln)          # «250 помощь брату»
+            if swapped:
+                q = _parse_quick(swapped) or _parse_quick_loose(swapped)
         if q:
             ok.append(q)
         else:
@@ -753,7 +792,7 @@ def _brain_groq(history):
     msgs=[{'role':'system','content':SYSTEM}]+history
     r=requests.post('https://api.groq.com/openai/v1/chat/completions',
         headers={'Authorization':f'Bearer {GROQ_KEY}','Content-Type':'application/json'},
-        json={'model':'llama-3.3-70b-versatile','messages':msgs,'tools':TOOLS_SPEC,'tool_choice':'auto','temperature':0.2},
+        json={'model':GROQ_MODEL,'messages':msgs,'tools':TOOLS_SPEC,'tool_choice':'auto','temperature':0.2},
         timeout=60)
     # Groq строго валидирует tool-calls: при несовпадении даёт 400 tool_use_failed.
     if r.status_code==400 and 'tool_use_failed' in r.text:
@@ -766,6 +805,9 @@ def _brain_groq(history):
         except Exception:
             pass
         return 'Не разобрал — переформулируй, пожалуйста (например: «кино 160, снеки 92»).'
+    if r.status_code==404:
+        return (f'⚠️ Модель «{GROQ_MODEL}» больше не обслуживается Groq. '
+                'Поставь актуальную в переменной GROQ_MODEL.')
     r.raise_for_status()
     m=r.json()['choices'][0]['message']
     if m.get('tool_calls'):
@@ -951,6 +993,9 @@ def handle(msg):
 
     # Быстрый ввод бюджета — точный формат; категория задана явно, но пишем после «да»
     q=_parse_quick(text)
+    if not q:
+        swapped=_amount_first(text)
+        if swapped: q=_parse_quick(swapped) or _parse_quick_loose(swapped)
     if q:
         k2,cat,amount,iso,com,_loose=q
         amt_s = str(int(amount)) if float(amount).is_integer() else str(amount)
