@@ -55,6 +55,7 @@ FIX_MODE = ENV('FIX_MODE', '').strip().lower() in ('1', 'on', 'да', 'true')
 DAILY_AT = ENV('DAILY_AT', '21:30')                 # итог дня руководителям
 WEEKLY_AT = ENV('WEEKLY_AT', '09:30')               # сводка недели, по понедельникам
 CHECK_DEADLINE = int(ENV('CHECK_DEADLINE', '120'))  # мин на подтверждение управляющим
+BACKUP_AT = ENV('BACKUP_AT', '05:30')               # копии таблиц, пока никто не пишет
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CHECKLISTS_FILE = ENV('CHECKLISTS_FILE',

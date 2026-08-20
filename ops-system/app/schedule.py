@@ -171,6 +171,18 @@ def tick():
         except Exception as e:
             print('дашборд:', e)
 
+    # Копия — рано утром, когда никто не пишет: копируется целостное состояние
+    if minute >= hhmm(C.BACKUP_AT) and once('backup'):
+        try:
+            from . import backup as BK
+            BOT.admin(BK.run())
+        except Exception as e:
+            print('резервная копия:', e)
+            try:
+                BOT.admin(f'⚠️ Резервная копия не сделана: {e}')
+            except Exception:
+                pass
+
     if minute >= hhmm(C.DAILY_AT) and once('daily'):
         unconfirmed(day)
         tasks_pass()
