@@ -162,7 +162,7 @@
         border-radius:14px;background:var(--card);padding:14px;margin-bottom:10px}
   .rule b{display:block;margin-bottom:3px}
   .rule span{color:var(--ink-2);font-size:14px}
-  .tourfoot{position:fixed;left:0;right:0;bottom:0;padding:12px 18px
+  .tourfoot{position:fixed;left:0;right:0;bottom:0;z-index:21;padding:12px 18px
             calc(12px + env(safe-area-inset-bottom));background:var(--bg);
             border-top:1px solid var(--line)}
   .flag{margin-top:8px;padding:10px 12px;border-radius:12px;
@@ -832,7 +832,10 @@ function showTour(){
     + 'но сразу сообщит руководителю.</span></div>'
     + '<div class="rule"><b>Фото просят каждый раз разные</b><span>Из пунктов, '
     + 'где нужен снимок, система выбирает два наугад. Заранее подготовить '
-    + 'нельзя — снимай сейчас.</span></div>';
+    + 'нельзя — снимай сейчас.</span></div>'
+    + '<button class="send" id="tourBtn2" style="margin-top:26px">'
+    + 'Понятно, начать</button>';
+  $('#tourBtn2').onclick = closeTour;
   $('#tour').classList.remove('hidden');
   $('#tourFoot').classList.remove('hidden');
   $('#foot').classList.add('hidden');
