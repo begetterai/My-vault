@@ -62,6 +62,14 @@ def init_payload(who):
                      'photo_required': bool(cl.get('photo_required'))}
                     for k, cl in C.visible(role, 'form').items()]
     out['shift'] = shift_state(who)
+    if role in ('manager', 'coo'):
+        try:
+            from . import kpi as K
+            out['kpi'] = K.point_index(who[1], *K.period('week')[:2])
+            out['kpi']['flags'] = [{'title': t, 'why': w}
+                                   for t, _n, w in K.flags(who[1], *K.period('week')[:2])]
+        except Exception:
+            out['kpi'] = None
     try:
         out['score'] = SC.card(who[0], who[1])
     except Exception:

@@ -94,9 +94,24 @@ def daily():
 
 
 def weekly():
+    from . import kpi as K
     BOT.admin(R.week())
+    BOT.admin(K.report('week'))
     for cid, point in S.managers().items():
         BOT.say(cid, R.week(point=point))
+        BOT.say(cid, K.report('week', point))
+
+
+def monthly():
+    """Первого числа — итог месяца и квартал, если квартал закрылся."""
+    from . import kpi as K
+    prev = C.today().replace(day=1) - datetime.timedelta(days=1)
+    BOT.admin(K.report('month', ref=prev))
+    BOT.admin(K.people('month', ref=prev))
+    if prev.month % 3 == 0:
+        BOT.admin(K.report('quarter', ref=prev))
+    for cid, point in S.managers().items():
+        BOT.say(cid, K.report('month', point, ref=prev))
 
 
 # ── цикл ─────────────────────────────────────────────────────────────────────
@@ -121,6 +136,9 @@ def tick():
 
     if day.weekday() == 0 and minute >= hhmm(C.WEEKLY_AT) and once('weekly'):
         weekly()
+
+    if day.day == 1 and minute >= hhmm(C.WEEKLY_AT) and once('monthly'):
+        monthly()
 
 
 def loop():

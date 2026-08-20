@@ -131,6 +131,8 @@ def menu_kb(role):
                          'manager': '📋 История точки'}.get(role, '📋 История — все точки'),
                 'callback_data': 'cl:h:' + {'staff': 'me', 'manager': 'point'}.get(role, 'all')}])
     if role in ('manager', 'coo'):
+        kb.append([{'text': '📈 KPI', 'callback_data': 'cl:kpi:week'},
+                   {'text': '👥 Люди', 'callback_data': 'cl:kpi:people'}])
         kb.append([{'text': '➕ Добавить человека', 'callback_data': 'cl:addnew'}])
     if role == 'coo':
         kb.append([{'text': '💬 Идеи и задачи', 'callback_data': 'cl:h:ideas'}])
@@ -756,6 +758,24 @@ def on_callback(cq):
         tg('editMessageText', chat_id=chat_id, message_id=mid, parse_mode='HTML',
            text=f'<b>{who[0]}</b>\n{S.point_label(who[1])}\nЧто делаем?',
            reply_markup=menu_kb(S.role_of(who)))
+        return ack() or True
+
+    if data.startswith('cl:kpi:'):
+        what = data.split(':')[2]
+        from . import kpi as K
+        point = None if S.role_of(who) == 'coo' else who[1]
+        try:
+            txt = (K.people('week', point) if what == 'people'
+                   else K.report(what, point))
+        except Exception as e:
+            txt = f'⚠️ Не смог посчитать: {e}'
+        kb = [[{'text': 'Неделя', 'callback_data': 'cl:kpi:week'},
+               {'text': 'Месяц', 'callback_data': 'cl:kpi:month'},
+               {'text': 'Квартал', 'callback_data': 'cl:kpi:quarter'}],
+              [{'text': '👥 Люди', 'callback_data': 'cl:kpi:people'},
+               {'text': '◀ Назад', 'callback_data': 'cl:menu'}]]
+        tg('editMessageText', chat_id=chat_id, message_id=mid, text=txt,
+           parse_mode='HTML', reply_markup={'inline_keyboard': kb})
         return ack() or True
 
     if data.startswith('cl:h:'):

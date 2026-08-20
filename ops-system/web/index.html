@@ -99,6 +99,19 @@
         border-bottom:1px solid var(--line)}
   .rank:last-child{border:0}
   .rank.me{font-weight:700;color:var(--brand-2)}
+  .idx{display:flex;align-items:baseline;gap:10px}
+  .idx b{font-family:Manrope,sans-serif;font-size:34px;font-weight:800;
+         font-variant-numeric:tabular-nums;line-height:1}
+  .part{display:flex;align-items:center;gap:8px;margin-top:9px;font-size:14px}
+  .part .nm{flex:1;min-width:0}
+  .part .val{font-family:Manrope,sans-serif;font-weight:700;
+             font-variant-numeric:tabular-nums;min-width:44px;text-align:right}
+  .track{height:6px;border-radius:99px;background:var(--line);
+         width:78px;flex:none;overflow:hidden}
+  .track i{display:block;height:100%;border-radius:99px;background:var(--brand)}
+  .flag{margin-top:8px;padding:10px 12px;border-radius:12px;
+        background:var(--bad-soft);border:1px solid var(--bad);
+        color:var(--bad);font-size:13.5px;font-weight:600}
   .rowline{display:grid;grid-template-columns:1fr 84px 80px;gap:8px;
            background:var(--wash);border:1px solid var(--line);border-radius:14px;
            padding:10px;margin-bottom:10px}
@@ -239,6 +252,15 @@
       <div class="pick" id="fList"></div>
     </div>
 
+    <div id="kpiCard" class="card hidden" style="margin-top:26px">
+      <div class="kv"><span>Индекс точки за неделю</span>
+        <span class="idx"><b id="kpiTotal">—</b></span></div>
+      <div id="kpiParts"></div>
+      <div id="kpiFlags"></div>
+      <div class="hint">Индекс — про исполнение. Флаги — про имитацию,
+        в индекс они не входят.</div>
+    </div>
+
     <div id="scoreCard" class="card hidden" style="margin-top:26px">
       <div class="kv"><span class="lvl" id="lvl">—</span><b id="ptsTotal">0</b></div>
       <div class="stats">
@@ -346,7 +368,7 @@ async function boot(){
       b.onclick = () => start(k);
       box.appendChild(b);
     }
-    renderShift(); renderJournals(); renderForms(); renderScore();
+    renderShift(); renderJournals(); renderForms(); renderKpi(); renderScore();
     $('#pick').classList.remove('hidden');
   }catch(e){ fail('Не открылось: ' + e.message); }
 }
@@ -580,6 +602,33 @@ async function sendForm(cl, btn){
   tg?.HapticFeedback?.notificationOccurred?.('success');
   alert('Записал ' + res.count + ' позиций.');
   goHome();
+}
+
+/* ── индекс точки ────────────────────────────────────────────────────────── */
+function renderKpi(){
+  const k = DATA.kpi;
+  if(!k) return;
+  $('#kpiCard').classList.remove('hidden');
+  const t = k.total;
+  $('#kpiTotal').textContent = (t == null ? '—' : t);
+  $('#kpiTotal').style.color = t == null ? 'var(--ink-2)'
+    : (t >= 85 ? 'var(--ok)' : t >= 70 ? 'var(--brand-2)' : 'var(--bad)');
+  const box = $('#kpiParts'); box.innerHTML = '';
+  Object.entries(k.parts || {}).forEach(([name, v]) => {
+    const d = document.createElement('div');
+    d.className = 'part';
+    d.innerHTML = '<span class="nm">' + name + '</span>'
+      + '<span class="track"><i style="width:' + (v == null ? 0 : v) + '%"></i></span>'
+      + '<span class="val">' + (v == null ? '—' : v + '%') + '</span>';
+    box.appendChild(d);
+  });
+  const fb = $('#kpiFlags'); fb.innerHTML = '';
+  (k.flags || []).forEach(f => {
+    const d = document.createElement('div');
+    d.className = 'flag';
+    d.textContent = '⚠️ ' + f.title + ' — ' + f.why;
+    fb.appendChild(d);
+  });
 }
 
 /* ── баллы ───────────────────────────────────────────────────────────────── */
