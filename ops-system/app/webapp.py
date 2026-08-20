@@ -63,6 +63,7 @@ def init_payload(who):
                      'photo_required': bool(cl.get('photo_required'))}
                     for k, cl in C.visible(role, 'form').items()]
     out['shift'] = shift_state(who)
+    out['geo'] = {p: S.point_geo(p) for p in S.points()}
     if role in ('manager', 'coo'):
         try:
             from . import reports as RP
@@ -80,9 +81,8 @@ def init_payload(who):
             from . import equipment as EQ
             out['equip_types'] = EQ.types_for_app()
             out['equip'] = EQ.all_items(None if role == 'coo' else who[1], False)
-            out['geo'] = {p: S.point_geo(p) for p in S.points()}
         except Exception:
-            out['equip_types'], out['equip'], out['geo'] = [], [], {}
+            out['equip_types'], out['equip'] = [], []
         try:
             from . import tasks as TSK
             pt = None if role == 'coo' else who[1]
@@ -349,6 +349,27 @@ def check(who, body):
     return {'ok': True}
 
 
+COORD_RE = __import__('re').compile(
+    r'(-?\d{1,3}[.,]\d{3,})\s*[,\s]\s*(-?\d{1,3}[.,]\d{3,})')
+
+
+def parse_coords(text):
+    """«38.5767, 68.8002» или ссылка Google Карт → (широта, долгота).
+
+    Задать координаты можно двумя способами: стоя на точке кнопкой — точнее
+    всего; или вставив место с карты — когда до точки ещё надо доехать.
+    """
+    t = str(text).replace('%2C', ',')
+    m = __import__('re').search(r'@(-?\d+\.\d+),(-?\d+\.\d+)', t) or COORD_RE.search(t)
+    if not m:
+        return None
+    try:
+        return (float(m.group(1).replace(',', '.')),
+                float(m.group(2).replace(',', '.')))
+    except ValueError:
+        return None
+
+
 def set_geo(who, body):
     """Координаты точки задаются С МЕСТА, стоя на точке.
 
@@ -358,12 +379,23 @@ def set_geo(who, body):
     if S.role_of(who) not in ('manager', 'coo'):
         return {'ok': False, 'error': 'Координаты задаёт руководитель'}
     point = pick_point(who, body)
-    try:
-        lat = float(body.get('lat'))
-        lon = float(body.get('lon'))
-    except (TypeError, ValueError):
-        return {'ok': False, 'error': 'Не получилось определить место. '
-                                      'Разреши геопозицию и попробуй ещё раз.'}
+    manual = str(body.get('manual', '')).strip()
+    if manual:
+        pair = parse_coords(manual)
+        if not pair:
+            return {'ok': False, 'error': 'Не разобрал координаты. Нужны два '
+                                          'числа через запятую или ссылка '
+                                          'на Google Карты.'}
+        lat, lon = pair
+    else:
+        try:
+            lat = float(body.get('lat'))
+            lon = float(body.get('lon'))
+        except (TypeError, ValueError):
+            return {'ok': False, 'error': 'Не получилось определить место. '
+                                          'Разреши геопозицию и попробуй ещё раз.'}
+    if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+        return {'ok': False, 'error': 'Такие координаты не бывают'}
     radius = body.get('radius')
     try:
         radius = int(radius) if radius else 150

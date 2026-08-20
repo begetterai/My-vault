@@ -126,6 +126,25 @@
   .badge{display:inline-block;padding:2px 8px;border-radius:99px;font-size:12px;
          font-weight:700;background:var(--wash);color:var(--ink-2);margin-left:6px}
   .badge.warn{background:var(--bad-soft);color:var(--bad)}
+  .gate{position:fixed;inset:0;z-index:30;background:var(--bg);
+        display:flex;flex-direction:column;align-items:center;
+        justify-content:center;text-align:center;padding:28px 24px}
+  .gate .big-ico{font-size:56px;margin-bottom:16px}
+  .gate h1{font-family:Manrope,sans-serif;font-size:23px;font-weight:800;
+           margin:0 0 10px;line-height:1.25}
+  .gate p{color:var(--ink-2);font-size:15px;line-height:1.5;margin:0 0 8px;
+          max-width:340px}
+  .gate .how{background:var(--wash);border:1px solid var(--line);
+             border-radius:14px;padding:14px;margin-top:16px;text-align:left;
+             font-size:14px;color:var(--ink-2);max-width:340px}
+  .gate button{margin-top:20px;padding:17px 28px;border-radius:15px;border:0;
+        background:var(--brand);color:var(--on-brand);
+        font-family:Manrope,sans-serif;font-weight:800;font-size:16px;
+        cursor:pointer}
+  .dist{display:inline-block;padding:2px 9px;border-radius:99px;font-size:12px;
+        font-weight:700;margin-left:6px}
+  .dist.near{background:var(--ok-soft);color:var(--ok)}
+  .dist.far{background:var(--bad-soft);color:var(--bad)}
   .tour{position:fixed;inset:0;z-index:20;background:var(--bg);
         overflow-y:auto;padding:24px 18px calc(96px + env(safe-area-inset-bottom))}
   .tour h1{font-family:Manrope,sans-serif;font-size:26px;font-weight:800;
@@ -255,6 +274,7 @@
     <div class="titles">
       <div class="who" id="who">Загрузка…</div>
       <div class="sub" id="sub"></div>
+      <div class="sub"><span class="dist" id="distBadge"></span></div>
     </div>
   </div>
   <div class="bar hidden" id="bar"><i></i></div>
@@ -354,6 +374,15 @@
   <div id="err" class="msg hidden"></div>
 </main>
 
+<div class="gate hidden" id="gate">
+  <div class="big-ico">📍</div>
+  <h1 id="gateTitle">Нужна геопозиция</h1>
+  <p id="gateText">Приложение работает только с включённым определением места —
+    так подтверждается, что смена действительно на точке.</p>
+  <div class="how" id="gateHow"></div>
+  <button id="gateBtn">Разрешить и продолжить</button>
+</div>
+
 <div class="tour hidden" id="tour">
   <div id="tourBody"></div>
 </div>
@@ -398,7 +427,86 @@ function enterScreen(){
 $('#btnBack').onclick = goHome;
 tg?.BackButton?.onClick?.(goHome);
 
+/* ── вход только с геопозицией ───────────────────────────────────────────── */
+let MYGEO = null;
+
+const HOW_IOS = 'На айфоне: Настройки → Конфиденциальность → Службы геолокации → '
+  + 'включить, найти Telegram → «При использовании».';
+const HOW_AND = 'На андроиде: Настройки → Приложения → Telegram → Разрешения → '
+  + 'Местоположение → «Разрешить при использовании».';
+
+function showGate(title, text){
+  $('#gateTitle').textContent = title;
+  $('#gateText').textContent = text;
+  const ios = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+  $('#gateHow').textContent = ios ? HOW_IOS : HOW_AND;
+  $('#gate').classList.remove('hidden');
+}
+
+function hideGate(){ $('#gate').classList.add('hidden'); }
+
+function askGeo(){
+  return new Promise(res => {
+    if(!navigator.geolocation) return res({error: 'no-api'});
+    navigator.geolocation.getCurrentPosition(
+      p => res({lat: p.coords.latitude, lon: p.coords.longitude,
+                acc: Math.round(p.coords.accuracy || 0)}),
+      e => res({error: e.code === 1 ? 'denied' : 'unavailable'}),
+      {enableHighAccuracy: true, timeout: 15000, maximumAge: 0});
+  });
+}
+
+async function gate(){
+  const g = await askGeo();
+  if(g.error){
+    const t = g.error === 'denied'
+      ? ['Доступ к месту закрыт',
+         'Телефон не даёт приложению определить место. Открой настройки, '
+         + 'разреши Telegram доступ к геопозиции и нажми кнопку ниже.']
+      : g.error === 'no-api'
+      ? ['Телефон не умеет определять место',
+         'Открой приложение через Telegram на телефоне, а не на компьютере.']
+      : ['Место не определилось',
+         'Сигнал не поймался. Выйди ближе к окну или на улицу и попробуй ещё раз.'];
+    showGate(t[0], t[1]);
+    return false;
+  }
+  MYGEO = g;
+  hideGate();
+  return true;
+}
+
+$('#gateBtn').onclick = async () => {
+  const b = $('#gateBtn');
+  b.disabled = true; b.textContent = 'Определяю…';
+  const ok = await gate();
+  b.disabled = false; b.textContent = 'Разрешить и продолжить';
+  if(ok) boot();
+};
+
+/* расстояние до точки — считается на месте, показывается сразу */
+function distanceM(a, b, c, d){
+  const R = 6371000, r = Math.PI / 180;
+  const p1 = a * r, p2 = c * r, dp = (c - a) * r, dl = (d - b) * r;
+  const x = Math.sin(dp/2)**2 + Math.cos(p1)*Math.cos(p2)*Math.sin(dl/2)**2;
+  return 2 * R * Math.asin(Math.sqrt(x));
+}
+
+function renderDistance(){
+  const el = $('#distBadge');
+  if(!el) return;
+  const g = (DATA.geo || {})[point];
+  if(!g || !MYGEO){ el.textContent = ''; el.className = 'dist'; return; }
+  const m = Math.round(distanceM(MYGEO.lat, MYGEO.lon, g[0], g[1]));
+  const near = m <= (g[2] || 150);
+  el.className = 'dist ' + (near ? 'near' : 'far');
+  el.textContent = near ? `на точке · ${m} м`
+    : (m >= 1000 ? `вне точки · ${(m/1000).toFixed(1)} км`
+                 : `вне точки · ${m} м`);
+}
+
 async function boot(){
+  if(!MYGEO && !(await gate())) return;
   try{
     const r = await fetch('/api/init?initData=' + encodeURIComponent(initData));
     const j = await r.json();
@@ -423,6 +531,7 @@ async function boot(){
             x.setAttribute('aria-pressed', j.points[i].code === point ? 'true' : 'false'));
           $('#sub').textContent = (j.points.find(q => q.code === point) || {}).label
             + ' · ' + j.day;
+          renderDistance();
           tg?.HapticFeedback?.selectionChanged?.();
         };
         seg.appendChild(b);
@@ -441,6 +550,7 @@ async function boot(){
       b.onclick = () => start(k);
       box.appendChild(b);
     }
+    renderDistance();
     renderShift(); renderSite(); renderTasks(); renderPending();
     renderJournals(); renderForms(); renderKpi(); renderScore();
     maybeTour();
@@ -450,12 +560,9 @@ async function boot(){
 
 /* ── явка ────────────────────────────────────────────────────────────────── */
 function geo(){
-  return new Promise(res => {
-    if(!navigator.geolocation) return res({});
-    const done = p => res({lat: p.coords.latitude, lon: p.coords.longitude});
-    navigator.geolocation.getCurrentPosition(done, () => res({}),
-      {enableHighAccuracy: true, timeout: 8000, maximumAge: 0});
-  });
+  // на входе место уже определено — второй раз телефон не дёргаем
+  if(MYGEO) return Promise.resolve({lat: MYGEO.lat, lon: MYGEO.lon});
+  return askGeo().then(g => g.error ? {} : g);
 }
 
 function renderShift(){
