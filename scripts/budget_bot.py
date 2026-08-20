@@ -40,8 +40,13 @@ TG_TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN', '').strip() or _read('telegram.t
 ALLOWED = os.environ.get('TELEGRAM_CHAT_ID', '').strip() or _read('telegram_chat_id.txt')
 GROQ_KEY = os.environ.get('GROQ_API_KEY', '').strip() or _read('groq.token')
 ANTHRO_KEY = os.environ.get('ANTHROPIC_API_KEY', '').strip() or _read('anthropic.token')
-GROQ_MODEL = os.environ.get('GROQ_MODEL', 'openai/gpt-oss-120b').strip()
+# Список моделей по порядку. Первая не ответила — берём следующую.
+# Одна модель = одна точка отказа: когда Groq снял llama-3.3-70b-versatile,
+# бот два дня отвечал «Сбой мозга» на каждый вопрос.
+GROQ_MODELS = [m.strip() for m in os.environ.get(
+    'GROQ_MODELS', 'openai/gpt-oss-120b,openai/gpt-oss-20b').split(',') if m.strip()]
 CLAUDE_MODEL = os.environ.get('CLAUDE_MODEL', 'claude-opus-5').strip()
+_LIVE = {'model': None}          # какая модель ответила в прошлый раз
 
 TZ_OFFSET = datetime.timedelta(hours=5)          # Душанбе UTC+5, сервер в UTC
 
@@ -571,26 +576,93 @@ SYSTEM = (
 
 
 # ── Мозг ─────────────────────────────────────────────────────────────────────
+def _order():
+    """Модели в порядке пробы: та, что отвечала в прошлый раз, — первой."""
+    live = _LIVE['model']
+    if live and live in GROQ_MODELS:
+        return [live] + [m for m in GROQ_MODELS if m != live]
+    return list(GROQ_MODELS)
+
+
+def _ask_groq(model, msgs):
+    """→ (сообщение, причина отказа). Причина есть — пробуем следующую."""
+    try:
+        r = requests.post('https://api.groq.com/openai/v1/chat/completions',
+                          headers={'Authorization': f'Bearer {GROQ_KEY}',
+                                   'Content-Type': 'application/json'},
+                          json={'model': model, 'messages': msgs,
+                                'tools': TOOLS_SPEC, 'tool_choice': 'auto',
+                                'temperature': 0.2}, timeout=90)
+    except requests.RequestException as e:
+        return None, f'сеть: {e}'
+    if r.status_code in (400, 404):
+        # модель снята или не существует — на неё больше не тратим попытки
+        return None, f'модель недоступна ({r.status_code})'
+    if r.status_code == 429:
+        return None, 'лимит запросов'
+    if r.status_code >= 500:
+        return None, f'сбой провайдера ({r.status_code})'
+    if not r.ok:
+        return None, f'ошибка {r.status_code}'
+    try:
+        return r.json()['choices'][0]['message'], None
+    except Exception as e:
+        return None, f'непонятный ответ: {e}'
+
+
+def _ask_claude(text):
+    """Запасной провайдер. Без инструментов — просто ответ словами."""
+    if not ANTHRO_KEY:
+        return None
+    try:
+        r = requests.post('https://api.anthropic.com/v1/messages',
+                          headers={'x-api-key': ANTHRO_KEY,
+                                   'anthropic-version': '2023-06-01',
+                                   'content-type': 'application/json'},
+                          json={'model': CLAUDE_MODEL, 'max_tokens': 4096,
+                                'output_config': {'effort': 'low'},
+                                'system': SYSTEM.format(today=today_local()),
+                                'messages': [{'role': 'user', 'content': text}]},
+                          timeout=120)
+        if not r.ok:
+            return None
+        return ''.join(b.get('text', '') for b in r.json().get('content', [])
+                       if b.get('type') == 'text').strip() or None
+    except Exception:
+        return None
+
+
 def brain(text):
+    """Свободный вопрос. Перебираем модели, пока одна не ответит."""
     msgs = [{'role': 'system', 'content': SYSTEM.format(today=today_local())},
             {'role': 'user', 'content': text}]
-    r = requests.post('https://api.groq.com/openai/v1/chat/completions',
-                      headers={'Authorization': f'Bearer {GROQ_KEY}',
-                               'Content-Type': 'application/json'},
-                      json={'model': GROQ_MODEL, 'messages': msgs,
-                            'tools': TOOLS_SPEC, 'tool_choice': 'auto',
-                            'temperature': 0.2}, timeout=90)
-    if r.status_code == 404:
-        return (f'⚠️ Модель «{GROQ_MODEL}» больше не обслуживается. '
-                'Поставь актуальную в переменной GROQ_MODEL.')
-    if not r.ok:
-        return f'⚠️ Модель не ответила: {r.status_code}'
-    m = r.json()['choices'][0]['message']
-    if m.get('tool_calls'):
-        calls = [(tc['function']['name'], json.loads(tc['function']['arguments'] or '{}'))
-                 for tc in m['tool_calls']]
-        return run_calls(calls)
-    return m.get('content') or 'Не понял, повтори иначе.'
+    tried = []
+    for model in _order():
+        m, why = _ask_groq(model, msgs)
+        if m is None:
+            tried.append(f'{model}: {why}')
+            log.warning('модель %s не ответила — %s', model, why)
+            continue
+        if _LIVE['model'] != model:
+            log.info('работаю на модели %s', model)
+            _LIVE['model'] = model
+        if m.get('tool_calls'):
+            calls = [(tc['function']['name'],
+                      json.loads(tc['function']['arguments'] or '{}'))
+                     for tc in m['tool_calls']]
+            return run_calls(calls)
+        return m.get('content') or 'Не понял, повтори иначе.'
+
+    # Все модели Groq молчат — пробуем другого провайдера.
+    alt = _ask_claude(text)
+    if alt:
+        log.info('ответил запасной провайдер')
+        return alt
+    _LIVE['model'] = None
+    return ('⚠️ Ни одна модель не ответила.\n\n'
+            + '\n'.join('· ' + t for t in tried)
+            + '\n\nЗапись расходов работает как обычно — '
+              'пиши «Продукты 120 вода».')
 
 
 def run_calls(calls):
@@ -636,13 +708,44 @@ def transcribe(file_id):
 
 
 # ── Чек с фото ───────────────────────────────────────────────────────────────
+VISION_MODELS = [m.strip() for m in os.environ.get(
+    'VISION_MODELS', 'meta-llama/llama-4-scout-17b-16e-instruct').split(',') if m.strip()]
+
+
+def _receipt_groq(b64, q):
+    """Запасное чтение чека: зрение Groq, если Claude недоступен."""
+    for model in VISION_MODELS:
+        try:
+            r = requests.post('https://api.groq.com/openai/v1/chat/completions',
+                              headers={'Authorization': f'Bearer {GROQ_KEY}',
+                                       'Content-Type': 'application/json'},
+                              json={'model': model, 'temperature': 0,
+                                    'messages': [{'role': 'user', 'content': [
+                                        {'type': 'text', 'text': q},
+                                        {'type': 'image_url', 'image_url': {
+                                            'url': f'data:image/jpeg;base64,{b64}'}}]}]},
+                              timeout=90)
+            if not r.ok:
+                log.warning('зрение %s: %s', model, r.status_code)
+                continue
+            txt = r.json()['choices'][0]['message'].get('content', '')
+            m = re.search(r'\{.*\}', txt, re.S)
+            if m:
+                return json.loads(m.group(0))
+        except Exception as e:
+            log.warning('зрение %s: %s', model, e)
+    return {}
+
+
 def read_receipt(content):
     import base64
     q = ('Это фото чека. Верни СТРОГО JSON без пояснений: '
          '{"total": число_итого, "merchant": "магазин", '
          f'"category": "одна из: {", ".join(sorted(BUDGET_CATS))}", '
          '"summary": "кратко что куплено"}. Сумму не видно — total:0.')
-    r = requests.post('https://api.anthropic.com/v1/messages',
+    b64 = base64.b64encode(content).decode()
+    try:
+        r = requests.post('https://api.anthropic.com/v1/messages',
                       headers={'x-api-key': ANTHRO_KEY,
                                'anthropic-version': '2023-06-01',
                                'content-type': 'application/json'},
@@ -651,13 +754,18 @@ def read_receipt(content):
                             'messages': [{'role': 'user', 'content': [
                                 {'type': 'image', 'source': {
                                     'type': 'base64', 'media_type': 'image/jpeg',
-                                    'data': base64.b64encode(content).decode()}},
+                                    'data': b64}},
                                 {'type': 'text', 'text': q}]}]}, timeout=120)
-    r.raise_for_status()
-    txt = ''.join(b.get('text', '') for b in r.json().get('content', [])
-                  if b.get('type') == 'text')
-    m = re.search(r'\{.*\}', txt, re.S)
-    return json.loads(m.group(0)) if m else {}
+        if r.ok:
+            txt = ''.join(b.get('text', '') for b in r.json().get('content', [])
+                          if b.get('type') == 'text')
+            m = re.search(r'\{.*\}', txt, re.S)
+            if m:
+                return json.loads(m.group(0))
+        log.warning('чек через Claude: %s', r.status_code)
+    except Exception as e:
+        log.warning('чек через Claude: %s', e)
+    return _receipt_groq(b64, q)
 
 
 # ── Аудит ────────────────────────────────────────────────────────────────────
@@ -702,8 +810,10 @@ HELP = (
     '<code>месяц</code> — итог месяца: доходы, расходы, остаток\n\n'
     'Дата: 18.08.2026 · 18.08.26 · 18.08 · 2026-08-18. Без даты — сегодня.\n'
     'Валюту (см, сом, с) можно писать — отбрасывается.\n'
-    'Голосовое расшифрую. Фото чека прочитаю, если подключён ключ Claude.'
+    'Голосовое расшифрую. Фото чека прочитаю и предложу запись.\n'
+    '<code>модель</code> — на какой модели сейчас работаю.'
 )
+MODEL_WORDS = ('модель', '/модель', 'какая модель')
 LIMIT_WORDS = ('лимиты', 'лимит', '/лимиты', 'остаток', 'остатки', 'сколько осталось')
 MONTH_WORDS = ('месяц', '/месяц', 'итог месяца', 'итоги месяца')
 HELP_WORDS = ('/start', '/help', '/помощь', 'помощь', 'что умеешь')
@@ -727,9 +837,9 @@ def handle(msg):
             content = requests.get(
                 f'https://api.telegram.org/file/bot{TG_TOKEN}/{path}',
                 timeout=120).content
-            if not ANTHRO_KEY:
-                send('📷 Чтение чеков требует ключ Claude. '
-                     'Добавь ANTHROPIC_API_KEY или напиши сумму текстом.')
+            if not ANTHRO_KEY and not GROQ_KEY:
+                send('📷 Читать чеки нечем — нет ни одного ключа. '
+                     'Напиши сумму текстом.')
                 return
             rc = read_receipt(content)
             total = float(rc.get('total') or 0)
@@ -787,6 +897,16 @@ def handle(msg):
     if low in HELP_WORDS:
         send(HELP)
         return
+    if low in MODEL_WORDS:
+        live = _LIVE['model'] or 'ещё не проверялась'
+        send(f'🧠 Сейчас работает: <b>{live}</b>\n\n'
+             'Очередь моделей:\n'
+             + '\n'.join(f'{i}. {m}' for i, m in enumerate(GROQ_MODELS, 1))
+             + ('\n\nЗапасной провайдер: Claude ' + CLAUDE_MODEL
+                if ANTHRO_KEY else '\n\nЗапасного провайдера нет — '
+                                   'не задан ANTHROPIC_API_KEY'))
+        return
+
     if low in LIMIT_WORDS:
         typing()
         out = limits_report()
