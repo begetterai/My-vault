@@ -52,6 +52,7 @@ def init_payload(who):
            'point_label': S.point_label(who[1]), 'points': pts,
            'role': role, 'day': C.day_str(), 'lists': {}}
     out['can_fix'] = C.FIX_MODE and role in ('manager', 'coo')
+    out['can_check'] = role in ('manager', 'coo')
     out['journals'] = [{'key': k, 'title': cl['title'], 'code': cl['code'],
                         'icon': cl.get('icon', '📌'), 'doc': cl.get('doc'),
                         'fields': cl.get('fields', [])}
@@ -62,6 +63,19 @@ def init_payload(who):
                      'photo_required': bool(cl.get('photo_required'))}
                     for k, cl in C.visible(role, 'form').items()]
     out['shift'] = shift_state(who)
+    if role in ('manager', 'coo'):
+        try:
+            from . import reports as RP
+            out['pending'] = [
+                {'key': x['key'], 'line': x['line'], 'title': x['title'],
+                 'point': x['point'], 'who': x['who'], 'day': x['day'],
+                 'at': x['at'], 'ok': int(x['ok']), 'tot': int(x['tot']),
+                 'fails': x['fails'], 'comment': x['comment'],
+                 'minutes': x['minutes'], 'fast': x['fast'],
+                 'age': (C.today() - x['date']).days}
+                for x in RP.pending(None if role == 'coo' else who[1])]
+        except Exception:
+            out['pending'] = []
     if role in ('manager', 'coo'):
         try:
             from . import kpi as K
@@ -278,6 +292,30 @@ def fix(who, body):
     return {'ok': True}
 
 
+def check(who, body):
+    """Второй круг: подтвердить заполнение либо описать расхождение."""
+    if S.role_of(who) not in ('manager', 'coo'):
+        return {'ok': False, 'error': 'Подтверждает руководитель'}
+    key = str(body.get('key', ''))
+    line = str(body.get('line', ''))
+    verdict = 'ok' if body.get('verdict') == 'ok' else 'bad'
+    note_txt = str(body.get('note', '')).strip()[:300]
+    if key not in C.checklists() or not line.isdigit():
+        return {'ok': False, 'error': 'не та запись'}
+    if verdict == 'bad' and len(note_txt.split()) < 2:
+        return {'ok': False, 'error': 'Опиши, что именно не сошлось'}
+    S.save_check(key, line, who[0], verdict, note_txt)
+    try:
+        BOT._award_check(key, line, who[0], verdict)
+    except Exception:
+        pass
+    try:
+        BOT.final_report(key, line, verdict, who[0], note_txt)
+    except Exception as e:
+        print('итоговый отчёт:', e)
+    return {'ok': True}
+
+
 def note(who, body):
     text = str(body.get('text', '')).strip()
     if len(text.split()) < 3:
@@ -347,6 +385,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, submit(who, body))
             if p == '/api/note':
                 return self._send(200, note(who, body))
+            if p == '/api/check':
+                return self._send(200, check(who, body))
             if p == '/api/fix':
                 return self._send(200, fix(who, body))
             if p == '/api/shift':

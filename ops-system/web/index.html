@@ -109,6 +109,23 @@
   .track{height:6px;border-radius:99px;background:var(--line);
          width:78px;flex:none;overflow:hidden}
   .track i{display:block;height:100%;border-radius:99px;background:var(--brand)}
+  .chk{border:1px solid var(--line);border-left:4px solid var(--brand);
+       border-radius:16px;background:var(--card);padding:14px;margin-bottom:10px;
+       box-shadow:var(--shadow)}
+  .chk h3{margin:0 0 2px;font-family:Manrope,sans-serif;font-size:16px;
+          font-weight:700}
+  .chk .meta{color:var(--ink-2);font-size:13.5px}
+  .chk .det{margin-top:8px;font-size:14px}
+  .chk .det b{font-weight:600}
+  .chk .acts{display:flex;gap:8px;margin-top:12px}
+  .chk .acts button{flex:1;padding:14px 8px;border-radius:13px;border:0;
+        font-weight:700;font-size:14.5px;cursor:pointer}
+  .chk .yes{background:var(--ok);color:#fff}
+  .chk .no{background:transparent;color:var(--bad);border:1.5px solid var(--bad)!important}
+  .chk.old{border-left-color:var(--bad)}
+  .badge{display:inline-block;padding:2px 8px;border-radius:99px;font-size:12px;
+         font-weight:700;background:var(--wash);color:var(--ink-2);margin-left:6px}
+  .badge.warn{background:var(--bad-soft);color:var(--bad)}
   .flag{margin-top:8px;padding:10px 12px;border-radius:12px;
         background:var(--bad-soft);border:1px solid var(--bad);
         color:var(--bad);font-size:13.5px;font-weight:600}
@@ -252,6 +269,11 @@
       <div class="pick" id="fList"></div>
     </div>
 
+    <div id="pendBox" class="hidden">
+      <h2>На проверке <span id="pendN" class="badge"></span></h2>
+      <div id="pendList"></div>
+    </div>
+
     <div id="kpiCard" class="card hidden" style="margin-top:26px">
       <div class="kv"><span>Индекс точки за неделю</span>
         <span class="idx"><b id="kpiTotal">—</b></span></div>
@@ -368,7 +390,8 @@ async function boot(){
       b.onclick = () => start(k);
       box.appendChild(b);
     }
-    renderShift(); renderJournals(); renderForms(); renderKpi(); renderScore();
+    renderShift(); renderPending(); renderJournals(); renderForms();
+    renderKpi(); renderScore();
     $('#pick').classList.remove('hidden');
   }catch(e){ fail('Не открылось: ' + e.message); }
 }
@@ -602,6 +625,71 @@ async function sendForm(cl, btn){
   tg?.HapticFeedback?.notificationOccurred?.('success');
   alert('Записал ' + res.count + ' позиций.');
   goHome();
+}
+
+/* ── на проверке ─────────────────────────────────────────────────────────── */
+function renderPending(){
+  const list = DATA.pending || [];
+  const box = $('#pendList');
+  if(!DATA.can_check) return;
+  $('#pendBox').classList.remove('hidden');
+  $('#pendN').textContent = list.length || '';
+  $('#pendN').className = 'badge' + (list.length > 3 ? ' warn' : '');
+  box.innerHTML = '';
+  if(!list.length){
+    box.innerHTML = '<div class="msg">Всё проверено. Ни одно заполнение '
+      + 'не ждёт подтверждения.</div>';
+    return;
+  }
+  list.forEach(x => box.appendChild(pendCard(x)));
+}
+
+function pendCard(x){
+  const d = document.createElement('div');
+  d.className = 'chk' + (x.age >= 1 ? ' old' : '');
+  const age = x.age === 0 ? 'сегодня' : (x.age === 1 ? 'вчера' : x.age + ' дн. назад');
+  let det = '<b>' + x.ok + ' из ' + x.tot + '</b>'
+    + (x.minutes ? ' · ' + x.minutes + ' мин' : '')
+    + (x.fast ? ' <span class="badge warn">быстро</span>' : '');
+  if(x.fails && x.fails !== '—') det += '<br>❌ пункты: ' + x.fails;
+  if(x.comment) det += '<br>💬 ' + x.comment;
+  d.innerHTML = '<h3>' + x.title + '</h3>'
+    + '<div class="meta">' + x.point + ' · ' + x.who + ' · ' + x.day
+    + ' в ' + x.at + ' · ' + age + '</div>'
+    + '<div class="det">' + det + '</div>';
+  const acts = document.createElement('div'); acts.className = 'acts';
+  const yes = document.createElement('button');
+  yes.className = 'yes'; yes.textContent = '✓ Проверил';
+  yes.onclick = () => sendCheck(x, 'ok', '', d);
+  const no = document.createElement('button');
+  no.className = 'no'; no.textContent = '⚠ Расхождение';
+  no.onclick = () => {
+    const t = prompt('Что именно не сошлось?\n\n' + x.title + ' · ' + x.who
+      + '\n\nНапиши фразой — это уйдёт в отчёт и в историю точки.');
+    if(t) sendCheck(x, 'bad', t, d);
+  };
+  acts.append(yes, no); d.appendChild(acts);
+  return d;
+}
+
+async function sendCheck(x, verdict, note, card){
+  card.querySelectorAll('button').forEach(b => b.disabled = true);
+  const r = await fetch('/api/check', {method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({initData, key: x.key, line: x.line, verdict, note})});
+  const j = await r.json();
+  if(!j.ok){
+    card.querySelectorAll('button').forEach(b => b.disabled = false);
+    return alert(j.error || 'не записалось');
+  }
+  tg?.HapticFeedback?.notificationOccurred?.('success');
+  card.style.opacity = '.45';
+  card.querySelector('.acts').innerHTML =
+    '<div class="hint">' + (verdict === 'ok' ? '✓ Подтверждено'
+      : '⚠ Расхождение записано') + ' · итог ушёл директору</div>';
+  DATA.pending = (DATA.pending || []).filter(p =>
+    !(p.key === x.key && p.line === x.line));
+  $('#pendN').textContent = DATA.pending.length || '';
 }
 
 /* ── индекс точки ────────────────────────────────────────────────────────── */

@@ -77,6 +77,61 @@ def day_block(day, point=None):
     return '\n'.join(L)
 
 
+def pending(point=None, days=14):
+    """Заполнения, которые ждут подтверждения управляющего.
+
+    Раньше проверка жила одним сообщением в чате: пропустил — забыл.
+    Здесь список, который висит, пока его не разберут.
+    """
+    since = C.today() - datetime.timedelta(days=days)
+    cls = list(C.checklists().values())
+    out = []
+    for cl, rows in zip(cls, S.get_many([(cl['tab'], 'A2:Q') for cl in cls])):
+        for i, r in enumerate(rows):
+            r = list(r) + [''] * 17
+            d = _d(r[0])
+            if not d or d < since:
+                continue
+            if point and r[1].strip() != point:
+                continue
+            if str(r[13]).strip():          # колонка «Проверил» заполнена
+                continue
+            if not str(r[2]).strip():
+                continue
+            out.append({
+                'key': cl['key'], 'tab': cl['tab'], 'title': cl['title'],
+                'line': i + 2, 'date': d, 'day': r[0].strip(),
+                'point': r[1].strip(), 'who': r[2].strip(),
+                'at': r[3].strip(), 'ok': _n(r[5]) or 0, 'tot': _n(r[6]) or 0,
+                'fails': r[8].strip(), 'comment': r[9].strip(),
+                'minutes': _n(r[12]),
+                'fast': (_n(r[12]) or 99) * 60 < C.MIN_SECONDS,
+            })
+    out.sort(key=lambda x: (x['date'], x['at']))
+    return out
+
+
+def pending_text(point=None, days=14):
+    p = pending(point, days)
+    if not p:
+        return '✅ Всё проверено — ни одного заполнения не ждёт подтверждения.'
+    L = [f'🔎 <b>Ждут проверки: {len(p)}</b>', '']
+    for x in p:
+        old_days = (C.today() - x['date']).days
+        age = ('сегодня' if old_days == 0 else
+               'вчера' if old_days == 1 else f'{old_days} дн. назад')
+        warn = ' ⚠️ быстро' if x['fast'] else ''
+        L.append(f'<b>{x["title"]}</b> · {x["point"]} · {x["who"]}')
+        L.append(f'   {x["day"]} в {x["at"]} · {age} · '
+                 f'{int(x["ok"])}/{int(x["tot"])}{warn}')
+        if x['fails'] and x['fails'] != '—':
+            L.append(f'   ❌ пункты: {x["fails"]}')
+        if x['comment']:
+            L.append(f'   💬 {x["comment"]}')
+        L.append('')
+    return '\n'.join(L)
+
+
 def day_full(day, point=None):
     """Итог дня целиком: по каждой точке и каждому чек-листу — заполнен или нет,
     сколько выполнено, подтвердил ли управляющий."""

@@ -131,6 +131,7 @@ def menu_kb(role):
                          'manager': '📋 История точки'}.get(role, '📋 История — все точки'),
                 'callback_data': 'cl:h:' + {'staff': 'me', 'manager': 'point'}.get(role, 'all')}])
     if role in ('manager', 'coo'):
+        kb.append([{'text': '🔎 На проверке', 'callback_data': 'cl:pend'}])
         kb.append([{'text': '📈 KPI', 'callback_data': 'cl:kpi:week'},
                    {'text': '👥 Люди', 'callback_data': 'cl:kpi:people'}])
         kb.append([{'text': '📊 Дашборд — таблица',
@@ -760,6 +761,22 @@ def on_callback(cq):
         tg('editMessageText', chat_id=chat_id, message_id=mid, parse_mode='HTML',
            text=f'<b>{who[0]}</b>\n{S.point_label(who[1])}\nЧто делаем?',
            reply_markup=menu_kb(S.role_of(who)))
+        return ack() or True
+
+    if data == 'cl:pend':
+        from . import reports as RP
+        point = None if S.role_of(who) == 'coo' else who[1]
+        try:
+            items = RP.pending(point)
+            txt = RP.pending_text(point)
+        except Exception as e:
+            items, txt = [], f'⚠️ Не смог получить список: {e}'
+        kb = [[{'text': f'✓ {x["title"][:16]} · {x["who"][:10]} · {x["day"][:5]}',
+                'callback_data': f'cl:ck:ok:{x["key"]}:{x["line"]}'}]
+              for x in items[:8]]
+        kb.append([{'text': '◀ Назад', 'callback_data': 'cl:menu'}])
+        tg('editMessageText', chat_id=chat_id, message_id=mid, text=txt,
+           parse_mode='HTML', reply_markup={'inline_keyboard': kb})
         return ack() or True
 
     if data.startswith('cl:kpi:'):
