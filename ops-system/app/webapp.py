@@ -136,13 +136,24 @@ def shift_state(who):
 def shift(who, body):
     d = 'out' if body.get('direction') == 'out' else 'in'
     lat, lon = body.get('lat'), body.get('lon')
-    msg, flag, line = F.mark_shift(d, C.day_str(), who[1], who[0], lat, lon,
-                                   plan=body.get('plan'))
+    link = ''
     if d == 'in':
-        SC.add(who[1], who[0], 'geo_missing' if lat is None else 'shift_on_time')
+        raw = photo_bytes(body.get('photo'))
+        if not raw:
+            return {'ok': False, 'error': 'Нужно фото. Сфотографируй себя '
+                                          'на точке — это подтверждает, '
+                                          'что пришёл именно ты.'}
+        link = S.save_photo(raw, f'{who[1]}-приход-{C.day_str()}-{who[0]}')
+    point = pick_point(who, body)
+    msg, flag, line = F.mark_shift(d, C.day_str(), point, who[0], lat, lon,
+                                   plan=body.get('plan'), photo=link)
+    if d == 'in':
+        SC.add(point, who[0], 'geo_missing' if lat is None else 'shift_on_time')
     if flag:
-        txt = f'📍 <b>Явка</b> · {who[1]} · {who[0]}\n' + msg.replace('✅ ', '')
-        for cid in S.managers_of(who[1]):
+        txt = f'📍 <b>Явка</b> · {point} · {who[0]}\n' + msg.replace('✅ ', '')
+        if link:
+            txt += f'\n<a href="{link}">фото прихода</a>'
+        for cid in S.managers_of(point):
             BOT.say(cid, txt)
     return {'ok': True, 'message': msg, 'shift': shift_state(who)}
 

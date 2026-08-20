@@ -11,7 +11,8 @@ from . import config as C
 from . import storage as S
 
 SHIFT_COLS = ['Дата', 'Точка', 'Кто', 'Приход', 'Уход', 'Часов',
-              'Опоздание, мин', 'Место — приход', 'Место — уход', 'Отметки']
+              'Опоздание, мин', 'Место — приход', 'Место — уход', 'Отметки',
+              'Фото прихода']
 JOURNAL_COLS = ['Дата', 'Время', 'Точка', 'Кто', 'Что', 'Где', 'Подробности',
                 'Что сделали', 'Важность', 'Фото', 'Место', 'Статус', 'Решение']
 FORM_COLS = ['Дата', 'Время', 'Точка', 'Кто', 'Документ', '№ строки',
@@ -54,16 +55,20 @@ def geo_check(point, lat, lon):
 # ── явка ─────────────────────────────────────────────────────────────────────
 def shift_row(day, point, who):
     """Строка явки за день или None."""
-    rows = S.get(C.TABS['shift'], 'A2:J')
+    rows = S.get(C.TABS['shift'], 'A2:K')
     for i, r in enumerate(rows):
         if len(r) >= 3 and r[0].strip() == day and r[1].strip() == point \
                 and r[2].strip() == who:
-            return i + 2, r + [''] * (10 - len(r))
+            return i + 2, list(r) + [''] * (11 - len(r))
     return None
 
 
-def mark_shift(direction, day, point, who, lat, lon, plan=None):
-    """Приход или уход. → (сообщение, поздно ли, строка)"""
+def mark_shift(direction, day, point, who, lat, lon, plan=None, photo=''):
+    """Приход или уход. → (сообщение, поздно ли, строка)
+
+    Фото при приходе — вторая опора после геометки. Место подделывается
+    чужим телефоном, лицо — нет.
+    """
     geo, far = geo_check(point, lat, lon)
     now = C.now().strftime('%H:%M')
     found = shift_row(day, point, who)
@@ -73,10 +78,10 @@ def mark_shift(direction, day, point, who, lat, lon, plan=None):
             return f'Приход уже отмечен в {found[1][3]}.', False, found[0]
         if plan:
             late = max(0, mins(now) - mins(plan))
-        row = [day, point, who, now, '', '', late, geo, '', 1]
+        row = [day, point, who, now, '', '', late, geo, '', 1, photo]
         line = found[0] if found else None
         if line:
-            S.put(C.TABS['shift'], f'A{line}:J{line}', [row])
+            S.put(C.TABS['shift'], f'A{line}:K{line}', [row])
         else:
             line = S.append(C.TABS['shift'], [row])
         msg = f'✅ Приход отмечен: <b>{now}</b>'
