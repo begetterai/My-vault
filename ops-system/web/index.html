@@ -289,6 +289,22 @@
       <div class="pick" id="fList"></div>
     </div>
 
+    <div id="siteBox" class="hidden">
+      <h2>Точка</h2>
+      <div class="card">
+        <div class="kv"><span>Координаты</span><b id="geoState">—</b></div>
+        <div class="hint" id="geoHint">Задаются с телефона, стоя на точке.
+          Без них отметка прихода не проверяется по месту.</div>
+        <button class="note" id="geoBtn" style="margin-top:10px">
+          📍 Задать координаты отсюда</button>
+      </div>
+      <div class="kv" style="margin:14px 0 8px">
+        <span style="color:var(--ink-2);font-size:14px">Оборудование</span>
+        <b id="equipN">0</b></div>
+      <div id="equipList"></div>
+      <button class="add" id="equipAdd">+ Добавить оборудование</button>
+    </div>
+
     <div id="taskBox" class="hidden">
       <h2>Задачи <span id="taskN" class="badge"></span></h2>
       <div id="taskList"></div>
@@ -425,8 +441,8 @@ async function boot(){
       b.onclick = () => start(k);
       box.appendChild(b);
     }
-    renderShift(); renderTasks(); renderPending(); renderJournals();
-    renderForms(); renderKpi(); renderScore();
+    renderShift(); renderSite(); renderTasks(); renderPending();
+    renderJournals(); renderForms(); renderKpi(); renderScore();
     maybeTour();
     $('#pick').classList.remove('hidden');
   }catch(e){ fail('Не открылось: ' + e.message); }
@@ -722,6 +738,131 @@ function closeTour(){
   $('#tourFoot').classList.add('hidden');
 }
 $('#tourBtn').onclick = closeTour;
+
+/* ── точка: координаты и оборудование ────────────────────────────────────── */
+function renderSite(){
+  if(!DATA.can_check) return;
+  $('#siteBox').classList.remove('hidden');
+  const g = (DATA.geo || {})[point];
+  if(g){
+    $('#geoState').textContent = 'заданы · ' + g[2] + ' м';
+    $('#geoState').style.color = 'var(--ok)';
+    $('#geoHint').textContent = g[0].toFixed(5) + ', ' + g[1].toFixed(5)
+      + ' · радиус ' + g[2] + ' м. Задать заново — только стоя на точке.';
+  } else {
+    $('#geoState').textContent = 'не заданы';
+    $('#geoState').style.color = 'var(--bad)';
+  }
+  const list = (DATA.equip || []).filter(e => e.point === point);
+  $('#equipN').textContent = list.length;
+  const box = $('#equipList'); box.innerHTML = '';
+  if(!list.length){
+    box.innerHTML = '<div class="msg">Реестр пуст. Пройди по точке и добавь '
+      + 'оборудование — вместе с ним придут пункты проверки, замеры с нормой '
+      + 'и график ТО.</div>';
+    return;
+  }
+  list.forEach(e => box.appendChild(equipCard(e)));
+}
+
+function equipIcon(t){
+  const x = (DATA.equip_types || []).find(y => y.key === t);
+  return x ? x.icon : '🔧';
+}
+
+function equipCard(e){
+  const d = document.createElement('div');
+  const off = e.status !== 'Работает';
+  d.className = 'chk' + (off ? ' old' : '');
+  d.innerHTML = '<h3>' + equipIcon(e.type) + ' ' + e.title + '</h3>'
+    + '<div class="meta"><code>' + e.code + '</code>'
+    + (e.model ? ' · ' + e.model : '')
+    + (off ? ' <span class="badge warn">' + e.status + '</span>' : '') + '</div>';
+  const acts = document.createElement('div'); acts.className = 'acts';
+  if(off){
+    const on = document.createElement('button');
+    on.className = 'yes'; on.textContent = '✓ Снова работает';
+    on.onclick = () => setEquip(e, 'Работает', d);
+    acts.appendChild(on);
+  } else {
+    const br = document.createElement('button');
+    br.className = 'no'; br.textContent = '⚠ Неисправно';
+    br.onclick = () => setEquip(e, 'Неисправно', d);
+    acts.appendChild(br);
+  }
+  const rm = document.createElement('button');
+  rm.className = 'no'; rm.textContent = '✕ Списано';
+  rm.onclick = () => { if(confirm('Списать «' + e.title + '»? Пункты проверки '
+    + 'по нему перестанут появляться.')) setEquip(e, 'Списано', d); };
+  acts.appendChild(rm);
+  d.appendChild(acts);
+  return d;
+}
+
+async function setEquip(e, status, card){
+  card.querySelectorAll('button').forEach(b => b.disabled = true);
+  const r = await fetch('/api/equip', {method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({initData, action:'status', line:e.line, status})});
+  const j = await r.json();
+  if(!j.ok){ card.querySelectorAll('button').forEach(b=>b.disabled=false);
+             return alert(j.error || 'не записалось'); }
+  e.status = status;
+  tg?.HapticFeedback?.notificationOccurred?.('success');
+  renderSite();
+}
+
+$('#geoBtn').onclick = async () => {
+  const b = $('#geoBtn');
+  b.disabled = true; b.textContent = 'Определяю место…';
+  const g = await geo();
+  if(g.lat == null){
+    b.disabled = false; b.textContent = '📍 Задать координаты отсюда';
+    return alert('Не получилось определить место. Разреши геопозицию '
+      + 'в настройках телефона и попробуй ещё раз.');
+  }
+  const rad = prompt('Радиус точки в метрах.\n\nВ этом радиусе отметка '
+    + 'считается «на точке». 150 подходит почти всегда.', '150');
+  if(rad === null){ b.disabled = false; b.textContent = '📍 Задать координаты отсюда'; return; }
+  const r = await fetch('/api/geo', {method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({initData, point, lat:g.lat, lon:g.lon, radius:rad})});
+  const j = await r.json();
+  b.disabled = false; b.textContent = '📍 Задать координаты отсюда';
+  if(!j.ok) return alert(j.error || 'не записалось');
+  DATA.geo = DATA.geo || {}; DATA.geo[point] = [j.lat, j.lon, j.radius];
+  tg?.HapticFeedback?.notificationOccurred?.('success');
+  renderSite();
+  alert('Координаты записаны. Теперь отметки прихода проверяются по месту.');
+};
+
+$('#equipAdd').onclick = () => {
+  const types = DATA.equip_types || [];
+  if(!types.length) return alert('Библиотека типов пуста');
+  const menu = types.map((t, i) => (i + 1) + '. ' + t.icon + ' ' + t.title).join('\n');
+  const pick = prompt('Что добавляем? Номер из списка:\n\n' + menu);
+  const i = parseInt(pick, 10) - 1;
+  if(isNaN(i) || i < 0 || i >= types.length) return;
+  const t = types[i];
+  const title = prompt('Как называем эту единицу?\n\nЧтобы отличать от '
+    + 'соседних: «Холодильник у станции», «Гриль левый».', t.title);
+  if(!title) return;
+  const model = prompt('Модель — если знаешь. Можно пропустить.', '') || '';
+  addEquip(t.key, title, model);
+};
+
+async function addEquip(type, title, model){
+  const r = await fetch('/api/equip', {method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({initData, action:'add', point, type, title, model})});
+  const j = await r.json();
+  if(!j.ok) return alert(j.error || 'не записалось');
+  DATA.equip = DATA.equip || [];
+  DATA.equip.push({line:0, code:j.code, point, type, title, model,
+                   status:'Работает'});
+  tg?.HapticFeedback?.notificationOccurred?.('success');
+  renderSite();
+}
 
 /* ── задачи ──────────────────────────────────────────────────────────────── */
 function renderTasks(){

@@ -89,6 +89,7 @@ def ensure_structure():
     """Создаёт недостающие листы и шапки. Идемпотентно."""
     from . import forms as F          # внутри: forms сам обращается к storage
     from . import tasks as TSK
+    from . import equipment as EQ
     s = session()
     want = {C.TABS['fails']: ['Дата', 'Точка', 'Кто', 'Документ', '№', 'Блок', 'Пункт'],
             C.TABS['ideas']: ['Дата', 'Кто', 'Точка', 'Откуда', 'Текст', 'Статус', 'Решение'],
@@ -102,7 +103,8 @@ def ensure_structure():
                               'За что', 'Ссылка'],
             C.TABS['fixes']: ['Дата', 'Кто', 'Форма', 'Блок', '№', 'Текст пункта',
                               'Что поправить', 'Документ', 'Статус', 'Решение'],
-            C.TABS['tasks']: TSK.TASK_COLS}
+            C.TABS['tasks']: TSK.TASK_COLS,
+            C.TABS['equip']: EQ.EQUIP_COLS}
     for key, cl in C.forms().items():
         cols = F.cols_for(cl)
         if cols:

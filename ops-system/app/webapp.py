@@ -77,6 +77,13 @@ def init_payload(who):
         except Exception:
             out['pending'] = []
         try:
+            from . import equipment as EQ
+            out['equip_types'] = EQ.types_for_app()
+            out['equip'] = EQ.all_items(None if role == 'coo' else who[1], False)
+            out['geo'] = {p: S.point_geo(p) for p in S.points()}
+        except Exception:
+            out['equip_types'], out['equip'], out['geo'] = [], [], {}
+        try:
             from . import tasks as TSK
             pt = None if role == 'coo' else who[1]
             late = {x['line'] for x in TSK.overdue(pt)}
@@ -342,6 +349,71 @@ def check(who, body):
     return {'ok': True}
 
 
+def set_geo(who, body):
+    """Координаты точки задаются С МЕСТА, стоя на точке.
+
+    Геокодирование по адресу для этого не годится: ошибка в сто метров
+    превращает честную отметку в «ВНЕ ТОЧКИ». Стоя на пороге — точно.
+    """
+    if S.role_of(who) not in ('manager', 'coo'):
+        return {'ok': False, 'error': 'Координаты задаёт руководитель'}
+    point = pick_point(who, body)
+    try:
+        lat = float(body.get('lat'))
+        lon = float(body.get('lon'))
+    except (TypeError, ValueError):
+        return {'ok': False, 'error': 'Не получилось определить место. '
+                                      'Разреши геопозицию и попробуй ещё раз.'}
+    radius = body.get('radius')
+    try:
+        radius = int(radius) if radius else 150
+    except (TypeError, ValueError):
+        radius = 150
+    rows = S.get(C.TABS['points'], 'A2:G50')
+    line = None
+    for i, r in enumerate(rows):
+        if r and str(r[0]).strip() == point:
+            line = i + 2
+            break
+    if not line:
+        return {'ok': False, 'error': 'Точки нет в списке'}
+    S.put(C.TABS['points'], f'E{line}:G{line}',
+          [[round(lat, 6), round(lon, 6), radius]])
+    S.points_map(force=True)
+    BOT.admin(f'📍 <b>Координаты точки заданы</b> · {point}\n'
+              f'{lat:.5f}, {lon:.5f} · радиус {radius} м\n'
+              f'Задал: {who[0]}')
+    return {'ok': True, 'lat': round(lat, 6), 'lon': round(lon, 6),
+            'radius': radius}
+
+
+def equip(who, body):
+    """Добавить единицу оборудования или сменить её статус."""
+    if S.role_of(who) not in ('manager', 'coo'):
+        return {'ok': False, 'error': 'Оборудование заводит руководитель'}
+    from . import equipment as EQ
+    act = body.get('action', 'add')
+    if act == 'status':
+        line = str(body.get('line', ''))
+        st = body.get('status')
+        if not line.isdigit() or st not in (EQ.ACTIVE, EQ.BROKEN, EQ.OFF):
+            return {'ok': False, 'error': 'не та запись'}
+        EQ.set_status(line, st, who[0], str(body.get('note', '')))
+        return {'ok': True}
+    point = pick_point(who, body)
+    raw = photo_bytes(body.get('photo'))
+    link = (S.save_photo(raw, f'{point}-оборудование-{C.day_str()}')
+            if raw else '')
+    code, err = EQ.add(point, str(body.get('type', '')),
+                       str(body.get('title', '')), str(body.get('model', '')),
+                       str(body.get('serial', '')), str(body.get('installed', '')),
+                       str(body.get('warranty', '')), link, who[0],
+                       str(body.get('note', '')))
+    if err:
+        return {'ok': False, 'error': err}
+    return {'ok': True, 'code': code}
+
+
 def task_done(who, body):
     if S.role_of(who) not in ('manager', 'coo'):
         return {'ok': False, 'error': 'Задачи закрывает руководитель'}
@@ -431,6 +503,10 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, submit(who, body))
             if p == '/api/note':
                 return self._send(200, note(who, body))
+            if p == '/api/geo':
+                return self._send(200, set_geo(who, body))
+            if p == '/api/equip':
+                return self._send(200, equip(who, body))
             if p == '/api/task':
                 return self._send(200, task_done(who, body))
             if p == '/api/check':
