@@ -133,6 +133,8 @@ def menu_kb(role):
     if role in ('manager', 'coo'):
         kb.append([{'text': '📈 KPI', 'callback_data': 'cl:kpi:week'},
                    {'text': '👥 Люди', 'callback_data': 'cl:kpi:people'}])
+        kb.append([{'text': '📊 Дашборд — таблица',
+                    'url': f'https://docs.google.com/spreadsheets/d/{C.DATA_SHEET}'}])
         kb.append([{'text': '➕ Добавить человека', 'callback_data': 'cl:addnew'}])
     if role == 'coo':
         kb.append([{'text': '💬 Идеи и задачи', 'callback_data': 'cl:h:ideas'}])

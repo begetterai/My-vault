@@ -130,6 +130,15 @@ def tick():
             if minute >= dead and once(f'over:{key}:{point}'):
                 overdue(key, cl, point)
 
+    # Дашборд — раз в час: таблицу открывают в любой момент, она должна
+    # показывать сегодняшнее, а не вчерашнее.
+    if once(f'dash:{now.hour}'):
+        try:
+            from . import dashboard as DASH
+            DASH.refresh()
+        except Exception as e:
+            print('дашборд:', e)
+
     if minute >= hhmm(C.DAILY_AT) and once('daily'):
         unconfirmed(day)
         daily()
