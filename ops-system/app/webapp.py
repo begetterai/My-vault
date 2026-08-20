@@ -76,6 +76,14 @@ def init_payload(who):
                 for x in RP.pending(None if role == 'coo' else who[1])]
         except Exception:
             out['pending'] = []
+        try:
+            from . import tasks as TSK
+            pt = None if role == 'coo' else who[1]
+            late = {x['line'] for x in TSK.overdue(pt)}
+            out['tasks'] = [dict(x, late=x['line'] in late)
+                            for x in TSK.all_tasks(True, pt)]
+        except Exception:
+            out['tasks'] = []
     if role in ('manager', 'coo'):
         try:
             from . import kpi as K
@@ -164,6 +172,11 @@ def journal(who, body):
     if (sev in ('Серьёзное', 'Критично') or not sent) \
             and str(C.ADMIN_CHAT) not in sent:
         BOT.admin(txt)
+    try:
+        from . import tasks as TSK
+        TSK.from_journal(point, cl['title'], vals.get('what', ''), sev, who[0])
+    except Exception as e:
+        print('задача из журнала:', e)
     return {'ok': True, 'line': line}
 
 
@@ -271,9 +284,14 @@ def submit(who, body):
         pass
     if V.enabled():
         V.review_async(kind, line, point, who[0], shots)
+    from . import tasks as TSK
     for q, val, norm, unit in BOT.norm_alerts(kind, measured):
         BOT.admin(f'🌡 <b>Замер вне нормы</b> · {point} · {who[0]}\n'
                   f'{q}: <b>{val} {unit}</b> при норме {norm}')
+        try:
+            TSK.from_measure(point, q, val, norm, unit)
+        except Exception as e:
+            print('задача из замера:', e)
     return {'ok': True, 'done': ok, 'total': tot, 'dup': dup,
             'minutes': round(sec / 60, 1),
             'fast': sec < C.MIN_SECONDS or (tempo is not None and tempo < C.MIN_GAP)}
@@ -305,6 +323,14 @@ def check(who, body):
     if verdict == 'bad' and len(note_txt.split()) < 2:
         return {'ok': False, 'error': 'Опиши, что именно не сошлось'}
     S.save_check(key, line, who[0], verdict, note_txt)
+    if verdict == 'bad':
+        try:
+            from . import tasks as TSK
+            r = S.get(C.checklists()[key]['tab'], f'A{line}:C{line}')
+            pt, filler = (r[0][1], r[0][2]) if r and len(r[0]) > 2 else (who[1], '')
+            TSK.from_mismatch(pt, C.checklists()[key]['title'], filler, note_txt)
+        except Exception as e:
+            print('задача из расхождения:', e)
     try:
         BOT._award_check(key, line, who[0], verdict)
     except Exception:
@@ -313,6 +339,26 @@ def check(who, body):
         BOT.final_report(key, line, verdict, who[0], note_txt)
     except Exception as e:
         print('итоговый отчёт:', e)
+    return {'ok': True}
+
+
+def task_done(who, body):
+    if S.role_of(who) not in ('manager', 'coo'):
+        return {'ok': False, 'error': 'Задачи закрывает руководитель'}
+    from . import tasks as TSK
+    # ручное заведение задачи из находки
+    if body.get('create'):
+        what = str(body.get('what', '')).strip()
+        if len(what.split()) < 2:
+            return {'ok': False, 'error': 'Напиши задачу фразой'}
+        pt = pick_point(who, body)
+        TSK.from_fail(pt, what, who[0], str(body.get('why', ''))[:120])
+        return {'ok': True}
+    line = str(body.get('line', ''))
+    if not line.isdigit():
+        return {'ok': False, 'error': 'не та задача'}
+    verdict = TSK.DROP if body.get('verdict') == 'drop' else TSK.DONE
+    TSK.close(line, who[0], verdict, str(body.get('comment', '')))
     return {'ok': True}
 
 
@@ -385,6 +431,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, submit(who, body))
             if p == '/api/note':
                 return self._send(200, note(who, body))
+            if p == '/api/task':
+                return self._send(200, task_done(who, body))
             if p == '/api/check':
                 return self._send(200, check(who, body))
             if p == '/api/fix':

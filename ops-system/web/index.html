@@ -269,6 +269,11 @@
       <div class="pick" id="fList"></div>
     </div>
 
+    <div id="taskBox" class="hidden">
+      <h2>Задачи <span id="taskN" class="badge"></span></h2>
+      <div id="taskList"></div>
+    </div>
+
     <div id="pendBox" class="hidden">
       <h2>На проверке <span id="pendN" class="badge"></span></h2>
       <div id="pendList"></div>
@@ -390,8 +395,8 @@ async function boot(){
       b.onclick = () => start(k);
       box.appendChild(b);
     }
-    renderShift(); renderPending(); renderJournals(); renderForms();
-    renderKpi(); renderScore();
+    renderShift(); renderTasks(); renderPending(); renderJournals();
+    renderForms(); renderKpi(); renderScore();
     $('#pick').classList.remove('hidden');
   }catch(e){ fail('Не открылось: ' + e.message); }
 }
@@ -627,6 +632,70 @@ async function sendForm(cl, btn){
   goHome();
 }
 
+/* ── задачи ──────────────────────────────────────────────────────────────── */
+function renderTasks(){
+  if(!DATA.can_check) return;
+  const list = DATA.tasks || [];
+  $('#taskBox').classList.remove('hidden');
+  const late = list.filter(t => t.late).length;
+  $('#taskN').textContent = list.length ? (late ? list.length + ' · ' + late + ' просроч.'
+                                                : String(list.length)) : '';
+  $('#taskN').className = 'badge' + (late ? ' warn' : '');
+  const box = $('#taskList'); box.innerHTML = '';
+  if(!list.length){
+    box.innerHTML = '<div class="msg">Открытых задач нет.</div>';
+    return;
+  }
+  list.sort((a, b) => (b.late ? 1 : 0) - (a.late ? 1 : 0));
+  list.forEach(t => box.appendChild(taskCard(t)));
+}
+
+function taskCard(t){
+  const d = document.createElement('div');
+  d.className = 'chk' + (t.late ? ' old' : '');
+  d.innerHTML = '<h3>' + t.what + '</h3>'
+    + '<div class="meta">' + t.point + ' · ' + (t.owner || 'не назначен')
+    + ' · до ' + t.due + (t.late ? ' <span class="badge warn">просрочена</span>' : '')
+    + '</div>'
+    + (t.why ? '<div class="det"><i>' + t.why + '</i></div>' : '')
+    + '<div class="det" style="color:var(--ink-2);font-size:13px">'
+    + 'источник: ' + t.source + ' · важность: ' + t.severity + '</div>';
+  const acts = document.createElement('div'); acts.className = 'acts';
+  const yes = document.createElement('button');
+  yes.className = 'yes'; yes.textContent = '✓ Сделано';
+  yes.onclick = () => {
+    const c = prompt('Что именно сделали?\n\n' + t.what
+      + '\n\nКоротко — это останется в истории.');
+    if(c !== null) sendTask(t, 'done', c, d);
+  };
+  const no = document.createElement('button');
+  no.className = 'no'; no.textContent = '✕ Снять';
+  no.onclick = () => {
+    const c = prompt('Почему снимаем задачу?\n\n' + t.what);
+    if(c) sendTask(t, 'drop', c, d);
+  };
+  acts.append(yes, no); d.appendChild(acts);
+  return d;
+}
+
+async function sendTask(t, verdict, comment, card){
+  card.querySelectorAll('button').forEach(b => b.disabled = true);
+  const r = await fetch('/api/task', {method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({initData, line: t.line, verdict, comment})});
+  const j = await r.json();
+  if(!j.ok){
+    card.querySelectorAll('button').forEach(b => b.disabled = false);
+    return alert(j.error || 'не записалось');
+  }
+  tg?.HapticFeedback?.notificationOccurred?.('success');
+  card.style.opacity = '.45';
+  card.querySelector('.acts').innerHTML = '<div class="hint">'
+    + (verdict === 'done' ? '✓ Закрыта' : '✕ Снята') + '</div>';
+  DATA.tasks = (DATA.tasks || []).filter(x => x.line !== t.line);
+  renderTasks.count = DATA.tasks.length;
+}
+
 /* ── на проверке ─────────────────────────────────────────────────────────── */
 function renderPending(){
   const list = DATA.pending || [];
@@ -669,7 +738,30 @@ function pendCard(x){
     if(t) sendCheck(x, 'bad', t, d);
   };
   acts.append(yes, no); d.appendChild(acts);
+  if(x.fails && x.fails !== '—'){
+    const t = document.createElement('button');
+    t.className = 'note'; t.textContent = '📌 Завести задачу по находке';
+    t.onclick = () => {
+      const w = prompt('Что нужно сделать?\n\n' + x.title + ' · невыполнены пункты: '
+        + x.fails + '\n\nНапиши задачу одной фразой.');
+      if(w) sendFail(x, w, t);
+    };
+    d.appendChild(t);
+  }
   return d;
+}
+
+async function sendFail(x, what, btn){
+  btn.disabled = true;
+  const r = await fetch('/api/task', {method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({initData, create: true, point: x.point, what,
+                          why: x.title + ', заполнял ' + x.who})});
+  const j = await r.json();
+  btn.disabled = false;
+  if(!j.ok) return alert(j.error || 'не записалось');
+  btn.textContent = '✓ Задача заведена';
+  tg?.HapticFeedback?.notificationOccurred?.('success');
 }
 
 async function sendCheck(x, verdict, note, card){

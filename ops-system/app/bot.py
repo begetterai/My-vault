@@ -131,7 +131,8 @@ def menu_kb(role):
                          'manager': '📋 История точки'}.get(role, '📋 История — все точки'),
                 'callback_data': 'cl:h:' + {'staff': 'me', 'manager': 'point'}.get(role, 'all')}])
     if role in ('manager', 'coo'):
-        kb.append([{'text': '🔎 На проверке', 'callback_data': 'cl:pend'}])
+        kb.append([{'text': '🔎 На проверке', 'callback_data': 'cl:pend'},
+                   {'text': '📌 Задачи', 'callback_data': 'cl:task'}])
         kb.append([{'text': '📈 KPI', 'callback_data': 'cl:kpi:week'},
                    {'text': '👥 Люди', 'callback_data': 'cl:kpi:people'}])
         kb.append([{'text': '📊 Дашборд — таблица',
@@ -762,6 +763,29 @@ def on_callback(cq):
            text=f'<b>{who[0]}</b>\n{S.point_label(who[1])}\nЧто делаем?',
            reply_markup=menu_kb(S.role_of(who)))
         return ack() or True
+
+    if data == 'cl:task':
+        from . import tasks as TSK
+        point = None if S.role_of(who) == 'coo' else who[1]
+        try:
+            items = TSK.all_tasks(only_open=True, point=point)
+            txt = TSK.text(point)
+        except Exception as e:
+            items, txt = [], f'⚠️ Не смог получить задачи: {e}'
+        kb = [[{'text': f'✓ {x["what"][:34]}',
+                'callback_data': f'cl:td:{x["line"]}'}] for x in items[:8]]
+        kb.append([{'text': '◀ Назад', 'callback_data': 'cl:menu'}])
+        tg('editMessageText', chat_id=chat_id, message_id=mid, text=txt,
+           parse_mode='HTML', reply_markup={'inline_keyboard': kb})
+        return ack() or True
+
+    if data.startswith('cl:td:'):
+        from . import tasks as TSK
+        try:
+            TSK.close(data.split(':')[2], who[0])
+        except Exception as e:
+            return ack(f'не вышло: {e}') or True
+        return ack('Задача закрыта') or True
 
     if data == 'cl:pend':
         from . import reports as RP

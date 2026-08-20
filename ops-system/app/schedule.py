@@ -86,6 +86,38 @@ def unconfirmed(day):
 
 
 # ── отчёты ───────────────────────────────────────────────────────────────────
+def tasks_pass():
+    """Повторяющиеся провалы превращаем в задачи, о просрочках напоминаем."""
+    from . import tasks as TSK
+    try:
+        made = TSK.from_repeat_fails()
+        if made:
+            print(f'задач из повторов: {made}')
+    except Exception as e:
+        print('повторы → задачи:', e)
+    try:
+        late = TSK.overdue()
+    except Exception as e:
+        print('просрочки:', e)
+        return
+    if not late:
+        return
+    by = {}
+    for t in late:
+        by.setdefault(t['point'], []).append(t)
+    for point, items in by.items():
+        txt = (f'🔴 <b>Просроченные задачи · {point}</b>\n\n'
+               + '\n'.join(f'· {t["what"]}\n   {t["owner"]} · срок был '
+                            f'{t["due"]} · {t["late"]} дн. назад'
+                            for t in items[:8]))
+        sent = set()
+        for cid in S.managers_of(point):
+            BOT.say(cid, txt)
+            sent.add(str(cid))
+        if str(C.ADMIN_CHAT) not in sent:
+            BOT.admin(txt)
+
+
 def daily():
     day = C.today()
     BOT.admin(R.day_full(day))
@@ -141,6 +173,7 @@ def tick():
 
     if minute >= hhmm(C.DAILY_AT) and once('daily'):
         unconfirmed(day)
+        tasks_pass()
         daily()
 
     if day.weekday() == 0 and minute >= hhmm(C.WEEKLY_AT) and once('weekly'):

@@ -88,6 +88,7 @@ def put(tab, a1, rows):
 def ensure_structure():
     """Создаёт недостающие листы и шапки. Идемпотентно."""
     from . import forms as F          # внутри: forms сам обращается к storage
+    from . import tasks as TSK
     s = session()
     want = {C.TABS['fails']: ['Дата', 'Точка', 'Кто', 'Документ', '№', 'Блок', 'Пункт'],
             C.TABS['ideas']: ['Дата', 'Кто', 'Точка', 'Откуда', 'Текст', 'Статус', 'Решение'],
@@ -100,7 +101,8 @@ def ensure_structure():
             C.TABS['score']: ['Дата', 'Точка', 'Кто', 'Событие', 'Баллы',
                               'За что', 'Ссылка'],
             C.TABS['fixes']: ['Дата', 'Кто', 'Форма', 'Блок', '№', 'Текст пункта',
-                              'Что поправить', 'Документ', 'Статус', 'Решение']}
+                              'Что поправить', 'Документ', 'Статус', 'Решение'],
+            C.TABS['tasks']: TSK.TASK_COLS}
     for key, cl in C.forms().items():
         cols = F.cols_for(cl)
         if cols:
