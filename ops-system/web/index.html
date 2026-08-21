@@ -4,10 +4,19 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Чек-лист смены</title>
-<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<!-- defer: скрипт телеграма больше не держит показ страницы. На плохой связи
+     человек видит интерфейс сразу, а не белый экран до конца загрузки. -->
+<script defer src="https://telegram.org/js/telegram-web-app.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Golos+Text:wght@400;500;600;700&family=Manrope:wght@600;700;800&display=swap">
+<!-- Шрифты грузятся НЕ блокируя показ: media="print" снимает блокировку,
+     onload возвращает стиль на экран. На плохой связи человек видит страницу
+     сразу системным шрифтом, а фирменный подхватывается, когда придёт.
+     Обычный <link rel=stylesheet> держал бы белый экран до таймаута. -->
+<link rel="stylesheet" media="print" onload="this.media='all'"
+      href="https://fonts.googleapis.com/css2?family=Golos+Text:wght@400;500;600;700&family=Manrope:wght@600;700;800&display=swap">
+<noscript><link rel="stylesheet"
+  href="https://fonts.googleapis.com/css2?family=Golos+Text:wght@400;500;600;700&family=Manrope:wght@600;700;800&display=swap"></noscript>
 <style>
   /* Ромашка: жёлтая сердцевина — фирменный цвет, белый лепесток — фон,
      тёплый нейтральный — всё остальное. Зелёный и красный оставлены
@@ -483,9 +492,9 @@
   <button class="send" id="send" disabled>Отправить</button>
 </div>
 <script>
-const tg = window.Telegram?.WebApp;
-tg?.ready(); tg?.expand();
-const initData = tg?.initData || '';
+// Заполняются на старте: скрипт телеграма грузится отложенно, и на момент
+// разбора этой строки window.Telegram может ещё не существовать.
+let tg = null, initData = '';
 const $ = s => document.querySelector(s);
 let DATA = null, kind = null, marks = {}, measures = {}, photos = {}, started = 0;
 let markTs = [];   // когда нажали каждый пункт — по ним считается темп
@@ -514,8 +523,7 @@ function enterScreen(){
   tg?.BackButton?.show?.();
 }
 
-$('#btnBack').onclick = goHome;
-tg?.BackButton?.onClick?.(goHome);
+/* кнопка «назад» подключается в start(), когда телеграм уже загружен */
 
 /* ── вход только с геопозицией ───────────────────────────────────────────── */
 let MYGEO = null;
@@ -2197,7 +2205,26 @@ async function sendNote(){
   alert(j.ok ? 'Записал в «Идеи и задачи»' : (j.error || 'не записалось'));
 }
 
-boot();
+// Старт после разбора страницы: к этому моменту отложенный скрипт телеграма
+// уже выполнен. Если он не пришёл вовсе — работаем без него и говорим человеку
+// понятную причину, а не показываем пустой экран.
+function bootstrap(){
+  tg = window.Telegram?.WebApp || null;
+  initData = tg?.initData || '';
+  try{ tg?.ready(); tg?.expand(); }catch(e){}
+  $('#btnBack').onclick = goHome;
+  tg?.BackButton?.onClick?.(goHome);
+  // Телеграм не загрузился — всё равно пробуем: без подписи сервер ответит
+  // понятным «открой через бота», и это полезнее пустого экрана.
+  if(!tg) $('#who').textContent = 'Открыто не через телеграм';
+  boot();
+}
+
+if(document.readyState === 'loading'){
+  document.addEventListener('DOMContentLoaded', bootstrap);
+} else {
+  bootstrap();
+}
 </script>
 </body>
 </html>
