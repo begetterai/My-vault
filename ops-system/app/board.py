@@ -39,7 +39,40 @@ def _build(role, point, who):
     out['tasks'] = _tasks(point)
     out['points_sum'] = _points(point)
     out['attention'] = _attention(points, point, role)
+    # Сравнение точек: директору важно не «как дела на ЗБ», а «где хуже».
+    # Одна цифра рядом с другой отвечает на это быстрее, чем две карточки,
+    # между которыми надо листать.
+    if len(points) > 1:
+        out['compare'] = _compare(points, out)
     return out
+
+
+def _compare(points, out):
+    idx = {x['point']: x for x in out['index']}
+    today = {x['point']: x for x in out['today']}
+    rows = []
+    for p in points:
+        t, i = today.get(p, {}), idx.get(p, {})
+        try:
+            from . import tasks as TSK
+            late = len(TSK.overdue(p))
+            openned = len(TSK.all_tasks(True, p))
+        except Exception:
+            late = openned = 0
+        try:
+            from . import score as SC
+            _lbl, people = SC.period_totals(p)
+            pay = sum(x['payable'] for x in people)
+            minus = sum(1 for x in people if x['payable'] < 0)
+        except Exception:
+            pay = minus = 0
+        rows.append({'point': p, 'label': S.point_label(p),
+                     'index': i.get('total'), 'flags': len(i.get('flags') or []),
+                     'late': t.get('late', 0), 'done': t.get('done', 0),
+                     'waiting': t.get('waiting', 0),
+                     'tasks_open': openned, 'tasks_late': late,
+                     'pay': pay, 'minus': minus})
+    return rows
 
 
 def _today(points):

@@ -195,6 +195,15 @@
   .batt b{display:block;font-size:14px;line-height:1.35}
   .batt span{font-size:13px;color:var(--ink-2)}
   .bempty{text-align:center;padding:18px 6px;color:var(--ink-2);font-size:15px}
+  .crow{display:flex;align-items:center;gap:8px;padding:8px 0;
+        border-top:1px solid var(--line);font-size:14px}
+  .crow > span:first-child{flex:1;color:var(--ink-2);line-height:1.3}
+  .crow.head{border-top:0;padding-bottom:4px}
+  .crow.head .ccol{color:var(--ink);font-size:13px;letter-spacing:.04em;
+        text-transform:uppercase}
+  .ccol{width:72px;text-align:center;font-family:Manrope,sans-serif;
+        font-weight:800;font-size:16px;flex:none}
+  .ccol.bad{color:var(--bad)}
   /* баллы */
   .balrow{border-top:1px solid var(--line);padding:10px 0}
   .balrow .l{display:flex;gap:10px;align-items:baseline}
@@ -373,8 +382,10 @@
 <main>
   <div id="pick" class="hidden">
     <div id="pointBox" class="hidden">
-      <h2><span class="steplabel" id="lb1">1</span>Заведение</h2>
+      <h2><span class="steplabel" id="lb1">1</span><span id="pointHead">Заведение</span></h2>
       <div class="seg" id="pointSeg"></div>
+      <div class="hint hidden" id="pointHint">Обзор выше — по обеим точкам.
+        Выбор нужен, чтобы посмотреть подробности и работать с точкой.</div>
     </div>
 
     <h2 id="shiftHead" class="hidden">
@@ -728,8 +739,11 @@ let pointOK = false, selfie = null;
 
 function stages(){
   const many = (DATA.points || []).length > 1;
+  const boss = ['manager', 'coo'].includes(DATA.role);
   // Одна точка — выбирать нечего, шаг считается пройденным сразу.
-  if(!many) pointOK = true;
+  // Руководителя выбор точки тоже не держит: он входит смотреть обе,
+  // а точку выбирает потом, чтобы уточнить картину.
+  if(!many || boss) pointOK = true;
   const sh = DATA.shift || {};
   const came = !!sh.in;
   // Руководитель работает по обеим точкам и проверяет смену из дома —
@@ -1651,9 +1665,37 @@ function bnum(v, label, cls){
        + label + '</span></div>';
 }
 
+/* Сравнение точек: две колонки рядом. Директору нужен ответ на вопрос
+   «где хуже», а не «как дела на каждой» — цифра рядом с цифрой отвечает
+   на это быстрее, чем две карточки, между которыми надо листать. */
+function renderCompare(rows){
+  const d = document.createElement('div');
+  d.className = 'bcard';
+  const cols = rows.map(r => '<div class="ccol"><b>' + r.point + '</b></div>').join('');
+  const line = (label, get, bad) => '<div class="crow"><span>' + label + '</span>'
+    + rows.map(r => {
+        const v = get(r);
+        const isBad = bad ? bad(r) : false;
+        return '<div class="ccol' + (isBad ? ' bad' : '') + '">' + v + '</div>';
+      }).join('') + '</div>';
+
+  d.innerHTML = '<div class="bhead"><b>Заведения сегодня</b><span>сравнение</span></div>'
+    + '<div class="crow head"><span></span>' + cols + '</div>'
+    + line('Индекс за неделю', r => r.index ?? '—', r => r.index != null && r.index < 70)
+    + line('Просрочено сегодня', r => r.late, r => r.late > 0)
+    + line('Сдано / ждём', r => r.done + ' / ' + r.waiting)
+    + line('Флаги', r => r.flags, r => r.flags > 0)
+    + line('Задачи: всего / просроч.', r => r.tasks_open + ' / ' + r.tasks_late,
+           r => r.tasks_late > 0)
+    + line('Баллы к выплате', r => sign(r.pay), r => r.pay < 0)
+    + line('Людей в минусе', r => r.minus, r => r.minus > 0);
+  return d;
+}
+
 function renderBoard(b){
   const box = $('#boardBody'); box.innerHTML = '';
   $('#boardAt').textContent = 'на ' + b.now;
+  if((b.compare || []).length > 1) box.appendChild(renderCompare(b.compare));
 
   // 1. Что требует тебя лично — самое верхнее, иначе не заметишь.
   const att = document.createElement('div');
@@ -1752,6 +1794,14 @@ function renderBoard(b){
   // Поэтому поднимаем выше выбора точки и карточки смены.
   const pick = $('#pick');
   pick.insertBefore($('#boardBox'), pick.firstChild);
+  // Выбор точки у руководителя — не вход в систему, а уточнение картины,
+  // поэтому он идёт после обзора и подписан иначе.
+  if((DATA.points || []).length > 1){
+    pick.insertBefore($('#pointBox'), $('#boardBox').nextSibling);
+    $('#pointHead').textContent = 'Подробнее по точке';
+    $('#pointHint').classList.remove('hidden');
+    mark('#lb1', 'done');
+  }
 }
 
 /* ── состав смены на завтра ─────────────────────────────────────────────────────── */
