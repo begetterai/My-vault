@@ -18,6 +18,8 @@ JOURNAL_COLS = ['Дата', 'Время', 'Точка', 'Кто', 'Что', 'Г�
 FORM_COLS = ['Дата', 'Время', 'Точка', 'Кто', 'Документ', '№ строки',
              'Позиция', 'Кол-во', 'Ед.', 'Причина', 'Комментарий',
              'Фото', 'Место', 'Проверил']
+QUIZ_COLS = ['Дата', 'Время', 'Точка', 'Кто', 'Тренинг', 'Правильно', 'Всего',
+             'Порог', 'Сдал', 'Попытка', 'Минут', 'Ошибся в вопросах']
 
 
 # ── геометка ─────────────────────────────────────────────────────────────────
@@ -142,6 +144,30 @@ def save_form(key, point, who, lines, photo_link, lat, lon):
     return S.append(cl['tab'], rows)
 
 
+# ── обучение ─────────────────────────────────────────────────────────────────
+def quiz_attempts(key, who):
+    """Сколько раз человек уже проходил этот тренинг и сдал ли.
+
+    → (номер следующей попытки, сдавал ли раньше)
+    """
+    cl = C.form(key)
+    n, passed = 0, False
+    for r in S.get(cl['tab'], 'A2:L'):
+        if len(r) >= 9 and r[3].strip() == who and r[4].strip() == cl['title']:
+            n += 1
+            passed = passed or str(r[8]).strip().lower() in ('да', 'true')
+    return n + 1, passed
+
+
+def save_quiz(key, point, who, right, total, need, wrong, seconds, attempt):
+    cl = C.form(key)
+    n = C.now()
+    row = [n.strftime('%d.%m.%Y'), n.strftime('%H:%M'), point, who, cl['title'],
+           right, total, need, 'да' if right >= need else 'нет', attempt,
+           round(seconds / 60, 1), ', '.join(str(x) for x in wrong)]
+    return S.append(cl['tab'], [row])
+
+
 def cols_for(cl):
     return {'shift': SHIFT_COLS, 'journal': JOURNAL_COLS,
-            'form': FORM_COLS}.get(cl['type'])
+            'form': FORM_COLS, 'quiz': QUIZ_COLS}.get(cl['type'])

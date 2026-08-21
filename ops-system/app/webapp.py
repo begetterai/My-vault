@@ -62,6 +62,18 @@ def init_payload(who):
                      'columns': cl.get('columns', []),
                      'photo_required': bool(cl.get('photo_required'))}
                     for k, cl in C.visible(role, 'form').items()]
+    # Правильные ответы наружу не уходят: страница открыта в браузере,
+    # оттуда её видно целиком. Проверяет сервер.
+    out['quizzes'] = [{'key': k, 'title': cl['title'], 'code': cl['code'],
+                       'icon': cl.get('icon', '🎓'), 'doc': cl.get('doc'),
+                       'minutes': cl.get('minutes', 5),
+                       'pass': cl.get('pass', len(cl.get('questions', []))),
+                       'intro': cl.get('intro', []),
+                       'total': len(cl.get('questions', [])),
+                       'passed': quiz_passed(k, who[0]),
+                       'questions': [{'q': q['q'], 'options': q['options']}
+                                     for q in cl.get('questions', [])]}
+                      for k, cl in C.visible(role, 'quiz').items()]
     out['shift'] = shift_state(who)
     out['geo'] = {p: S.point_geo(p) for p in S.points()}
     if role in ('manager', 'coo'):
@@ -156,6 +168,65 @@ def shift(who, body):
         for cid in S.managers_of(point):
             BOT.say(cid, txt)
     return {'ok': True, 'message': msg, 'shift': shift_state(who)}
+
+
+def quiz_passed(key, name):
+    """Сдавал ли человек этот тренинг раньше. Таблицы нет — считаем, что нет."""
+    try:
+        return F.quiz_attempts(key, name)[1]
+    except Exception:
+        return False
+
+
+def quiz(who, body):
+    """Проверка знаний. Ответы сверяет сервер и возвращает разбор.
+
+    Разбор возвращается всегда, даже когда не сдал: смысл тренинга —
+    чтобы человек понял, а не чтобы получил отметку.
+    """
+    key = body.get('key')
+    cl = C.forms().get(key)
+    if not cl or cl['type'] != 'quiz':
+        return {'ok': False, 'error': 'неизвестный тренинг'}
+    qs = cl.get('questions', [])
+    given = body.get('answers') or []
+    if len(given) != len(qs):
+        return {'ok': False, 'error': 'Ответь на все вопросы'}
+    review, wrong = [], []
+    for i, q in enumerate(qs):
+        try:
+            a = int(given[i])
+        except (TypeError, ValueError):
+            a = -1
+        ok = a == q['correct']
+        if not ok:
+            wrong.append(i + 1)
+        review.append({'n': i + 1, 'q': q['q'], 'ok': ok, 'your': a,
+                       'correct': q['correct'], 'why': q.get('why', '')})
+    right = len(qs) - len(wrong)
+    need = int(cl.get('pass', len(qs)))
+    point = pick_point(who, body)
+    seconds = float(body.get('seconds') or 0)
+    attempt, was = 1, False
+    try:
+        attempt, was = F.quiz_attempts(key, who[0])
+    except Exception as e:
+        print('попытки тренинга:', e)
+    try:
+        F.save_quiz(key, point, who[0], right, len(qs), need, wrong,
+                    seconds, attempt)
+    except Exception as e:
+        print('запись тренинга:', e)
+    done = right >= need
+    if done and not was:
+        SC.add(point, who[0], 'quiz_passed', cl['code'])
+        txt = (f'🎓 <b>Тренинг пройден</b> · {point} · {who[0]}\n'
+               f'{cl["title"]} — {right} из {len(qs)}, попытка {attempt}')
+        for cid in S.managers_of(point):
+            BOT.say(cid, txt)
+    return {'ok': True, 'right': right, 'total': len(qs), 'need': need,
+            'passed': done, 'attempt': attempt, 'review': review,
+            'again': was}
 
 
 def journal(who, body):
@@ -562,6 +633,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, journal(who, body))
             if p == '/api/form':
                 return self._send(200, blank(who, body))
+            if p == '/api/quiz':
+                return self._send(200, quiz(who, body))
         except Exception as e:
             return self._send(500, {'ok': False, 'error': str(e)})
         self._send(404, {'error': 'not found'})

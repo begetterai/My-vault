@@ -148,6 +148,28 @@
         font-size:12px;margin-right:8px;flex:none}
   .steplabel.ok{background:var(--ok);color:#fff}
   .steplabel.wait{background:var(--line);color:var(--ink-2)}
+  /* обучение */
+  .qstep{font-size:13px;color:var(--ink-2);margin:2px 0 14px;font-weight:600}
+  .qteor{background:var(--wash);border:1px solid var(--line);border-radius:16px;
+        padding:18px 18px 20px;margin-bottom:16px}
+  .qteor h3{font-family:Manrope,sans-serif;font-size:19px;font-weight:800;
+        margin:0 0 10px;color:var(--ink)}
+  .qteor p{margin:0;font-size:16px;line-height:1.55;white-space:pre-line}
+  .qq{font-family:Manrope,sans-serif;font-size:20px;font-weight:800;
+        line-height:1.35;margin:0 0 16px}
+  .opt{display:block;width:100%;text-align:left;padding:16px 18px;margin-bottom:10px;
+        border-radius:15px;border:2px solid var(--line);background:var(--card);
+        font-size:16px;line-height:1.4;cursor:pointer}
+  .opt[aria-pressed="true"]{border-color:var(--brand);background:var(--wash)}
+  .qres{text-align:center;padding:22px 6px 6px}
+  .qres .k{font-family:Manrope,sans-serif;font-size:46px;font-weight:800;
+        line-height:1}
+  .qres .lab{font-size:15px;color:var(--ink-2);margin-top:6px}
+  .qrev{border:1px solid var(--line);border-radius:15px;padding:14px 16px;
+        margin-bottom:10px}
+  .qrev .t{font-weight:700;font-size:15px;line-height:1.4;margin-bottom:6px}
+  .qrev .why{font-size:14px;color:var(--ink-2);line-height:1.5}
+  .qrev.bad{border-color:var(--bad)}
   .selfie{margin-top:12px}
   .selfie img{width:110px;height:110px;object-fit:cover;border-radius:16px;
         display:block;margin-top:10px;border:2px solid var(--brand)}
@@ -327,6 +349,11 @@
       <div class="pick" id="fList"></div>
     </div>
 
+    <div id="qBox" class="hidden">
+      <h2>Обучение</h2>
+      <div class="pick" id="qList"></div>
+    </div>
+
     <div id="siteBox" class="hidden">
       <h2>Точка</h2>
       <div class="card">
@@ -380,6 +407,7 @@
 
   <div id="jform" class="hidden"></div>
   <div id="bform" class="hidden"></div>
+  <div id="qform" class="hidden"></div>
 
   <div id="form" class="hidden"></div>
 
@@ -425,11 +453,12 @@ const fail = m => { $('#err').textContent = m; $('#err').classList.remove('hidde
 
 /* ── возврат на главный экран ────────────────────────────────────────────── */
 function goHome(){
-  ['#form', '#jform', '#bform', '#done', '#foot', '#bar'].forEach(x =>
+  ['#form', '#jform', '#bform', '#qform', '#done', '#foot', '#bar'].forEach(x =>
     $(x).classList.add('hidden'));
   $('#form').innerHTML = ''; $('#jform').innerHTML = ''; $('#bform').innerHTML = '';
+  $('#qform').innerHTML = '';
   kind = null; marks = {}; measures = {}; photos = {}; markTs = [];
-  jPhoto = null; bPhoto = null; bLines = [];
+  jPhoto = null; bPhoto = null; bLines = []; qz = null;
   $('#pick').classList.remove('hidden');
   $('#err').classList.add('hidden');
   if(DATA) $('#sub').textContent = (DATA.point_label || DATA.point) + ' · ' + DATA.day;
@@ -572,7 +601,7 @@ async function boot(){
     }
     renderDistance();
     renderShift(); renderSite(); renderTasks(); renderPending();
-    renderJournals(); renderForms(); renderKpi(); renderScore();
+    renderJournals(); renderForms(); renderQuizzes(); renderKpi(); renderScore();
     stages();
     maybeTour();
     $('#pick').classList.remove('hidden');
@@ -878,6 +907,194 @@ async function sendForm(cl, btn){
   tg?.HapticFeedback?.notificationOccurred?.('success');
   alert('Записал ' + res.count + ' позиций.');
   goHome();
+}
+
+/* ── обучение ────────────────────────────────────────────────────────────── */
+let qz = null, qIdx = 0, qAns = [], qStarted = 0;
+
+function renderQuizzes(){
+  const list = DATA.quizzes || [];
+  if(!list.length) return;
+  const box = $('#qList'); box.innerHTML = '';
+  list.forEach(q => {
+    const b = document.createElement('button');
+    b.className = 'big';
+    const tail = q.passed ? 'пройден ✓'
+                          : q.total + ' вопросов · ~' + q.minutes + ' мин';
+    b.innerHTML = (q.icon || '🎓') + ' ' + q.title +
+      '<div class="sub">' + q.code + ' · ' + tail + '</div>';
+    b.onclick = () => openQuiz(q);
+    box.appendChild(b);
+  });
+  $('#qBox').classList.remove('hidden');
+}
+
+function qScreen(){
+  const f = $('#qform'); f.innerHTML = ''; f.classList.remove('hidden');
+  window.scrollTo(0, 0);
+  return f;
+}
+
+function qBack(f, label){
+  const b = document.createElement('button');
+  b.className = 'note'; b.textContent = label || '◀ Назад';
+  b.onclick = goHome;
+  f.appendChild(b);
+}
+
+function openQuiz(q){
+  qz = q; qIdx = 0; qAns = new Array(q.total).fill(-1); qStarted = Date.now();
+  $('#pick').classList.add('hidden');
+  enterScreen();
+  qTheory(0);
+}
+
+function qTheory(i){
+  const f = qScreen();
+  const total = (qz.intro || []).length;
+  if(i >= total) return qQuestion(0);
+  const s = qz.intro[i];
+  const h = document.createElement('h2');
+  h.textContent = (qz.icon || '🎓') + ' ' + qz.title; f.appendChild(h);
+  if(qz.doc) f.appendChild(docLine(qz.doc));
+  const step = document.createElement('div');
+  step.className = 'qstep';
+  step.textContent = 'Теория · ' + (i + 1) + ' из ' + total;
+  f.appendChild(step);
+  const card = document.createElement('div');
+  card.className = 'qteor';
+  card.innerHTML = '<h3></h3><p></p>';
+  card.querySelector('h3').textContent = s.h;
+  card.querySelector('p').textContent = s.p;
+  f.appendChild(card);
+  const next = document.createElement('button');
+  next.className = 'send';
+  next.textContent = i + 1 < total ? 'Дальше' : 'К вопросам →';
+  next.onclick = () => qTheory(i + 1);
+  f.appendChild(next);
+  if(i > 0){
+    const prev = document.createElement('button');
+    prev.className = 'note'; prev.textContent = '◀ Назад';
+    prev.onclick = () => qTheory(i - 1);
+    f.appendChild(prev);
+  } else {
+    qBack(f, '◀ Выйти');
+  }
+}
+
+function qQuestion(i){
+  qIdx = i;
+  const f = qScreen();
+  const q = qz.questions[i];
+  const h = document.createElement('h2');
+  h.textContent = 'Проверка знаний'; f.appendChild(h);
+  const step = document.createElement('div');
+  step.className = 'qstep';
+  step.textContent = 'Вопрос ' + (i + 1) + ' из ' + qz.total;
+  f.appendChild(step);
+  const t = document.createElement('div');
+  t.className = 'qq'; t.textContent = q.q; f.appendChild(t);
+  q.options.forEach((o, k) => {
+    const b = document.createElement('button');
+    b.className = 'opt'; b.textContent = o;
+    b.setAttribute('aria-pressed', qAns[i] === k ? 'true' : 'false');
+    b.onclick = () => {
+      qAns[i] = k;
+      f.querySelectorAll('.opt').forEach((x, j) =>
+        x.setAttribute('aria-pressed', j === k ? 'true' : 'false'));
+      tg?.HapticFeedback?.selectionChanged?.();
+      next.disabled = false;
+    };
+    f.appendChild(b);
+  });
+  const next = document.createElement('button');
+  next.className = 'send'; next.style.marginTop = '8px';
+  next.textContent = i + 1 < qz.total ? 'Дальше' : 'Проверить';
+  next.disabled = qAns[i] < 0;
+  next.onclick = () => {
+    if(qAns[i] < 0) return;
+    if(i + 1 < qz.total) return qQuestion(i + 1);
+    sendQuiz(next);
+  };
+  f.appendChild(next);
+  const prev = document.createElement('button');
+  prev.className = 'note';
+  prev.textContent = i > 0 ? '◀ Предыдущий вопрос' : '◀ К теории';
+  prev.onclick = () => i > 0 ? qQuestion(i - 1) : qTheory((qz.intro || []).length - 1);
+  f.appendChild(prev);
+}
+
+async function sendQuiz(btn){
+  btn.disabled = true; btn.textContent = 'Проверяю…';
+  let res;
+  try{
+    const r = await fetch('/api/quiz', {method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({initData, key: qz.key, point, answers: qAns,
+                            seconds: (Date.now() - qStarted) / 1000})});
+    res = await r.json();
+  }catch(e){
+    btn.disabled = false; btn.textContent = 'Проверить';
+    return alert('Не отправилось: ' + e.message + '. Нажми ещё раз.');
+  }
+  btn.disabled = false; btn.textContent = 'Проверить';
+  if(!res.ok) return alert(res.error || 'не проверилось');
+  tg?.HapticFeedback?.notificationOccurred?.(res.passed ? 'success' : 'warning');
+  qResult(res);
+}
+
+function qResult(res){
+  const f = qScreen();
+  const head = document.createElement('div');
+  head.className = 'qres';
+  head.innerHTML = '<div class="k"></div><div class="lab"></div>';
+  head.querySelector('.k').textContent = res.right + ' из ' + res.total;
+  head.querySelector('.k').style.color = res.passed ? 'var(--ok)' : 'var(--bad)';
+  head.querySelector('.lab').textContent = res.passed
+    ? (res.again ? 'Сдано. Тренинг уже был пройден раньше.'
+                 : 'Тренинг сдан. Управляющему ушло сообщение.')
+    : 'Не сдано: нужно ' + res.need + ' из ' + res.total
+      + '. Разбери ошибки и пройди ещё раз.';
+  f.appendChild(head);
+
+  const h = document.createElement('h2');
+  h.textContent = 'Разбор'; f.appendChild(h);
+  res.review.forEach(x => {
+    const d = document.createElement('div');
+    d.className = 'qrev' + (x.ok ? '' : ' bad');
+    const q = qz.questions[x.n - 1];
+    d.innerHTML = '<div class="t"></div>'
+      + '<div class="why" style="margin-bottom:6px"><b></b> <span></span></div>'
+      + '<div class="why"></div>';
+    d.querySelector('.t').textContent = (x.ok ? '✓ ' : '✕ ') + x.n + '. ' + x.q;
+    d.querySelectorAll('.why b')[0].textContent = 'Правильно:';
+    d.querySelector('.why span').textContent = q.options[x.correct];
+    d.querySelectorAll('.why')[1].textContent = x.why;
+    if(!x.ok && q.options[x.your]){
+      const mine = document.createElement('div');
+      mine.className = 'why'; mine.style.marginBottom = '6px';
+      mine.innerHTML = '<b>Ты ответил:</b> <span></span>';
+      mine.querySelector('span').textContent = q.options[x.your];
+      d.insertBefore(mine, d.querySelector('.why'));
+    }
+    f.appendChild(d);
+  });
+
+  if(!res.passed){
+    const again = document.createElement('button');
+    again.className = 'send'; again.style.marginTop = '16px';
+    again.textContent = 'Пройти ещё раз';
+    again.onclick = () => { qAns = new Array(qz.total).fill(-1);
+                            qStarted = Date.now(); qTheory(0); };
+    f.appendChild(again);
+  } else {
+    const done = document.createElement('button');
+    done.className = 'send'; done.style.marginTop = '16px';
+    done.textContent = 'Готово';
+    done.onclick = goHome;
+    f.appendChild(done);
+  }
+  qBack(f, res.passed ? '◀ На главную' : '◀ Выйти');
 }
 
 /* ── первый запуск: короткая проводка ────────────────────────────────────── */
