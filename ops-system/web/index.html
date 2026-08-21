@@ -409,6 +409,24 @@
     <button class="note" onclick="showTour()" style="margin-top:20px">
       ❓ Как это работает</button>
 
+    <div id="dispBox" class="hidden">
+      <h2>Споры по баллам <span id="dispN" class="badge"></span></h2>
+      <div id="dispList"></div>
+    </div>
+
+    <div id="awardBox" class="hidden">
+      <h2>Начислить за дополнительное</h2>
+      <div class="card">
+        <label>Кому</label>
+        <select id="awTo"></select>
+        <label>За что</label>
+        <select id="awEvent"></select>
+        <button class="send" id="awGo" style="margin-top:12px">Начислить</button>
+        <div class="hint">Начисляется только с твоего подтверждения. Один раз
+          в день по каждому основанию.</div>
+      </div>
+    </div>
+
     <h2 id="balHead" class="hidden">Баллы за период</h2>
     <div id="scoreCard" class="card hidden">
       <div class="kv"><span id="balPeriod">—</span><b id="balPay">0</b></div>
@@ -621,6 +639,7 @@ async function boot(){
     renderDistance();
     renderShift(); renderSite(); renderTasks(); renderPending();
     renderJournals(); renderForms(); renderQuizzes(); renderKpi(); renderScore();
+    renderDisputes(); renderAwards();
     draftSweep();
     stages();
     maybeTour();
@@ -1140,10 +1159,15 @@ function tourSteps(){
      + 'в разделе «Записать событие».'],
     ['4', 'Закончил — чек-лист закрытия и «Ушёл»',
      'До 23:30. Часы посчитаются сами и попадут в табель.'],
+    ['5', 'Баллы: 1 балл = 1 сомони',
+     'Своя работа: закрыл день полностью — плюс. Не сдал чек-лист, опоздал — '
+     + 'минус. Пока своя работа в минусе, баллы за дополнительное не платятся. '
+     + 'Не согласен с минусом — жми «Не согласен» в тот же день.'],
   ];
-  if(!staff) s.push(['5', 'Проверь работу смены',
+  if(!staff) s.push(['6', 'Проверь работу смены',
      'Раздел «На проверке» — полный список, что сделано и что нет. '
-     + 'Подтверди или опиши расхождение. Раздел «Задачи» — что нужно устранить.']);
+     + 'По каждому невыполненному пункту скажи, вина смены или нет: от этого '
+     + 'зависит, будет минус или задача на починку.']);
   return s;
 }
 
@@ -1514,6 +1538,77 @@ function renderKpi(){
 
 /* ── баллы ───────────────────────────────────────────────────────────────── */
 function sign(n){ return (n > 0 ? '+' : '') + n; }
+
+/* ── руководителю: споры и начисления ────────────────────────────────────── */
+function renderDisputes(){
+  const list = DATA.disputes || [];
+  $('#dispN').textContent = list.length || '';
+  if(!list.length) return $('#dispBox').classList.add('hidden');
+  const box = $('#dispList'); box.innerHTML = '';
+  list.forEach(d => {
+    const c = document.createElement('div');
+    c.className = 'chk';
+    c.innerHTML = '<h3>' + d.who + ' · ' + sign(d.pts) + '</h3>'
+      + '<div class="meta">' + d.point + ' · ' + d.date + ' · ' + d.why + '</div>'
+      + '<div class="det">«' + d.text + '»</div>';
+    const acts = document.createElement('div'); acts.className = 'acts';
+    const drop = document.createElement('button');
+    drop.className = 'yes'; drop.textContent = '✓ Снять списание';
+    drop.onclick = () => resolveDispute(d, 'drop', c);
+    const keep = document.createElement('button');
+    keep.className = 'no'; keep.textContent = '✕ Оставить';
+    keep.onclick = () => resolveDispute(d, 'keep', c);
+    acts.append(drop, keep); c.appendChild(acts);
+    box.appendChild(c);
+  });
+  $('#dispBox').classList.remove('hidden');
+}
+
+async function resolveDispute(d, verdict, card){
+  const note = prompt(verdict === 'drop'
+    ? 'Почему снимаешь? Одной фразой — человек это увидит.'
+    : 'Почему оставляешь? Одной фразой — человек это увидит.');
+  if(!note) return;
+  card.querySelectorAll('button').forEach(b => b.disabled = true);
+  const r = await fetch('/api/dispute_resolve', {method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({initData, line: d.line, verdict, note})});
+  const j = await r.json();
+  if(!j.ok){
+    card.querySelectorAll('button').forEach(b => b.disabled = false);
+    return alert(j.error || 'не записалось');
+  }
+  tg?.HapticFeedback?.notificationOccurred?.('success');
+  card.style.opacity = '.45';
+  card.querySelector('.acts').innerHTML = '<div class="hint">'
+    + (verdict === 'drop' ? 'Списание снято' : 'Оставлено') + '</div>';
+  DATA.disputes = (DATA.disputes || []).filter(x => x.line !== d.line);
+  $('#dispN').textContent = DATA.disputes.length || '';
+}
+
+function renderAwards(){
+  const people = DATA.team || [], kinds = DATA.awards || [];
+  if(!people.length || !kinds.length) return;
+  $('#awTo').innerHTML = people.map(p => '<option>' + p + '</option>').join('');
+  $('#awEvent').innerHTML = kinds.map(k =>
+    '<option value="' + k.event + '">' + k.why + ' · +' + k.pts + '</option>').join('');
+  $('#awGo').onclick = sendAward;
+  $('#awardBox').classList.remove('hidden');
+}
+
+async function sendAward(){
+  const btn = $('#awGo');
+  btn.disabled = true; btn.textContent = 'Начисляю…';
+  const r = await fetch('/api/award', {method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({initData, point, to: $('#awTo').value,
+                          event: $('#awEvent').value})});
+  const j = await r.json();
+  btn.disabled = false; btn.textContent = 'Начислить';
+  if(!j.ok) return alert(j.error || 'не начислилось');
+  tg?.HapticFeedback?.notificationOccurred?.('success');
+  alert('Начислено +' + j.pts + '. Человеку ушло сообщение.');
+}
 
 function renderBalLines(lines){
   const box = $('#balLines'); box.innerHTML = '';

@@ -104,6 +104,15 @@ def init_payload(who):
                             for x in TSK.all_tasks(True, pt)]
         except Exception:
             out['tasks'] = []
+        try:
+            out['disputes'] = SC.disputes(None if role == 'coo' else who[1])
+            out['awards'] = [{'event': e, 'pts': SC.RULES[e][0],
+                              'why': SC.RULES[e][2]} for e in SC.AWARDABLE]
+            out['team'] = sorted({v[0] for v in S.team().values()
+                                  if v[1] == who[1] and v[0] != who[0]})
+        except Exception as e:
+            print('баллы для руководителя:', e)
+            out['disputes'], out['awards'], out['team'] = [], [], []
     if role in ('manager', 'coo'):
         try:
             from . import kpi as K
@@ -595,6 +604,31 @@ def task_done(who, body):
     return {'ok': True}
 
 
+def award(who, body):
+    """Управляющий начисляет доп. балл: замена, обучение, принятая идея.
+
+    Только через живого человека: всё, что начисляется по факту записи,
+    накручивается за неделю.
+    """
+    if S.role_of(who) not in ('manager', 'coo'):
+        return {'ok': False, 'error': 'Баллы начисляет руководитель'}
+    event = str(body.get('event', ''))
+    name = str(body.get('to', '')).strip()
+    if event not in SC.AWARDABLE:
+        return {'ok': False, 'error': 'неизвестное начисление'}
+    point = pick_point(who, body)
+    if name not in {v[0] for v in S.team().values() if v[1] == point}:
+        return {'ok': False, 'error': 'Такого человека нет на этой точке'}
+    pts = SC.add(point, name, event, f'начислил {who[0]}')
+    if not pts:
+        return {'ok': False, 'error': 'Сегодня по этому основанию уже начислено'}
+    for cid, v in S.team().items():
+        if v[0] == name and v[1] == point:
+            BOT.say(cid, f'⭐️ <b>+{pts}</b> · {SC.RULES[event][2]}\n'
+                         f'Начислил: {who[0]}')
+    return {'ok': True, 'pts': pts}
+
+
 def points(who, body):
     """Баланс периода со всеми строками — человек видит его в реальном времени."""
     try:
@@ -723,6 +757,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, quiz(who, body))
             if p == '/api/points':
                 return self._send(200, points(who, body))
+            if p == '/api/award':
+                return self._send(200, award(who, body))
             if p == '/api/dispute':
                 return self._send(200, dispute(who, body))
             if p == '/api/dispute_resolve':

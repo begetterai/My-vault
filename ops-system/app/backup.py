@@ -115,11 +115,55 @@ def cleanup(folder):
     return killed
 
 
+PHOTO_KEEP_DAYS = int(os.environ.get('PHOTO_KEEP_DAYS', '30'))
+
+
+def photos_cleanup():
+    """Селфи прихода и снимки чек-листов старше 30 дней — удаляем.
+
+    Решение Азиза 21.08.2026. Смысл фото — подтвердить, что пришёл именно
+    этот человек, и он исчерпывается за пару дней. Хранить вечно снимки
+    лиц сотрудников — лишний риск и лишний повод для разговоров.
+    """
+    if not C.PHOTO_FOLDER:
+        return 0
+    s = S.session()
+    edge = (C.now() - datetime.timedelta(days=PHOTO_KEEP_DAYS))
+    killed, page = 0, None
+    while True:
+        params = {'q': f"'{C.PHOTO_FOLDER}' in parents and trashed = false "
+                       f"and modifiedTime < '{edge.strftime('%Y-%m-%dT%H:%M:%S')}Z'",
+                  'fields': 'nextPageToken,files(id)', 'pageSize': 200,
+                  'supportsAllDrives': True, 'includeItemsFromAllDrives': True}
+        if page:
+            params['pageToken'] = page
+        r = s.get(DRIVE, params=params, timeout=60)
+        if not r.ok:
+            return killed
+        j = r.json()
+        for f in j.get('files', []):
+            d = s.delete(f'{DRIVE}/{f["id"]}',
+                         params={'supportsAllDrives': True}, timeout=60)
+            if d.ok or d.status_code == 204:
+                killed += 1
+        page = j.get('nextPageToken')
+        if not page:
+            return killed
+
+
 def run():
     """Сделать копии и подчистить старые. → отчёт строкой."""
     tg = targets()
     if not tg:
-        return 'Резервное копирование: не задано, что копировать.'
+        # Копировать нечего, но фото чистить всё равно надо: срок хранения
+        # не должен зависеть от того, настроены копии или нет.
+        try:
+            shots = photos_cleanup()
+        except Exception as e:
+            return f'Резервное копирование не настроено. Чистка фото: {e}'
+        return ('Резервное копирование: не задано, что копировать.'
+                + (f' Удалено фото старше {PHOTO_KEEP_DAYS} дней: {shots}.'
+                   if shots else ''))
     folder = _folder()
     day = C.today().isoformat()
     done, failed = [], []
@@ -141,6 +185,12 @@ def run():
         L += ['   · ' + f for f in failed]
     L.append(f'<i>Удалено старых: {killed}. Дневные храним {KEEP_DAYS} дней, '
              f'копии первого числа — навсегда.</i>')
+    try:
+        shots = photos_cleanup()
+        if shots:
+            L.append(f'<i>Удалено фото старше {PHOTO_KEEP_DAYS} дней: {shots}.</i>')
+    except Exception as e:
+        L.append(f'⚠️ Чистка фото не прошла: {e}')
     return '\n'.join(L)
 
 

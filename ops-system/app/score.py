@@ -50,7 +50,11 @@ COLS = ['Дата', 'Точка', 'Кто', 'Событие', 'Баллы', 'З�
 
 # Потолок начислений в день: без него «нашёл проблему» превращается
 # в двадцать записей за смену и сто баллов из воздуха.
-DAY_CAP = {'found_issue': 3}
+DAY_CAP = {'found_issue': 3, 'replace_shift': 1, 'taught': 1,
+           'idea_accepted': 2}
+
+# Что управляющий может начислить руками из приложения.
+AWARDABLE = ('replace_shift', 'taught', 'idea_accepted', 'found_issue')
 
 
 def period_of(d=None):
