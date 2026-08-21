@@ -602,6 +602,7 @@ async function boot(){
     renderDistance();
     renderShift(); renderSite(); renderTasks(); renderPending();
     renderJournals(); renderForms(); renderQuizzes(); renderKpi(); renderScore();
+    draftSweep();
     stages();
     maybeTour();
     $('#pick').classList.remove('hidden');
@@ -1564,6 +1565,19 @@ function start(k){
   nb.onclick = sendNote; f.appendChild(nb);
 
   $('#send').onclick = submit;
+  const d = draftLoad(k);
+  if(d && Object.keys(d.marks || {}).length){
+    const mins = Math.round((Date.now() - (d.saved || Date.now())) / 60000);
+    const when = mins < 1 ? 'только что' : mins + ' мин назад';
+    if(confirm('Есть незаконченный чек-лист: отмечено '
+               + Object.keys(d.marks).length + ' пунктов, ' + when + '.'
+               + (L.photos.length ? '\nФото придётся сделать заново.' : '')
+               + '\n\nПродолжить с того места?\nОтмена — начать заново.')){
+      draftApply(d);
+    } else {
+      draftDrop(k);
+    }
+  }
   paint();
 }
 
@@ -1656,8 +1670,68 @@ function shrink(file){
   });
 }
 
+/* ── черновик в памяти телефона ───────────────────────────────────────────────
+   Связь на точке рвётся: подвал, лифт, кончился трафик. Без черновика
+   обрыв стирает тридцать отметок, и второй раз человек отмечает не глядя.
+   Фото не храним — они тяжёлые и переснять их проще, чем чистить память.  */
+function draftKey(k){
+  return 'romashka_draft_' + k + '_' + (DATA?.day || '') + '_' + point;
+}
+
+function draftSweep(){
+  // Черновик живёт один день: вчерашний чек-лист сдавать уже поздно,
+  // а память телефона забивать незачем.
+  try{
+    const keep = '_' + (DATA?.day || '') + '_';
+    for(const k of Object.keys(localStorage))
+      if(k.startsWith('romashka_draft_') && !k.includes(keep))
+        localStorage.removeItem(k);
+  }catch(e){}
+}
+
+function draftSave(){
+  if(!kind) return;
+  try{
+    localStorage.setItem(draftKey(kind), JSON.stringify({
+      marks, measures, markTs,
+      time: $('#time')?.value || '', comment: $('#comment')?.value || '',
+      started, saved: Date.now()
+    }));
+  }catch(e){ /* память кончилась или запрещена — работаем без черновика */ }
+}
+
+function draftDrop(k){
+  try{ localStorage.removeItem(draftKey(k)); }catch(e){}
+}
+
+function draftLoad(k){
+  try{
+    const raw = localStorage.getItem(draftKey(k));
+    return raw ? JSON.parse(raw) : null;
+  }catch(e){ return null; }
+}
+
+function draftApply(d){
+  marks = d.marks || {}; measures = d.measures || {}; markTs = d.markTs || [];
+  started = d.started || Date.now();
+  if($('#time')) $('#time').value = d.time || '';
+  if($('#comment')) $('#comment').value = d.comment || '';
+  Object.entries(marks).forEach(([n, v]) => {
+    const row = $('#i' + n);
+    if(!row) return;
+    row.classList.remove('unset');
+    row.querySelectorAll('.tog button').forEach(b =>
+      b.setAttribute('aria-pressed', b.dataset.v === (v ? '1' : '0') ? 'true' : 'false'));
+  });
+  Object.entries(measures).forEach(([n, v]) => {
+    const inp = $('#m' + n);
+    if(inp) inp.value = v;
+  });
+}
+
 function paint(){
   const L = DATA.lists[kind];
+  draftSave();
   const total = L.blocks.reduce((s,b) => s + b.items.length, 0);
   const done = Object.keys(marks).length;
   $('#bar').firstElementChild.style.width = (done/total*100) + '%';
@@ -1703,6 +1777,7 @@ async function submit(){
       headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
     const j = await r.json();
     if(!j.ok) throw new Error(j.error || 'не сохранилось');
+    draftDrop(kind);
     $('#form').classList.add('hidden'); $('#foot').classList.add('hidden');
     $('#bar').classList.add('hidden');
     $('#doneK').textContent = j.done + ' из ' + j.total;
@@ -1711,7 +1786,13 @@ async function submit(){
     $('#done').classList.remove('hidden');
     tg?.HapticFeedback?.notificationOccurred?.('success');
   }catch(e){
-    fail(e.message); $('#send').disabled = false; $('#send').textContent = 'Отправить';
+    // Черновик уже в памяти телефона: говорим это прямо, иначе человек
+    // решит, что всё пропало, и начнёт отмечать заново не глядя.
+    fail(navigator.onLine === false || /fetch|network|Failed/i.test(e.message)
+      ? 'Связь пропала. Отметки сохранены в телефоне — нажми «Отправить» ещё '
+        + 'раз, когда появится сеть. Можно закрыть приложение, ничего не потеряется.'
+      : e.message);
+    $('#send').disabled = false; $('#send').textContent = 'Отправить';
   }
 }
 
