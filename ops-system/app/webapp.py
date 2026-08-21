@@ -643,6 +643,19 @@ def task_done(who, body):
     return {'ok': True}
 
 
+def board(who, body):
+    """Обзор для руководителя: то, на что реагируют сегодня, и картина недели."""
+    role = S.role_of(who)
+    if role not in ('manager', 'coo'):
+        return {'ok': False, 'error': 'Обзор — для руководителя'}
+    from . import board as BD
+    pt = None if role == 'coo' else who[1]
+    try:
+        return {'ok': True, 'board': BD.build(role, pt, who[0])}
+    except Exception as e:
+        return {'ok': False, 'error': str(e)}
+
+
 def roster(who, body):
     """Состав смены на завтра: черновик по вчерашнему составу и текущее состояние."""
     from . import roster as RS
@@ -872,6 +885,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, points(who, body))
             if p == '/api/award':
                 return self._send(200, award(who, body))
+            if p == '/api/board':
+                return self._send(200, board(who, body))
             if p == '/api/roster':
                 return self._send(200, roster(who, body))
             if p == '/api/roster_save':
