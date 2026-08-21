@@ -42,13 +42,18 @@ def deadlines():
 
 # ── напоминания и эскалация ──────────────────────────────────────────────────
 def remind(key, cl, point, left):
-    who = S.staff_of(point) or S.managers_of(point)
+    # Напоминание — тому, чей это чек-лист: своя позиция, своя роль.
+    # Иначе кассир получает напоминания про кухню и перестаёт их читать.
+    who = S.workers_of(point, cl.get('dept'), cl.get('roles')) \
+        or S.managers_of(point)
     for cid in who:
+        v = S.team().get(str(cid))
         BOT.say(cid, f'⏰ <b>{cl["title"]}</b> · {point}\n'
                      f'До дедлайна <b>{left} мин</b> (до {cl["deadline"]}). '
                      f'Чек-лист ещё не заполнен.\n\n'
                      f'Открой приложение и пройди по точке.',
-                reply_markup=BOT.menu_kb('staff'))
+                reply_markup=BOT.menu_kb(S.role_of(v) if v else 'staff',
+                                         S.dept_of(v) if v else '', point))
 
 
 def overdue(key, cl, point):
@@ -282,6 +287,14 @@ def tick():
 
     for key, cl, dead, before in deadlines():
         for point in S.points():
+            # Цех есть только на ЗБ. Без этой проверки ОВИР каждый день
+            # получал бы «просрочено» по чек-листу, которого у него нет.
+            if cl.get('points') and point not in cl['points']:
+                continue
+            # Некому сдавать — не с кого и спрашивать: позиция не занята,
+            # человека на ней нет.
+            if not S.workers_of(point, cl.get('dept'), cl.get('roles')):
+                continue
             if S.already_filled(key, dstr, point):
                 continue
             if dead - before <= minute < dead and once(f'rem:{key}:{point}'):

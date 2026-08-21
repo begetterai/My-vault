@@ -34,6 +34,20 @@ def day_str(d):
     return d.strftime('%d.%m.%Y')
 
 
+def hhmm(t):
+    """«9:00» → «09:00». Таблица показывает время без ведущего нуля, и без
+    нормализации повторная отправка состава выглядит как изменение времени —
+    людям заново уходит вопрос «Буду / Не смогу»."""
+    s = str(t).strip()
+    if ':' not in s:
+        return s
+    h, m = s.split(':')[:2]
+    try:
+        return f'{int(h):02d}:{int(m):02d}'
+    except ValueError:
+        return s
+
+
 def rows(day=None, point=None):
     out = []
     for i, r in enumerate(S.get(TAB, 'A2:J')):
@@ -46,7 +60,7 @@ def rows(day=None, point=None):
             continue
         out.append({'line': i + 2, 'day': r[0].strip(), 'point': r[1].strip(),
                     'who': r[2].strip(), 'dept': r[3].strip().lower(),
-                    'start': r[4].strip(), 'instead': r[5].strip(),
+                    'start': hhmm(r[4]), 'instead': r[5].strip(),
                     'confirm': r[6].strip().lower(), 'mark': r[7].strip(),
                     'by': r[8].strip(), 'at': r[9].strip()})
     return out
@@ -132,7 +146,7 @@ def save(day, point, people, author):
             continue
         seen.add(who)
         dept = str(p.get('dept', '')).strip().lower()
-        start = str(p.get('start', '')).strip() or START.get(dept, '')
+        start = hhmm(p.get('start', '')) or START.get(dept, '')
         instead = str(p.get('instead', '')).strip()
         was = old.get(who)
         # Уже подтверждённое не сбрасываем: человек ответил, повторно

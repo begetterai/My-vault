@@ -127,9 +127,12 @@ def menu_kb(role, dept='', point=None):
         kb.append([{'text': '📱 Открыть приложение', 'web_app': {'url': C.WEBAPP_URL}}])
     kb += [[{'text': f'🧾 {cl["title"]} (в чате)', 'callback_data': f'cl:go:{k}'}]
            for k, cl in C.for_role(role, dept, point).items()]
-    kb.append([{'text': {'staff': '📋 Мои последние',
-                         'manager': '📋 История точки'}.get(role, '📋 История — все точки'),
-                'callback_data': 'cl:h:' + {'staff': 'me', 'manager': 'point'}.get(role, 'all')}])
+    # Старший смены — не руководитель: чужие точки ему не показываем.
+    kb.append([{'text': {'staff': '📋 Мои последние', 'senior': '📋 Мои последние',
+                         'manager': '📋 История точки'}.get(role,
+                                                            '📋 История — все точки'),
+                'callback_data': 'cl:h:' + {'staff': 'me', 'senior': 'me',
+                                            'manager': 'point'}.get(role, 'all')}])
     if role in ('manager', 'coo'):
         kb.append([{'text': '🔎 На проверке', 'callback_data': 'cl:pend'},
                    {'text': '📌 Задачи', 'callback_data': 'cl:task'}])
@@ -417,9 +420,19 @@ def notify_check(st, ok, tot, fails, line, comment, fast, dup=False):
            f'{st["day"]} · {st["who"]}\nВыполнено <b>{ok} из {tot}</b>{warn}\n\n{lst}'
            + (f'💬 {comment}\n' if comment else '')
            + '\nПройди по точке и подтверди — или опиши, что не сошлось.')
-    kb = {'inline_keyboard': [[
-        {'text': '✅ Проверил', 'callback_data': f'cl:ck:ok:{st["kind"]}:{line}'},
-        {'text': '⚠️ Расхождение', 'callback_data': f'cl:ck:bad:{st["kind"]}:{line}'}]]}
+    # Если есть невыполненные пункты, их надо разобрать: вина смены или
+    # задача на починку. В чате этого не сделать — отправляем в приложение,
+    # иначе через бота можно подтвердить заполнение в обход разбора.
+    if fails and C.WEBAPP_URL:
+        txt += ('\n\n<b>Есть невыполненные пункты.</b> Разбери в приложении: '
+                'по каждому скажи, вина смены или задача на починку.')
+        kb = {'inline_keyboard': [[{'text': '📱 Разобрать в приложении',
+                                    'web_app': {'url': C.WEBAPP_URL}}]]}
+    else:
+        kb = {'inline_keyboard': [[
+            {'text': '✅ Проверил', 'callback_data': f'cl:ck:ok:{st["kind"]}:{line}'},
+            {'text': '⚠️ Расхождение',
+             'callback_data': f'cl:ck:bad:{st["kind"]}:{line}'}]]}
     sent = set()
     for cid in S.managers_of(st['point']):
         say(cid, txt, reply_markup=kb)
@@ -824,9 +837,15 @@ def on_callback(cq):
             txt = RP.pending_text(point)
         except Exception as e:
             items, txt = [], f'⚠️ Не смог получить список: {e}'
+        # Кнопка «✓» — только там, где нечего разбирать. Где есть
+        # невыполненные пункты, подтверждение идёт через приложение.
         kb = [[{'text': f'✓ {x["title"][:16]} · {x["who"][:10]} · {x["day"][:5]}',
                 'callback_data': f'cl:ck:ok:{x["key"]}:{x["line"]}'}]
-              for x in items[:8]]
+              for x in items[:8] if not (x.get('fails') and x['fails'] != '—')]
+        if C.WEBAPP_URL and any(x.get('fails') and x['fails'] != '—'
+                                for x in items[:8]):
+            kb.append([{'text': '📱 Разобрать невыполненные пункты',
+                        'web_app': {'url': C.WEBAPP_URL}}])
         kb.append([{'text': '◀ Назад', 'callback_data': 'cl:menu'}])
         tg('editMessageText', chat_id=chat_id, message_id=mid, text=txt,
            parse_mode='HTML', reply_markup={'inline_keyboard': kb})

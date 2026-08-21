@@ -232,9 +232,31 @@ def managers_of(point):
 
 
 def staff_of(point):
-    """Линейные сотрудники точки — те, кто заполняет."""
+    """Кто заполняет на точке. Старший смены — тоже: кухонные чек-листы его."""
     return [cid for cid, v in team().items()
-            if v[1] == point and role_of(v) == 'staff']
+            if v[1] == point and role_of(v) in ('staff', 'senior')]
+
+
+def workers_of(point, dept=None, roles=None):
+    """Кому адресован конкретный чек-лист: своя точка, свой отдел, своя роль.
+
+    Без этого напоминание про кухню приходит кассиру и уборщице — а шум
+    в уведомлениях люди отключают вместе с полезным.
+    """
+    ds = [x.lower() for x in ([dept] if isinstance(dept, str) else (dept or [])) if x]
+    out = []
+    for cid, v in team().items():
+        if v[1] != point:
+            continue
+        r = role_of(v)
+        if r in ('manager', 'coo'):
+            continue
+        if roles and r not in roles:
+            continue
+        if ds and (dept_of(v) or '').lower() not in ds:
+            continue
+        out.append(cid)
+    return out
 
 
 def managers():
