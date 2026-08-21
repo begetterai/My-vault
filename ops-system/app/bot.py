@@ -127,7 +127,7 @@ def menu_kb(role, dept='', point=None):
         kb.append([{'text': '📱 Открыть приложение', 'web_app': {'url': C.WEBAPP_URL}}])
     kb += [[{'text': f'🧾 {cl["title"]} (в чате)', 'callback_data': f'cl:go:{k}'}]
            for k, cl in C.for_role(role, dept, point).items()]
-    # Старший смены — не руководитель: чужие точки ему не показываем.
+    # Старший смены на кухне — не руководитель: чужие точки ему не показываем.
     kb.append([{'text': {'staff': '📋 Мои последние', 'senior': '📋 Мои последние',
                          'manager': '📋 История точки'}.get(role,
                                                             '📋 История — все точки'),

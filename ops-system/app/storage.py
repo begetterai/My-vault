@@ -232,7 +232,7 @@ def managers_of(point):
 
 
 def staff_of(point):
-    """Кто заполняет на точке. Старший смены — тоже: кухонные чек-листы его."""
+    """Кто заполняет на точке. Старший смены на кухне — тоже: кухонные чек-листы его."""
     return [cid for cid, v in team().items()
             if v[1] == point and role_of(v) in ('staff', 'senior')]
 

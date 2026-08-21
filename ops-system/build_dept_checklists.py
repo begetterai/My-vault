@@ -14,7 +14,7 @@ import json, collections, os
 PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                     'checklists.romashka.json')
 
-# Кто сдаёт чек-лист отдела. Кухню сдаёт старший смены — по 01-DK-02 и
+# Кто сдаёт чек-лист отдела. Кухню сдаёт старший смены на кухне — по 01-DK-02 и
 # решению Азиза; остальные отделы по одному человеку, сдаёт он сам.
 SENIOR = ['senior', 'manager', 'coo']
 
