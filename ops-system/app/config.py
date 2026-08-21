@@ -57,9 +57,9 @@ WEEKLY_AT = ENV('WEEKLY_AT', '09:30')               # сводка недели,
 CHECK_DEADLINE = int(ENV('CHECK_DEADLINE', '120'))  # мин на подтверждение управляющим
 BACKUP_AT = ENV('BACKUP_AT', '05:30')               # копии таблиц, пока никто не пишет
 CLOSE_DAY_AT = ENV('CLOSE_DAY_AT', '00:30')         # засчитать вчерашний закрытый день
-ROSTER_AT = ENV('ROSTER_AT', '21:00')               # запрос наряда на завтра
+ROSTER_AT = ENV('ROSTER_AT', '21:00')               # запрос состава смены на завтра
 ROSTER_SUM_AT = ENV('ROSTER_SUM_AT', '21:30')       # сводка: кто подтвердил
-ROSTER_FALLBACK_AT = ENV('ROSTER_FALLBACK_AT', '23:00')  # нет наряда — берём вчерашний
+ROSTER_FALLBACK_AT = ENV('ROSTER_FALLBACK_AT', '23:00')  # нет состава — берём вчерашний
 SUMMARY_AT = ENV('SUMMARY_AT', '20:00')             # сводка баллов, суббота
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

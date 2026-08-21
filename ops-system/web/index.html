@@ -1545,7 +1545,7 @@ function renderKpi(){
 /* ── баллы ───────────────────────────────────────────────────────────────── */
 function sign(n){ n = Number(n) || 0; return (n > 0 ? '+' : '') + n; }
 
-/* ── наряд на завтра ─────────────────────────────────────────────────────── */
+/* ── состав смены на завтра ─────────────────────────────────────────────────────── */
 let ROSTER = null;
 
 async function loadRoster(){
@@ -1555,7 +1555,7 @@ async function loadRoster(){
       body: JSON.stringify({initData, point})});
     ROSTER = await r.json();
     if(ROSTER.ok) renderRoster();
-  }catch(e){ /* наряд не критичен для остального экрана */ }
+  }catch(e){ /* состав не критичен для остального экрана */ }
 }
 
 function renderRoster(){
@@ -1571,7 +1571,7 @@ function renderRosterMine(box){
   const c = document.createElement('div'); c.className = 'card';
   if(!m){
     c.innerHTML = '<div class="kv"><span>Завтра</span><b>выходной</b></div>'
-      + '<div class="hint">Тебя нет в наряде на завтра. Если это ошибка — '
+      + '<div class="hint">Тебя нет в составе на завтра. Если это ошибка — '
       + 'скажи управляющему.</div>';
     box.appendChild(c);
     return;
@@ -1622,11 +1622,11 @@ function renderRosterBoss(box){
   const add = document.createElement('button');
   add.className = 'add'; add.textContent = '+ Добавить человека';
   add.onclick = () => {
-    // Подставляем того, кого в наряде ещё нет: иначе один человек попадает
-    // в смену дважды и наряд врёт про состав.
+    // Подставляем того, кого в составе ещё нет: иначе один человек попадает
+    // в смену дважды и состав смены врёт.
     const busy = new Set(ROSTER.people.map(x => x.who));
     const free = (ROSTER.team || []).find(n => !busy.has(n));
-    if(!free) return alert('Все люди точки уже в наряде.');
+    if(!free) return alert('Все люди точки уже в составе.');
     ROSTER.people.push({who: free, dept: 'кухня',
                         start: ROSTER.starts['кухня'] || '', instead: ''});
     renderRoster();
@@ -1635,14 +1635,14 @@ function renderRosterBoss(box){
 
   const send = document.createElement('button');
   send.className = 'send'; send.style.marginTop = '12px';
-  send.textContent = ROSTER.sent ? 'Отправить изменения' : 'Отправить наряд';
+  send.textContent = ROSTER.sent ? 'Отправить изменения' : 'Отправить состав';
   send.onclick = () => sendRoster(send);
   box.appendChild(send);
 
   const hint = document.createElement('div');
   hint.className = 'hint';
   hint.textContent = ROSTER.sent
-    ? 'Наряд отправлен. Изменения уйдут тем, у кого поменялась позиция или время.'
+    ? 'Состав отправлен. Изменения уйдут тем, у кого поменялась позиция или время.'
     : 'Черновик по сегодняшнему составу. Поправь и отправь — людям придёт '
       + 'вопрос «Буду / Не смогу».';
   box.appendChild(hint);
@@ -1689,16 +1689,16 @@ function rosterRow(p, i){
 async function sendRoster(btn){
   const names = ROSTER.people.map(x => x.who);
   const dup = names.find((n, i) => names.indexOf(n) !== i);
-  if(dup) return alert(dup + ' стоит в наряде дважды. Убери лишнюю строку.');
+  if(dup) return alert(dup + ' стоит в составе дважды. Убери лишнюю строку.');
   btn.disabled = true; btn.textContent = 'Отправляю…';
   const r = await fetch('/api/roster_save', {method:'POST',
     headers:{'Content-Type':'application/json'},
     body: JSON.stringify({initData, point, people: ROSTER.people})});
   const j = await r.json();
   btn.disabled = false;
-  if(!j.ok){ btn.textContent = 'Отправить наряд'; return alert(j.error || 'не ушло'); }
+  if(!j.ok){ btn.textContent = 'Отправить состав'; return alert(j.error || 'не ушло'); }
   tg?.HapticFeedback?.notificationOccurred?.('success');
-  alert('Наряд отправлен. Вопрос ушёл: ' + j.sent + ' из ' + j.total + '.');
+  alert('Состав отправлен. Вопрос ушёл: ' + j.sent + ' из ' + j.total + '.');
   loadRoster();
 }
 

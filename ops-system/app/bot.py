@@ -722,7 +722,7 @@ def on_callback(cq):
     ack = lambda s='': tg('answerCallbackQuery', callback_query_id=cq['id'], text=s)
     who = S.team().get(chat_id)
 
-    # Наряд на завтра: ответ двумя кнопками, без открытия приложения —
+    # Состав смены на завтра: ответ двумя кнопками, без открытия приложения —
     # на подтверждение даётся полчаса, каждый лишний шаг тут лишний.
     if data.startswith('rs:'):
         if not who:
@@ -732,7 +732,7 @@ def on_callback(cq):
         day = C.today() + _dt.timedelta(days=1)
         yes = data == 'rs:y'
         if not RS.confirm(day, who[0], yes):
-            return ack('Тебя нет в наряде на завтра') or True
+            return ack('Тебя нет в составе на завтра') or True
         tg('editMessageText', chat_id=chat_id, message_id=mid,
            text=('✅ Записал: завтра будешь.' if yes else
                  '❌ Записал: завтра не сможешь. Управляющий ищет замену.'))

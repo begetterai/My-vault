@@ -126,7 +126,7 @@ def daily():
 
 
 def roster_ask():
-    """21:00 — управляющему: составь наряд на завтра.
+    """21:00 — управляющему: собери состав на завтра.
 
     Черновик уже готов (состав сегодняшнего дня), ему остаётся поправить
     замены и отправить.
@@ -137,10 +137,10 @@ def roster_ask():
         if RS.planned(day, point):
             continue
         n = len(RS.template(point, day))
-        kb = ({'inline_keyboard': [[{'text': '📅 Составить наряд',
+        kb = ({'inline_keyboard': [[{'text': '📅 Собрать состав',
                                      'web_app': {'url': C.WEBAPP_URL}}]]}
               if C.WEBAPP_URL else None)
-        BOT.say(cid, f'📅 <b>Наряд на завтра</b> · {RS.day_str(day)} · {point}\n'
+        BOT.say(cid, f'📅 <b>Состав смены на завтра</b> · {RS.day_str(day)} · {point}\n'
                      f'Черновик готов: {n} чел. по сегодняшнему составу.\n'
                      f'Поправь замены и отправь — людям уйдёт вопрос '
                      f'«Буду / Не смогу».', reply_markup=kb)
@@ -153,7 +153,7 @@ def roster_summary():
     for cid, point in S.managers().items():
         s = RS.summary(day, point)
         if not s:
-            BOT.say(cid, f'⚠️ <b>Наряда на завтра нет</b> · {point}\n'
+            BOT.say(cid, f'⚠️ <b>Состава на завтра нет</b> · {point}\n'
                          f'В 23:00 система возьмёт сегодняшний состав.')
             continue
         L = [f'📅 <b>Завтра · {s["day"]} · {point}</b>']
@@ -167,9 +167,9 @@ def roster_summary():
 
 
 def roster_fallback():
-    """23:00 — наряда нет: берём сегодняшний состав, чтобы система не ослепла.
+    """23:00 — состава нет: берём сегодняшний состав, чтобы система не ослепла.
 
-    Без наряда она не знает, кто завтра работает: ни опоздания, ни невыходы,
+    Без состава она не знает, кто завтра работает: ни опоздания, ни невыходы,
     ни чьи чек-листы. Управляющий может проспать, система — нет.
     """
     from . import roster as RS
@@ -182,13 +182,13 @@ def roster_fallback():
             continue
         RS.save(day, point, people, 'система')
         for cid in S.managers_of(point):
-            BOT.say(cid, f'📅 Наряд на {RS.day_str(day)} · {point} не составлен — '
+            BOT.say(cid, f'📅 Состав на {RS.day_str(day)} · {point} не собран — '
                          f'взял сегодняшний состав ({len(people)} чел.). '
                          f'Поправь утром, если что-то не так.')
 
 
 def mark_show():
-    """Ночью: кто был в наряде и не вышел. Отметка, без баллов."""
+    """Ночью: кто был в составе и не вышел. Отметка, без баллов."""
     from . import roster as RS
     day = C.today() - datetime.timedelta(days=1)
     try:
@@ -315,7 +315,7 @@ def tick():
         tasks_pass()
         daily()
 
-    # Наряд на завтра: запрос, сводка, запасной вариант.
+    # Состав смены на завтра: запрос, сводка, запасной вариант.
     if minute >= hhmm(C.ROSTER_AT) and once('roster'):
         roster_ask()
     if minute >= hhmm(C.ROSTER_SUM_AT) and once('rostersum'):

@@ -45,13 +45,13 @@ def _who(init_data):
 def init_payload(who):
     role = S.role_of(who)
     dept = S.dept_of(who)
-    # Позиция на сегодня берётся из наряда: человек может сегодня стоять
+    # Позиция на сегодня берётся из состава: человек может сегодня стоять
     # на кассе, а завтра в зале — и чек-листы должны открыться те, что нужно.
     try:
         from . import roster as RS
         dept = RS.dept_of(C.today(), who[0], dept)
     except Exception as e:
-        print('позиция из наряда:', e)
+        print('позиция из состава:', e)
     # руководитель работает по обеим точкам — даём выбор; линейный закреплён
     pts = ([{'code': p, 'label': S.point_label(p)} for p in S.points()]
            if role in ('manager', 'coo') else
@@ -174,14 +174,14 @@ def shift(who, body):
                                           'что пришёл именно ты.'}
         link = S.save_photo(raw, f'{who[1]}-приход-{C.day_str()}-{who[0]}')
     point = pick_point(who, body)
-    # Время начала берём из наряда: у повара цеха смена в 07:00, у кассира
+    # Время начала берём из состава: у повара цеха смена в 07:00, у кассира
     # в 09:30 — считать опоздание всем от одного часа неправильно.
     plan = body.get('plan')
     try:
         from . import roster as RS
         plan = RS.start_of(C.today(), who[0], plan)
     except Exception as e:
-        print('наряд:', e)
+        print('состав:', e)
     msg, flag, line = F.mark_shift(d, C.day_str(), point, who[0], lat, lon,
                                    plan=plan, photo=link)
     if d == 'in':
@@ -620,7 +620,7 @@ def task_done(who, body):
 
 
 def roster(who, body):
-    """Наряд на завтра: черновик по вчерашнему составу и текущее состояние."""
+    """Состав смены на завтра: черновик по вчерашнему составу и текущее состояние."""
     from . import roster as RS
     day = C.today() + datetime.timedelta(days=1)
     if body.get('day') == 'today':
@@ -641,16 +641,16 @@ def roster(who, body):
 
 
 def roster_save(who, body):
-    """Управляющий отправил наряд — людям сразу уходит вопрос «Буду / Не смогу»."""
+    """Управляющий отправил состав — людям сразу уходит вопрос «Буду / Не смогу»."""
     if S.role_of(who) not in ('manager', 'coo'):
-        return {'ok': False, 'error': 'Наряд составляет руководитель'}
+        return {'ok': False, 'error': 'Состав смены собирает руководитель'}
     from . import roster as RS
     day = C.today() + datetime.timedelta(days=1)
     point = pick_point(who, body)
     people = [p for p in (body.get('people') or [])
               if str(p.get('who', '')).strip()]
     if not people:
-        return {'ok': False, 'error': 'В наряде никого нет'}
+        return {'ok': False, 'error': 'В составе никого нет'}
     if len(people) > 60:
         return {'ok': False, 'error': 'Слишком много строк'}
     names = {v[0]: cid for cid, v in S.team().items() if v[1] == point}
@@ -683,7 +683,7 @@ def roster_confirm(who, body):
     day = C.today() + datetime.timedelta(days=1)
     yes = bool(body.get('yes'))
     if not RS.confirm(day, who[0], yes):
-        return {'ok': False, 'error': 'Тебя нет в наряде на завтра'}
+        return {'ok': False, 'error': 'Тебя нет в составе на завтра'}
     if not yes:
         txt = (f'⚠️ <b>Не выйдет завтра</b> · {who[1]} · {who[0]}\n'
                f'Нужна замена на {RS.dept_of(day, who[0], "—")}')
