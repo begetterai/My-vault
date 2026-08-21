@@ -159,6 +159,31 @@ def build():
         rows.append(['', '', 'заполнений нет', '', '', '', '', '', ''])
     rows.append([''] * W)
 
+    # ── баллы периода ────────────────────────────────────────────────────
+    # Итог, который пойдёт в ведомость: 1 балл = 1 сомони. Показываем оба
+    # счёта, чтобы было видно, почему доп. баллы не заплачены.
+    try:
+        from . import score as SC
+        label, people = SC.period_totals()
+        disp = {d['who'] for d in SC.disputes()}
+    except Exception as e:
+        print('баллы в дашборде:', e)
+        label, people, disp = '', [], set()
+    rows.append([f'БАЛЛЫ · период {label}', '', '', '', '', '', '', '', ''])
+    rows.append(['Кто', 'Точка', 'Своя работа', 'Сверх', 'К выплате, сом',
+                 'Спор', '', '', ''])
+    if people:
+        for p in people:
+            rows.append([p['who'], p['point'], p['base'], p['extra'],
+                         p['payable'], 'есть' if p['who'] in disp else '',
+                         '', '', ''])
+        rows.append(['ИТОГО', '', sum(p['base'] for p in people),
+                     sum(p['extra'] for p in people),
+                     sum(p['payable'] for p in people), '', '', '', ''])
+    else:
+        rows.append(['', '', 'начислений нет', '', '', '', '', '', ''])
+    rows.append([''] * W)
+
     # ── идеи с точек ─────────────────────────────────────────────────────
     ideas = [r for r in S.get(C.TABS['ideas'], 'A2:G')
              if len(r) > 4 and R._d(r[0]) and m_since <= R._d(r[0]) <= m_until]

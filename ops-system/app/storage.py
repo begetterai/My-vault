@@ -90,6 +90,7 @@ def ensure_structure():
     from . import forms as F          # внутри: forms сам обращается к storage
     from . import tasks as TSK
     from . import equipment as EQ
+    from . import score as SC
     s = session()
     want = {C.TABS['fails']: ['Дата', 'Точка', 'Кто', 'Документ', '№', 'Блок', 'Пункт'],
             C.TABS['ideas']: ['Дата', 'Кто', 'Точка', 'Откуда', 'Текст', 'Статус', 'Решение'],
@@ -100,8 +101,7 @@ def ensure_structure():
             C.TABS['points']: ['Код', 'Название', 'Адрес', 'Активна',
                                'Широта', 'Долгота', 'Радиус, м'],
             C.TABS['shift']: F.SHIFT_COLS,
-            C.TABS['score']: ['Дата', 'Точка', 'Кто', 'Событие', 'Баллы',
-                              'За что', 'Ссылка'],
+            C.TABS['score']: SC.COLS,
             C.TABS['fixes']: ['Дата', 'Кто', 'Форма', 'Блок', '№', 'Текст пункта',
                               'Что поправить', 'Документ', 'Статус', 'Решение'],
             C.TABS['tasks']: TSK.TASK_COLS,

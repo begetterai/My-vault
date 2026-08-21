@@ -260,7 +260,9 @@ def journal(who, body):
         link = S.save_photo(raw, f'{point}-{C.day_str()}-{cl["code"]}')
     line = F.save_journal(key, point, who[0], vals, link,
                           body.get('lat'), body.get('lon'))
-    SC.add(point, who[0], 'journal', cl['code'])
+    # Записанное происшествие — это находка: доп. счёт, но подтверждает
+    # управляющий, иначе баллы набираются записями «всё нормально».
+    SC.add(point, who[0], 'found_issue', cl['code'])
     sev = vals.get('severity', '')
     txt = (f'{cl.get("icon", "📌")} <b>{cl["title"]}</b> · {point} · {who[0]}\n'
            + '\n'.join(f'<b>{f["label"]}:</b> {vals[f["key"]]}'
