@@ -132,8 +132,10 @@ def visible(role, t=None, dept=None, point=None):
             continue
         if point and cl.get('points') and point not in cl['points']:
             continue
-        d = (cl.get('dept') or '').lower()
-        if d and not boss and d != (dept or '').lower():
+        # Отдел — строка или список: маркировку сдают и кухня, и цех, и бар.
+        d = cl.get('dept') or ''
+        ds = [x.lower() for x in ([d] if isinstance(d, str) else d) if x]
+        if ds and not boss and (dept or '').lower() not in ds:
             continue
         out[k] = cl
     return out
