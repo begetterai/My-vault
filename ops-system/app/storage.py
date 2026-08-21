@@ -95,7 +95,8 @@ def ensure_structure():
             C.TABS['ideas']: ['Дата', 'Кто', 'Точка', 'Откуда', 'Текст', 'Статус', 'Решение'],
             C.TABS['items']: ['Документ', '№', 'Блок', 'Пункт', 'Норматив', 'Фото',
                               'Эталонное фото — вставь ссылку'],
-            C.TABS['team']: ['chat_id', 'Имя', 'Точка', 'Роль', 'Активен'],
+            C.TABS['team']: ['chat_id', 'Имя', 'Точка', 'Роль', 'Активен',
+                             'Отдел'],
             C.TABS['points']: ['Код', 'Название', 'Адрес', 'Активна',
                                'Широта', 'Долгота', 'Радиус, м'],
             C.TABS['shift']: F.SHIFT_COLS,
@@ -137,17 +138,22 @@ _TEAM = {'ts': None, 'map': {}}
 
 
 def team(force=False):
-    """chat_id → (имя, точка, роль)"""
+    """chat_id → (имя, точка, роль, отдел)
+
+    Отдел появился 21.08.2026: чек-листы режутся по отделам, и без него
+    система не знает, чьи пункты показывать и с кого спрашивать.
+    """
     now = datetime.datetime.utcnow()
     if not force and _TEAM['ts'] and (now - _TEAM['ts']).seconds < 600:
         return _TEAM['map']
     m = {}
-    for r in get(C.TABS['team'], 'A2:E200'):
-        if len(r) >= 3 and str(r[0]).strip():
-            act = (r[4].strip().lower() if len(r) > 4 and r[4] else 'да')
+    for r in get(C.TABS['team'], 'A2:F200'):
+        r = list(r) + [''] * (6 - len(r))
+        if str(r[0]).strip() and str(r[1]).strip():
+            act = (r[4].strip().lower() if r[4] else 'да')
             if act in ('да', 'yes', '1', 'true', ''):
                 m[str(r[0]).strip()] = (str(r[1]).strip(), str(r[2]).strip(),
-                                        (r[3].strip() if len(r) > 3 else ''))
+                                        str(r[3]).strip(), str(r[5]).strip().lower())
     _TEAM['ts'], _TEAM['map'] = now, m
     return m
 
@@ -158,7 +164,14 @@ def role_of(who):
         return 'coo'
     if 'правляющ' in r or 'manager' in r:
         return 'manager'
+    if 'старш' in r or 'senior' in r:
+        return 'senior'
     return 'staff'
+
+
+def dept_of(who):
+    """Отдел человека: кухня, касса, бар, зал, цех, доставка. Пусто — не задан."""
+    return (who[3] if len(who) > 3 else '') or ''
 
 
 _PTS = {'ts': None, 'map': {}, 'geo': {}}
@@ -288,16 +301,21 @@ def save_check(key, line, name, verdict, text=''):
           text if verdict != 'ok' else '']])
 
 
-def add_member(chat_id, name, point, role):
-    """Строка в «Команду». Повторный вызов обновляет, а не дублирует."""
-    rows = get(C.TABS['team'], 'A2:E200')
+def add_member(chat_id, name, point, role, dept=''):
+    """Строка в «Команду». Повторный вызов обновляет, а не дублирует.
+
+    Отдел не затираем: его проставляет управляющий руками, а бот при
+    повторном добавлении человека о нём не знает.
+    """
+    rows = get(C.TABS['team'], 'A2:F200')
     for i, r in enumerate(rows):
         if r and str(r[0]).strip() == str(chat_id):
-            put(C.TABS['team'], f'A{i + 2}:E{i + 2}',
-                [[str(chat_id), name, point, role, 'да']])
+            old = r[5] if len(r) > 5 else ''
+            put(C.TABS['team'], f'A{i + 2}:F{i + 2}',
+                [[str(chat_id), name, point, role, 'да', dept or old]])
             break
     else:
-        append(C.TABS['team'], [[str(chat_id), name, point, role, 'да']])
+        append(C.TABS['team'], [[str(chat_id), name, point, role, 'да', dept]])
     team(force=True)
     return True
 

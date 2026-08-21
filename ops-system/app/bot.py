@@ -121,12 +121,12 @@ def norm_alerts(kind, measured):
 
 
 # ── экраны ───────────────────────────────────────────────────────────────────
-def menu_kb(role):
+def menu_kb(role, dept='', point=None):
     kb = []
     if C.WEBAPP_URL:
         kb.append([{'text': '📱 Открыть приложение', 'web_app': {'url': C.WEBAPP_URL}}])
     kb += [[{'text': f'🧾 {cl["title"]} (в чате)', 'callback_data': f'cl:go:{k}'}]
-           for k, cl in C.for_role(role).items()]
+           for k, cl in C.for_role(role, dept, point).items()]
     kb.append([{'text': {'staff': '📋 Мои последние',
                          'manager': '📋 История точки'}.get(role, '📋 История — все точки'),
                 'callback_data': 'cl:h:' + {'staff': 'me', 'manager': 'point'}.get(role, 'all')}])
@@ -203,7 +203,7 @@ def block_screen(st):
 
 def history(scope, who):
     rows = []
-    cls = list(C.for_role(S.role_of(who)).values())
+    cls = list(C.for_role(S.role_of(who), S.dept_of(who), who[1]).values())
     for cl, chunk in zip(cls, S.get_many([(cl['tab'], 'A2:P') for cl in cls])):
         for r in chunk:
             if len(r) < 8:
@@ -383,14 +383,20 @@ def full_list(kind, fails):
 
 
 def award_fill(st, ok, tot, fails, fast, late):
-    """Баллы за заполнение. За количество ✅ баллов НЕТ — см. score.py."""
+    """Баллы за заполнение. За количество ✅ баллов НЕТ — см. score.py.
+
+    Плюс за день начисляется отдельно, когда закрыты все свои чек-листы
+    (score.close_day по расписанию). Здесь — только то, что видно сразу:
+    просрочка и наблюдение за темпом.
+    """
     from . import score as SC
     point, who = st['point'], st['who']
-    SC.add(point, who, 'fill_late' if late else 'fill_on_time', st['kind'])
+    if late:
+        SC.add(point, who, 'fill_missed', st['kind'])
     if fast:
         SC.add(point, who, 'too_fast', st['kind'])
-    for _ in fails:
-        SC.add(point, who, 'found_issue', st['kind'])
+    # Найденные проблемы — доп. счёт, но только после подтверждения
+    # управляющим: иначе достаточно наставить ✕, чтобы набрать баллов.
 
 
 def is_late(kind):
@@ -451,9 +457,10 @@ def _award_check(kind, line, checker, verdict):
         if not r or len(r[0]) < 3:
             return
         point, filler = r[0][1], r[0][2]
-        SC.add(point, checker, 'check_done', kind)
-        if filler and filler != checker:
-            SC.add(point, filler, 'confirmed' if verdict == 'ok' else 'mismatch', kind)
+        # Проверяющему баллов нет: проверка входит в его работу и оценивается
+        # по 01-POL-01. Заполнявшему минус — только за расхождение.
+        if filler and filler != checker and verdict != 'ok':
+            SC.add(point, filler, 'mismatch', kind)
     except Exception as e:
         print('баллы проверки:', e)
 
@@ -626,7 +633,7 @@ def on_message(msg):
         if not who:
             return unknown(chat_id, msg.get('from') or {})
         say(chat_id, f'<b>{who[0]}</b>\n{S.point_label(who[1])}\nЧто делаем?',
-            reply_markup=menu_kb(S.role_of(who)))
+            reply_markup=menu_kb(S.role_of(who), S.dept_of(who), who[1]))
         return True
 
     stage = st['stage']
@@ -761,7 +768,7 @@ def on_callback(cq):
         ADD.pop(chat_id, None)
         tg('editMessageText', chat_id=chat_id, message_id=mid, parse_mode='HTML',
            text=f'<b>{who[0]}</b>\n{S.point_label(who[1])}\nЧто делаем?',
-           reply_markup=menu_kb(S.role_of(who)))
+           reply_markup=menu_kb(S.role_of(who), S.dept_of(who), who[1]))
         return ack() or True
 
     if data == 'cl:task':
@@ -917,7 +924,7 @@ def on_callback(cq):
             STATE.pop(chat_id, None)
             tg('editMessageText', chat_id=chat_id, message_id=mid, parse_mode='HTML',
                text=f'<b>{who[0]}</b>\n{S.point_label(who[1])}\nЧто делаем?',
-               reply_markup=menu_kb(S.role_of(who)))
+               reply_markup=menu_kb(S.role_of(who), S.dept_of(who), who[1]))
         return ack() or True
 
     if data == 'cl:next':

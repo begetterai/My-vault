@@ -148,6 +148,23 @@
         font-size:12px;margin-right:8px;flex:none}
   .steplabel.ok{background:var(--ok);color:#fff}
   .steplabel.wait{background:var(--line);color:var(--ink-2)}
+  .faults{margin-top:10px;border-top:1px solid var(--line);padding-top:8px}
+  .faultrow{display:flex;align-items:center;gap:10px;margin-top:8px}
+  .faultrow .num{display:inline-flex;align-items:center;justify-content:center;
+        width:26px;height:26px;border-radius:8px;background:var(--wash);
+        font-weight:700;font-size:13px;flex:none}
+  .faultrow .seg{flex:1}
+  /* баллы */
+  .balrow{border-top:1px solid var(--line);padding:10px 0}
+  .balrow .l{display:flex;gap:10px;align-items:baseline}
+  .balrow .l b{font-family:Manrope,sans-serif;font-size:16px;color:var(--ok);
+        min-width:44px}
+  .balrow.minus .l b{color:var(--bad)}
+  .balrow .l span{font-size:15px;line-height:1.35}
+  .balrow .r{display:flex;gap:8px;align-items:center;margin-top:3px}
+  .balrow .dt{font-size:13px;color:var(--ink-2)}
+  .balrow .tag{font-size:12px;color:var(--ink-2);background:var(--wash);
+        border-radius:99px;padding:2px 9px}
   /* обучение */
   .qstep{font-size:13px;color:var(--ink-2);margin:2px 0 14px;font-weight:600}
   .qteor{background:var(--wash);border:1px solid var(--line);border-radius:16px;
@@ -392,15 +409,17 @@
     <button class="note" onclick="showTour()" style="margin-top:20px">
       ❓ Как это работает</button>
 
-    <div id="scoreCard" class="card hidden" style="margin-top:26px">
-      <div class="kv"><span class="lvl" id="lvl">—</span><b id="ptsTotal">0</b></div>
+    <h2 id="balHead" class="hidden">Баллы за период</h2>
+    <div id="scoreCard" class="card hidden">
+      <div class="kv"><span id="balPeriod">—</span><b id="balPay">0</b></div>
       <div class="stats">
-        <div class="stat"><b id="ptsWeek">0</b><span>неделя</span></div>
+        <div class="stat"><b id="balBase">0</b><span>своя работа</span></div>
+        <div class="stat"><b id="balExtra">0</b><span>сверх</span></div>
         <div class="stat"><b id="ptsStreak">0</b><span>дней подряд</span></div>
-        <div class="stat"><b id="ptsPlace">—</b><span>место</span></div>
       </div>
-      <div class="hint" id="lvlNext"></div>
-      <div id="board" style="margin-top:12px"></div>
+      <div class="hint" id="balHint"></div>
+      <div id="balLines" style="margin-top:12px"></div>
+      <div id="board" style="margin-top:14px"></div>
     </div>
     </div>
   </div>
@@ -1390,17 +1409,38 @@ function pendCard(x){
     if(t) sendCheck(x, 'bad', t, d);
   };
   acts.append(yes, no); d.appendChild(acts);
-  if(x.fails && x.fails !== '—'){
-    const t = document.createElement('button');
-    t.className = 'note'; t.textContent = '📌 Завести задачу по находке';
-    t.onclick = () => {
-      const w = prompt('Что нужно сделать?\n\n' + x.title + ' · невыполнены пункты: '
-        + x.fails + '\n\nНапиши задачу одной фразой.');
-      if(w) sendFail(x, w, t);
-    };
-    d.appendChild(t);
-  }
+  if(x.fails && x.fails !== '—') d.appendChild(faultBox(x));
   return d;
+}
+
+/* Разбор невыполненных пунктов: вина смены или нет.
+   Без него честный ✕ минусует, а нарисованная галочка — нет. */
+function faultBox(x){
+  const nums = String(x.fails).match(/\d+/g) || [];
+  x._guilty = {};
+  const box = document.createElement('div');
+  box.className = 'faults';
+  box.innerHTML = '<div class="hint">Невыполненные пункты — чья вина? '
+    + 'От этого зависит, будет минус смене или задача на починку.</div>';
+  nums.forEach(n => {
+    const row = document.createElement('div'); row.className = 'faultrow';
+    row.innerHTML = '<span class="num">' + n + '</span>';
+    const seg = document.createElement('div'); seg.className = 'seg';
+    [['guilty', 'Вина смены'], ['ext', 'Не их вина']].forEach(([v, t]) => {
+      const b = document.createElement('button');
+      b.textContent = t; b.setAttribute('aria-pressed', 'false');
+      b.onclick = () => {
+        x._guilty[n] = v;
+        seg.querySelectorAll('button').forEach((q, i) =>
+          q.setAttribute('aria-pressed', (i === 0 ? 'guilty' : 'ext') === v
+            ? 'true' : 'false'));
+        tg?.HapticFeedback?.selectionChanged?.();
+      };
+      seg.appendChild(b);
+    });
+    row.appendChild(seg); box.appendChild(row);
+  });
+  return box;
 }
 
 async function sendFail(x, what, btn){
@@ -1417,10 +1457,19 @@ async function sendFail(x, what, btn){
 }
 
 async function sendCheck(x, verdict, note, card){
+  const marked = x._guilty || {};
+  const nums = String(x.fails || '').match(/\d+/g) || [];
+  if(nums.length && nums.some(n => !marked[n])){
+    return alert('Отметь по каждому невыполненному пункту, чья это вина. '
+               + 'Иначе система накажет за честную отметку.');
+  }
+  const guilty = nums.filter(n => marked[n] === 'guilty');
+  const external = nums.filter(n => marked[n] === 'ext');
   card.querySelectorAll('button').forEach(b => b.disabled = true);
   const r = await fetch('/api/check', {method:'POST',
     headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({initData, key: x.key, line: x.line, verdict, note})});
+    body: JSON.stringify({initData, key: x.key, line: x.line, verdict, note,
+                          guilty, external})});
   const j = await r.json();
   if(!j.ok){
     card.querySelectorAll('button').forEach(b => b.disabled = false);
@@ -1464,18 +1513,72 @@ function renderKpi(){
 }
 
 /* ── баллы ───────────────────────────────────────────────────────────────── */
+function sign(n){ return (n > 0 ? '+' : '') + n; }
+
+function renderBalLines(lines){
+  const box = $('#balLines'); box.innerHTML = '';
+  if(!lines.length){
+    box.innerHTML = '<div class="hint">За период пока ничего не начислено.</div>';
+    return;
+  }
+  lines.slice().reverse().forEach(x => {
+    const d = document.createElement('div');
+    d.className = 'balrow' + (x.pts < 0 ? ' minus' : '');
+    const st = x.verdict ? '<span class="tag">' + x.verdict.slice(0, 40) + '</span>'
+             : x.dispute ? '<span class="tag">спор отправлен</span>' : '';
+    d.innerHTML = '<div class="l"><b>' + sign(x.pts) + '</b>'
+      + '<span>' + x.why + '</span></div>'
+      + '<div class="r"><span class="dt">' + x.date + '</span>' + st + '</div>';
+    // «Не согласен» — только на минусах и только пока спор не подан.
+    if(x.pts < 0 && !x.dispute && x.line){
+      const b = document.createElement('button');
+      b.className = 'note'; b.style.marginTop = '8px';
+      b.textContent = '⚖️ Не согласен';
+      b.onclick = () => sendDispute(x, b);
+      d.appendChild(b);
+    }
+    box.appendChild(d);
+  });
+}
+
+async function sendDispute(x, btn){
+  const text = prompt('С чем не согласен? Напиши коротко — управляющий '
+                    + 'разберёт сегодня.\n\n' + x.date + ' · ' + x.why
+                    + ' · ' + sign(x.pts));
+  if(!text) return;
+  btn.disabled = true; btn.textContent = 'Отправляю…';
+  try{
+    const r = await fetch('/api/dispute', {method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({initData, line: x.line, text})});
+    const res = await r.json();
+    if(!res.ok) throw new Error(res.error || 'не отправилось');
+    btn.textContent = '⚖️ Спор отправлен';
+    tg?.HapticFeedback?.notificationOccurred?.('success');
+  }catch(e){
+    btn.disabled = false; btn.textContent = '⚖️ Не согласен';
+    alert(e.message);
+  }
+}
+
 function renderScore(){
   const s = DATA.score;
   if(!s) return;
   $('#scoreCard').classList.remove('hidden');
-  $('#lvl').textContent = s.level;
-  $('#ptsTotal').textContent = s.total + ' баллов';
-  $('#ptsWeek').textContent = s.week;
+  $('#balHead').classList.remove('hidden');
+  $('#balPeriod').textContent = s.period || '—';
+  $('#balPay').textContent = sign(s.payable) + ' сом';
+  $('#balPay').style.color = s.payable < 0 ? 'var(--bad)' : 'var(--ok)';
+  $('#balBase').textContent = sign(s.base);
+  $('#balExtra').textContent = sign(s.extra);
   $('#ptsStreak').textContent = s.streak;
-  $('#ptsPlace').textContent = s.place ? s.place + ' из ' + s.of : '—';
-  $('#lvlNext').textContent = s.next
-    ? 'До уровня «' + s.next.title + '» — ' + s.next.need + ' баллов'
-    : 'Максимальный уровень';
+  // Правило приоритета: пока своя работа в минусе, доп. баллы не платятся.
+  $('#balHint').textContent = s.blocked
+    ? 'Своя работа в минусе — баллы за дополнительное сейчас не платятся. '
+      + 'Вытяни базовый счёт в плюс, и они добавятся.'
+    : 'Своя работа в порядке. 1 балл = 1 сомони, итог — в конце периода.';
+  $('#balHint').classList.toggle('bad', !!s.blocked);
+  renderBalLines(s.lines || []);
   const b = $('#board'); b.innerHTML = '';
   (s.board || []).forEach(x => {
     const d = document.createElement('div');

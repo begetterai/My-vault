@@ -56,6 +56,8 @@ DAILY_AT = ENV('DAILY_AT', '21:30')                 # итог дня руков
 WEEKLY_AT = ENV('WEEKLY_AT', '09:30')               # сводка недели, по понедельникам
 CHECK_DEADLINE = int(ENV('CHECK_DEADLINE', '120'))  # мин на подтверждение управляющим
 BACKUP_AT = ENV('BACKUP_AT', '05:30')               # копии таблиц, пока никто не пишет
+CLOSE_DAY_AT = ENV('CLOSE_DAY_AT', '00:30')         # засчитать вчерашний закрытый день
+SUMMARY_AT = ENV('SUMMARY_AT', '20:00')             # сводка баллов, суббота
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CHECKLISTS_FILE = ENV('CHECKLISTS_FILE',
@@ -111,20 +113,35 @@ def by_type(t):
     return {k: cl for k, cl in forms().items() if cl['type'] == t}
 
 
-def visible(role, t=None):
-    """Формы, доступные роли. Пусто в roles — доступна всем.
+def visible(role, t=None, dept=None, point=None):
+    """Формы, доступные человеку. Пусто в roles/dept/points — доступно всем.
 
     Без этого бариста видит в меню «Визит собственника», а управляющий —
     форму, которая к его работе не относится.
+
+    Отдел (21.08.2026): каждый видит чек-листы только своей позиции. Руководитель
+    видит все — он проверяет точку целиком. Отдел не задан — человеку видно
+    только то, что без отдела, иначе он получит чужие пункты.
     """
-    return {k: cl for k, cl in forms().items()
-            if (not cl.get('roles') or role in cl['roles'])
-            and (t is None or cl['type'] == t)}
+    boss = role in ('manager', 'coo')
+    out = {}
+    for k, cl in forms().items():
+        if cl.get('roles') and role not in cl['roles']:
+            continue
+        if t is not None and cl['type'] != t:
+            continue
+        if point and cl.get('points') and point not in cl['points']:
+            continue
+        d = (cl.get('dept') or '').lower()
+        if d and not boss and d != (dept or '').lower():
+            continue
+        out[k] = cl
+    return out
 
 
-def for_role(role):
+def for_role(role, dept=None, point=None):
     """Чек-листы, доступные роли."""
-    return visible(role, 'checklist')
+    return visible(role, 'checklist', dept, point)
 
 
 def scheduled():

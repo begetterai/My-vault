@@ -125,6 +125,50 @@ def daily():
         BOT.say(cid, R.day_full(day, point))
 
 
+def close_day():
+    """Ночью: кому засчитать полностью закрытый день (+4 балла).
+
+    Считается после дедлайна закрытия, когда все чек-листы дня уже должны
+    быть сданы. Раньше — засчитаем день, который ещё не закончился.
+    """
+    from . import score as SC
+    try:
+        n = SC.close_day(C.today() - datetime.timedelta(days=1))
+        if n:
+            print(f'закрытый день засчитан: {n} чел.')
+    except Exception as e:
+        print('закрытие дня:', e)
+
+
+def points_summary():
+    """Субботняя сводка к воскресному собранию: итоги периода и споры."""
+    from . import score as SC
+    label, people = SC.period_totals()
+    if not people:
+        return
+    head = f'💰 <b>Баллы · период {label}</b>\n\n'
+    body = []
+    for p in people:
+        mark = ' ⚠️' if p['base'] < 0 else ''
+        body.append(f'{p["who"]} · {p["point"]}: <b>{p["payable"]:+d}</b>'
+                    f' (своя работа {p["base"]:+d}, сверх {p["extra"]:+d}){mark}')
+    disp = SC.disputes()
+    tail = ''
+    if disp:
+        tail = '\n\n⚖️ <b>Споры к разбору:</b>\n' + '\n'.join(
+            f'· {d["who"]} · {d["date"]} · {d["why"]} ({d["pts"]:+d})\n  «{d["text"]}»'
+            for d in disp[:15])
+    txt = head + '\n'.join(body) + tail
+    BOT.admin(txt)
+    for cid, point in S.managers().items():
+        _, mine = SC.period_totals(point)
+        if mine:
+            BOT.say(cid, head + '\n'.join(
+                f'{p["who"]}: <b>{p["payable"]:+d}</b> '
+                f'(своя {p["base"]:+d}, сверх {p["extra"]:+d})' for p in mine)
+                + ('\n\n⚖️ Споры есть — см. приложение' if disp else ''))
+
+
 def weekly():
     from . import kpi as K
     BOT.admin(R.week())
@@ -187,6 +231,14 @@ def tick():
         unconfirmed(day)
         tasks_pass()
         daily()
+
+    # Закрытый день считаем после полуночи — за вчера, когда сутки закончились.
+    if minute >= hhmm(C.CLOSE_DAY_AT) and once('closeday'):
+        close_day()
+
+    # Суббота вечером — сводка к воскресному собранию.
+    if day.weekday() == 5 and minute >= hhmm(C.SUMMARY_AT) and once('points'):
+        points_summary()
 
     if day.weekday() == 0 and minute >= hhmm(C.WEEKLY_AT) and once('weekly'):
         weekly()

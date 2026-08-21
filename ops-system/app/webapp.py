@@ -44,24 +44,25 @@ def _who(init_data):
 
 def init_payload(who):
     role = S.role_of(who)
+    dept = S.dept_of(who)
     # руководитель работает по обеим точкам — даём выбор; линейный закреплён
     pts = ([{'code': p, 'label': S.point_label(p)} for p in S.points()]
            if role in ('manager', 'coo') else
            [{'code': who[1], 'label': S.point_label(who[1])}])
     out = {'company': C.COMPANY, 'name': who[0], 'point': who[1],
            'point_label': S.point_label(who[1]), 'points': pts,
-           'role': role, 'day': C.day_str(), 'lists': {}}
+           'role': role, 'dept': dept, 'day': C.day_str(), 'lists': {}}
     out['can_fix'] = C.FIX_MODE and role in ('manager', 'coo')
     out['can_check'] = role in ('manager', 'coo')
     out['journals'] = [{'key': k, 'title': cl['title'], 'code': cl['code'],
                         'icon': cl.get('icon', '📌'), 'doc': cl.get('doc'),
                         'fields': cl.get('fields', [])}
-                       for k, cl in C.visible(role, 'journal').items()]
+                       for k, cl in C.visible(role, 'journal', dept, who[1]).items()]
     out['forms'] = [{'key': k, 'title': cl['title'], 'code': cl['code'],
                      'icon': cl.get('icon', '📋'), 'doc': cl.get('doc'),
                      'columns': cl.get('columns', []),
                      'photo_required': bool(cl.get('photo_required'))}
-                    for k, cl in C.visible(role, 'form').items()]
+                    for k, cl in C.visible(role, 'form', dept, who[1]).items()]
     # Правильные ответы наружу не уходят: страница открыта в браузере,
     # оттуда её видно целиком. Проверяет сервер.
     out['quizzes'] = [{'key': k, 'title': cl['title'], 'code': cl['code'],
@@ -73,7 +74,7 @@ def init_payload(who):
                        'passed': quiz_passed(k, who[0]),
                        'questions': [{'q': q['q'], 'options': q['options']}
                                      for q in cl.get('questions', [])]}
-                      for k, cl in C.visible(role, 'quiz').items()]
+                      for k, cl in C.visible(role, 'quiz', dept, who[1]).items()]
     out['shift'] = shift_state(who)
     out['geo'] = {p: S.point_geo(p) for p in S.points()}
     if role in ('manager', 'coo'):
@@ -115,7 +116,7 @@ def init_payload(who):
         out['score'] = SC.card(who[0], who[1])
     except Exception:
         out['score'] = None
-    for key, cl in C.for_role(role).items():
+    for key, cl in C.for_role(role, dept, who[1]).items():
         photos = C.photo_items(key)
         random.shuffle(photos)
         out['lists'][key] = {
@@ -160,7 +161,17 @@ def shift(who, body):
     msg, flag, line = F.mark_shift(d, C.day_str(), point, who[0], lat, lon,
                                    plan=body.get('plan'), photo=link)
     if d == 'in':
-        SC.add(point, who[0], 'geo_missing' if lat is None else 'shift_on_time')
+        if lat is None:
+            SC.add(point, who[0], 'geo_missing')
+        # Опоздание — минус за каждую минуту (решение Азиза 21.08.2026).
+        late = 0
+        try:
+            found = F.shift_row(C.day_str(), point, who[0])
+            late = int(float(str(found[1][6] or 0).replace(',', '.'))) if found else 0
+        except (ValueError, TypeError, IndexError):
+            late = 0
+        if late > 0:
+            SC.add(point, who[0], 'late', qty=late)
     if flag:
         txt = f'📍 <b>Явка</b> · {point} · {who[0]}\n' + msg.replace('✅ ', '')
         if link:
@@ -399,6 +410,39 @@ def fix(who, body):
     return {'ok': True}
 
 
+def faults(key, line, who, body):
+    """Разбор невыполненных пунктов управляющим: вина смены или нет.
+
+    Без этого разбора система платит за враньё: честный ✕ минусует, а
+    нарисованная галочка — нет. Система не отличает грязный пол от сломанного
+    холодильника, управляющий отличает за две секунды.
+    """
+    guilty = [str(x) for x in (body.get('guilty') or [])]
+    external = [str(x) for x in (body.get('external') or [])]
+    if not guilty and not external:
+        return
+    try:
+        r = S.get(C.checklists()[key]['tab'], f'A{line}:C{line}')
+        point, filler = (r[0][1], r[0][2]) if r and len(r[0]) > 2 else (who[1], '')
+    except Exception:
+        point, filler = who[1], ''
+    texts = {str(n): t for n, _b, t in C.flat(key)}
+    for n in guilty:
+        if filler:
+            SC.add(point, filler, 'item_fail', f'{key}:{n}')
+    if external:
+        try:
+            from . import tasks as TSK
+            for n in external:
+                TSK.from_fail(point, texts.get(n, f'пункт {n}'), who[0],
+                              'не вина смены, нужна починка')
+        except Exception as e:
+            print('задача из пункта:', e)
+    # Честно отмеченный ✕, оказавшийся не виной смены, — это находка.
+    if filler and external:
+        SC.add(point, filler, 'found_issue', key)
+
+
 def check(who, body):
     """Второй круг: подтвердить заполнение либо описать расхождение."""
     if S.role_of(who) not in ('manager', 'coo'):
@@ -412,6 +456,7 @@ def check(who, body):
     if verdict == 'bad' and len(note_txt.split()) < 2:
         return {'ok': False, 'error': 'Опиши, что именно не сошлось'}
     S.save_check(key, line, who[0], verdict, note_txt)
+    faults(key, line, who, body)
     if verdict == 'bad':
         try:
             from . import tasks as TSK
@@ -548,6 +593,45 @@ def task_done(who, body):
     return {'ok': True}
 
 
+def points(who, body):
+    """Баланс периода со всеми строками — человек видит его в реальном времени."""
+    try:
+        return {'ok': True, 'balance': SC.balance(who[0], None)}
+    except Exception as e:
+        return {'ok': False, 'error': str(e)}
+
+
+def dispute(who, body):
+    """«Не согласен» — спор по конкретному списанию.
+
+    Управляющему уходит в тот же день: пока случай свежий, его ещё можно
+    проверить по камере.
+    """
+    line = str(body.get('line', ''))
+    text = str(body.get('text', '')).strip()
+    if len(text.split()) < 2:
+        return {'ok': False, 'error': 'Напиши фразой, с чем именно не согласен'}
+    if not SC.dispute(line, who[0], text):
+        return {'ok': False, 'error': 'Не нашёл это списание'}
+    txt = (f'⚖️ <b>Спор по баллам</b> · {who[1]} · {who[0]}\n«{text[:250]}»\n'
+           f'Строка {line} в листе «{C.TABS["score"]}»')
+    for cid in S.managers_of(who[1]):
+        BOT.say(cid, txt)
+    BOT.admin(txt)
+    return {'ok': True}
+
+
+def dispute_resolve(who, body):
+    """Управляющий разобрал спор: снять списание или оставить."""
+    if S.role_of(who) not in ('manager', 'coo'):
+        return {'ok': False, 'error': 'Споры разбирает руководитель'}
+    line = str(body.get('line', ''))
+    verdict = 'drop' if body.get('verdict') == 'drop' else 'keep'
+    if not SC.resolve(line, verdict, str(body.get('note', ''))):
+        return {'ok': False, 'error': 'не та строка'}
+    return {'ok': True}
+
+
 def note(who, body):
     text = str(body.get('text', '')).strip()
     if len(text.split()) < 3:
@@ -635,6 +719,12 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, blank(who, body))
             if p == '/api/quiz':
                 return self._send(200, quiz(who, body))
+            if p == '/api/points':
+                return self._send(200, points(who, body))
+            if p == '/api/dispute':
+                return self._send(200, dispute(who, body))
+            if p == '/api/dispute_resolve':
+                return self._send(200, dispute_resolve(who, body))
         except Exception as e:
             return self._send(500, {'ok': False, 'error': str(e)})
         self._send(404, {'error': 'not found'})
