@@ -92,7 +92,29 @@ def add(point, who, event, link='', qty=1):
                    kind, period_of()[2], '', '']])
     except Exception as e:
         print('баллы:', e)
+    if total < 0:
+        _tell(point, who, total, why)
     return total
+
+
+def _tell(point, who, pts, why):
+    """Сказать человеку про списание в тот же день.
+
+    Удержание, о котором узнали через неделю, воспринимается как подстава,
+    даже когда оно справедливо. И пока случай свежий, его можно проверить
+    по камере.
+    """
+    try:
+        from . import bot as BOT
+        for cid, v in S.team().items():
+            if v[0] == who and v[1] == point:
+                BOT.say(cid, f'➖ <b>{pts}</b> · {why}\n\n'
+                             f'Не согласен? Открой приложение и нажми '
+                             f'«Не согласен» рядом со списанием — управляющий '
+                             f'разберёт сегодня.')
+                break
+    except Exception as e:
+        print('сообщение о списании:', e)
 
 
 def today_count(who, event):
