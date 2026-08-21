@@ -640,9 +640,20 @@ async function boot(){
     document.title = (j.company || '') + ' — чек-лист';
     $('#sub').textContent = (j.point_label || j.point) + ' · ' + j.day;
     const box = $('#pickList'); box.innerHTML = '';
+    // Новичок: сначала обучение, работа открывается после.
+    if((j.training_left || []).length){
+      const d = document.createElement('div');
+      d.className = 'card';
+      d.innerHTML = '<b>Сначала обучение</b><div class="hint" '
+        + 'style="margin-top:6px">Чек-листы и бланки откроются, когда сдашь '
+        + 'тренинги своей позиции. Это одна разовая работа, дальше их не будет.'
+        + '</div><div class="hint" style="margin-top:8px">Осталось: '
+        + j.training_left.map(x => '«' + x + '»').join(', ') + '</div>';
+      box.appendChild(d);
+    }
     // Позиция не задана — чек-листов не будет. Молчащий пустой экран человек
     // читает как «приложение сломалось», поэтому говорим прямо.
-    if(!Object.keys(j.lists).length && j.role === 'staff'){
+    else if(!Object.keys(j.lists).length && j.role === 'staff'){
       const d = document.createElement('div');
       d.className = 'card';
       d.innerHTML = '<b>Пока нет чек-листов</b><div class="hint" '
@@ -1008,6 +1019,11 @@ function renderQuizzes(){
     box.appendChild(b);
   });
   $('#qBox').classList.remove('hidden');
+  // Новичку обучение — первое дело, поэтому поднимаем блок наверх.
+  if((DATA.training_left || []).length){
+    const rest = $('#rest');
+    rest.insertBefore($('#qBox'), rest.firstChild);
+  }
 }
 
 function qScreen(){

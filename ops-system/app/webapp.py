@@ -89,6 +89,18 @@ def init_payload(who):
                        'questions': [{'q': q['q'], 'options': q['options']}
                                      for q in cl.get('questions', [])]}
                       for k, cl in C.visible(role, 'quiz', dept, who[1]).items()]
+    # Новичок: пока не сдал тренинги своей позиции, ему открыты приход
+    # и обучение. Чек-листы и бланки появятся после — человек не должен
+    # работать по правилам, которых не знает.
+    try:
+        left = F.training_left(role, dept, who[1], who[0]) \
+            if role not in ('manager', 'coo') else []
+    except Exception as e:
+        print('обучение новичка:', e)
+        left = []
+    out['training_left'] = left
+    if left:
+        out['journals'], out['forms'] = [], []
     out['shift'] = shift_state(who)
     out['geo'] = {p: S.point_geo(p) for p in S.points()}
     if role in ('manager', 'coo'):
@@ -139,7 +151,7 @@ def init_payload(who):
         out['score'] = SC.card(who[0], who[1])
     except Exception:
         out['score'] = None
-    for key, cl in C.for_role(role, dept, who[1]).items():
+    for key, cl in (C.for_role(role, dept, who[1]).items() if not left else []):
         photos = C.photo_items(key)
         random.shuffle(photos)
         out['lists'][key] = {

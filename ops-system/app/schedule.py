@@ -41,11 +41,31 @@ def deadlines():
 
 
 # ── напоминания и эскалация ──────────────────────────────────────────────────
+def ready_workers(point, cl):
+    """Кто на точке реально должен сдать этот чек-лист.
+
+    Новичок, не сдавший тренинги позиции, из счёта выпадает: приложение
+    ему чек-листы ещё не показывает, спрашивать за них нечестно.
+    """
+    from . import forms as F
+    out = []
+    for cid in S.workers_of(point, cl.get('dept'), cl.get('roles')):
+        v = S.team().get(str(cid))
+        if not v:
+            continue
+        try:
+            if F.training_left(S.role_of(v), S.dept_of(v), point, v[0]):
+                continue
+        except Exception:
+            pass
+        out.append(cid)
+    return out
+
+
 def remind(key, cl, point, left):
     # Напоминание — тому, чей это чек-лист: своя позиция, своя роль.
     # Иначе кассир получает напоминания про кухню и перестаёт их читать.
-    who = S.workers_of(point, cl.get('dept'), cl.get('roles')) \
-        or S.managers_of(point)
+    who = ready_workers(point, cl) or S.managers_of(point)
     for cid in who:
         v = S.team().get(str(cid))
         BOT.say(cid, f'⏰ <b>{cl["title"]}</b> · {point}\n'
@@ -292,8 +312,9 @@ def tick():
             if cl.get('points') and point not in cl['points']:
                 continue
             # Некому сдавать — не с кого и спрашивать: позиция не занята,
-            # человека на ней нет.
-            if not S.workers_of(point, cl.get('dept'), cl.get('roles')):
+            # человека на ней нет. Новичок, не прошедший обучение, тоже
+            # не в счёт: чек-листы ему ещё не показаны.
+            if not ready_workers(point, cl):
                 continue
             if S.already_filled(key, dstr, point):
                 continue

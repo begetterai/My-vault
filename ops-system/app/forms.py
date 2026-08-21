@@ -145,6 +145,33 @@ def save_form(key, point, who, lines, photo_link, lat, lon):
 
 
 # ── обучение ─────────────────────────────────────────────────────────────────
+_QUIZ = {'ts': None, 'rows': []}
+
+
+def quiz_rows(force=False):
+    """Лист «Обучение» целиком, с коротким кэшем.
+
+    Без кэша каждый вход в приложение читал бы лист по разу на тренинг —
+    на восьми тренингах это восемь запросов на пустом месте.
+    """
+    now = datetime.datetime.utcnow()
+    if not force and _QUIZ['ts'] and (now - _QUIZ['ts']).seconds < 60:
+        return _QUIZ['rows']
+    try:
+        rows = S.get('Обучение', 'A2:L')
+    except Exception:
+        rows = []
+    _QUIZ['ts'], _QUIZ['rows'] = now, rows
+    return rows
+
+
+def passed_titles(who):
+    """Названия тренингов, которые человек сдал."""
+    return {r[4].strip() for r in quiz_rows()
+            if len(r) >= 9 and r[3].strip() == who
+            and str(r[8]).strip().lower() in ('да', 'true')}
+
+
 def quiz_attempts(key, who):
     """Сколько раз человек уже проходил этот тренинг и сдал ли.
 
@@ -152,11 +179,23 @@ def quiz_attempts(key, who):
     """
     cl = C.form(key)
     n, passed = 0, False
-    for r in S.get(cl['tab'], 'A2:L'):
+    for r in quiz_rows():
         if len(r) >= 9 and r[3].strip() == who and r[4].strip() == cl['title']:
             n += 1
             passed = passed or str(r[8]).strip().lower() in ('да', 'true')
     return n + 1, passed
+
+
+def training_left(role, dept, point, who):
+    """Какие тренинги позиции человек ещё не сдал.
+
+    Пока список не пуст, человек считается новичком: ему открыты приход
+    и обучение, остальное — после. Смысл не в наказании: не пускать к работе,
+    правил которой человек не знает, дешевле, чем разбирать последствия.
+    """
+    done = passed_titles(who)
+    return [cl['title'] for cl in C.visible(role, 'quiz', dept, point).values()
+            if cl['title'] not in done]
 
 
 def save_quiz(key, point, who, right, total, need, wrong, seconds, attempt):
