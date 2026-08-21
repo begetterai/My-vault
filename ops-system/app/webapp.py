@@ -45,6 +45,13 @@ def _who(init_data):
 def init_payload(who):
     role = S.role_of(who)
     dept = S.dept_of(who)
+    # Позиция на сегодня берётся из наряда: человек может сегодня стоять
+    # на кассе, а завтра в зале — и чек-листы должны открыться те, что нужно.
+    try:
+        from . import roster as RS
+        dept = RS.dept_of(C.today(), who[0], dept)
+    except Exception as e:
+        print('позиция из наряда:', e)
     # руководитель работает по обеим точкам — даём выбор; линейный закреплён
     pts = ([{'code': p, 'label': S.point_label(p)} for p in S.points()]
            if role in ('manager', 'coo') else
@@ -167,8 +174,16 @@ def shift(who, body):
                                           'что пришёл именно ты.'}
         link = S.save_photo(raw, f'{who[1]}-приход-{C.day_str()}-{who[0]}')
     point = pick_point(who, body)
+    # Время начала берём из наряда: у повара цеха смена в 07:00, у кассира
+    # в 09:30 — считать опоздание всем от одного часа неправильно.
+    plan = body.get('plan')
+    try:
+        from . import roster as RS
+        plan = RS.start_of(C.today(), who[0], plan)
+    except Exception as e:
+        print('наряд:', e)
     msg, flag, line = F.mark_shift(d, C.day_str(), point, who[0], lat, lon,
-                                   plan=body.get('plan'), photo=link)
+                                   plan=plan, photo=link)
     if d == 'in':
         if lat is None:
             SC.add(point, who[0], 'geo_missing')
@@ -604,6 +619,80 @@ def task_done(who, body):
     return {'ok': True}
 
 
+def roster(who, body):
+    """Наряд на завтра: черновик по вчерашнему составу и текущее состояние."""
+    from . import roster as RS
+    day = C.today() + datetime.timedelta(days=1)
+    if body.get('day') == 'today':
+        day = C.today()
+    point = pick_point(who, body)
+    boss = S.role_of(who) in ('manager', 'coo')
+    mine = RS.for_person(day, who[0])
+    out = {'ok': True, 'day': RS.day_str(day), 'point': point,
+           'mine': mine, 'boss': boss}
+    if boss:
+        cur = RS.planned(day, point)
+        out['people'] = cur or RS.template(point, day)
+        out['sent'] = bool(cur)
+        out['team'] = sorted({v[0] for v in S.team().values() if v[1] == point})
+        out['depts'] = list(RS.START)
+        out['starts'] = RS.START
+    return out
+
+
+def roster_save(who, body):
+    """Управляющий отправил наряд — людям сразу уходит вопрос «Буду / Не смогу»."""
+    if S.role_of(who) not in ('manager', 'coo'):
+        return {'ok': False, 'error': 'Наряд составляет руководитель'}
+    from . import roster as RS
+    day = C.today() + datetime.timedelta(days=1)
+    point = pick_point(who, body)
+    people = [p for p in (body.get('people') or [])
+              if str(p.get('who', '')).strip()]
+    if not people:
+        return {'ok': False, 'error': 'В наряде никого нет'}
+    if len(people) > 60:
+        return {'ok': False, 'error': 'Слишком много строк'}
+    names = {v[0]: cid for cid, v in S.team().items() if v[1] == point}
+    for p in people:
+        if p['who'] not in names:
+            return {'ok': False, 'error': f'{p["who"]} не числится на этой точке'}
+    ask = RS.save(day, point, people, who[0])
+    sent = 0
+    for p in people:
+        if p['who'] not in ask:
+            continue
+        cid = names.get(p['who'])
+        if not cid:
+            continue
+        line = (f'📅 <b>Завтра, {RS.day_str(day)}</b>\n'
+                f'{p.get("dept", "—")} · с {p.get("start") or "—"}')
+        if p.get('instead'):
+            line += f'\nЗамена: вместо {p["instead"]}'
+        BOT.say(cid, line + '\n\nПодтверди до 21:30.',
+                reply_markup={'inline_keyboard': [[
+                    {'text': '✅ Буду', 'callback_data': 'rs:y'},
+                    {'text': '❌ Не смогу', 'callback_data': 'rs:n'}]]})
+        sent += 1
+    return {'ok': True, 'sent': sent, 'total': len(people)}
+
+
+def roster_confirm(who, body):
+    """Ответ сотрудника из приложения (в боте — те же кнопки)."""
+    from . import roster as RS
+    day = C.today() + datetime.timedelta(days=1)
+    yes = bool(body.get('yes'))
+    if not RS.confirm(day, who[0], yes):
+        return {'ok': False, 'error': 'Тебя нет в наряде на завтра'}
+    if not yes:
+        txt = (f'⚠️ <b>Не выйдет завтра</b> · {who[1]} · {who[0]}\n'
+               f'Нужна замена на {RS.dept_of(day, who[0], "—")}')
+        for cid in S.managers_of(who[1]):
+            BOT.say(cid, txt)
+        BOT.admin(txt)
+    return {'ok': True}
+
+
 def award(who, body):
     """Управляющий начисляет доп. балл: замена, обучение, принятая идея.
 
@@ -759,6 +848,12 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, points(who, body))
             if p == '/api/award':
                 return self._send(200, award(who, body))
+            if p == '/api/roster':
+                return self._send(200, roster(who, body))
+            if p == '/api/roster_save':
+                return self._send(200, roster_save(who, body))
+            if p == '/api/roster_confirm':
+                return self._send(200, roster_confirm(who, body))
             if p == '/api/dispute':
                 return self._send(200, dispute(who, body))
             if p == '/api/dispute_resolve':

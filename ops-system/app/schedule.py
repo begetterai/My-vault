@@ -125,6 +125,89 @@ def daily():
         BOT.say(cid, R.day_full(day, point))
 
 
+def roster_ask():
+    """21:00 — управляющему: составь наряд на завтра.
+
+    Черновик уже готов (состав сегодняшнего дня), ему остаётся поправить
+    замены и отправить.
+    """
+    from . import roster as RS
+    day = C.today() + datetime.timedelta(days=1)
+    for cid, point in S.managers().items():
+        if RS.planned(day, point):
+            continue
+        n = len(RS.template(point, day))
+        kb = ({'inline_keyboard': [[{'text': '📅 Составить наряд',
+                                     'web_app': {'url': C.WEBAPP_URL}}]]}
+              if C.WEBAPP_URL else None)
+        BOT.say(cid, f'📅 <b>Наряд на завтра</b> · {RS.day_str(day)} · {point}\n'
+                     f'Черновик готов: {n} чел. по сегодняшнему составу.\n'
+                     f'Поправь замены и отправь — людям уйдёт вопрос '
+                     f'«Буду / Не смогу».', reply_markup=kb)
+
+
+def roster_summary():
+    """21:30 — что известно про завтрашнюю смену."""
+    from . import roster as RS
+    day = C.today() + datetime.timedelta(days=1)
+    for cid, point in S.managers().items():
+        s = RS.summary(day, point)
+        if not s:
+            BOT.say(cid, f'⚠️ <b>Наряда на завтра нет</b> · {point}\n'
+                         f'В 23:00 система возьмёт сегодняшний состав.')
+            continue
+        L = [f'📅 <b>Завтра · {s["day"]} · {point}</b>']
+        L.append('✅ Подтвердили: ' + (', '.join(r['who'] for r in s['yes']) or '—'))
+        if s['no']:
+            L.append('❌ Не смогут: ' + ', '.join(
+                f'{r["who"]} ({r["dept"]})' for r in s['no']) + ' — нужна замена')
+        if s['wait']:
+            L.append('⏳ Молчат: ' + ', '.join(r['who'] for r in s['wait']))
+        BOT.say(cid, '\n'.join(L))
+
+
+def roster_fallback():
+    """23:00 — наряда нет: берём сегодняшний состав, чтобы система не ослепла.
+
+    Без наряда она не знает, кто завтра работает: ни опоздания, ни невыходы,
+    ни чьи чек-листы. Управляющий может проспать, система — нет.
+    """
+    from . import roster as RS
+    day = C.today() + datetime.timedelta(days=1)
+    for point in S.points():
+        if RS.planned(day, point):
+            continue
+        people = RS.template(point, day)
+        if not people:
+            continue
+        RS.save(day, point, people, 'система')
+        for cid in S.managers_of(point):
+            BOT.say(cid, f'📅 Наряд на {RS.day_str(day)} · {point} не составлен — '
+                         f'взял сегодняшний состав ({len(people)} чел.). '
+                         f'Поправь утром, если что-то не так.')
+
+
+def mark_show():
+    """Ночью: кто был в наряде и не вышел. Отметка, без баллов."""
+    from . import roster as RS
+    day = C.today() - datetime.timedelta(days=1)
+    try:
+        missing = RS.mark_show(day)
+    except Exception as e:
+        print('отметка невыходов:', e)
+        return
+    if not missing:
+        return
+    txt = (f'🚫 <b>Не вышли · {RS.day_str(day)}</b>\n'
+           + '\n'.join(f'· {r["who"]} · {r["point"]} · {r["dept"]}'
+                       for r in missing)
+           + '\n\nБаллы за это не снимаются — разбирается на собрании.')
+    BOT.admin(txt)
+    for cid, point in S.managers().items():
+        if any(r['point'] == point for r in missing):
+            BOT.say(cid, txt)
+
+
 def close_day():
     """Ночью: кому засчитать полностью закрытый день (+4 балла).
 
@@ -232,8 +315,17 @@ def tick():
         tasks_pass()
         daily()
 
+    # Наряд на завтра: запрос, сводка, запасной вариант.
+    if minute >= hhmm(C.ROSTER_AT) and once('roster'):
+        roster_ask()
+    if minute >= hhmm(C.ROSTER_SUM_AT) and once('rostersum'):
+        roster_summary()
+    if minute >= hhmm(C.ROSTER_FALLBACK_AT) and once('rosterfb'):
+        roster_fallback()
+
     # Закрытый день считаем после полуночи — за вчера, когда сутки закончились.
     if minute >= hhmm(C.CLOSE_DAY_AT) and once('closeday'):
+        mark_show()
         close_day()
 
     # Суббота вечером — сводка к воскресному собранию.

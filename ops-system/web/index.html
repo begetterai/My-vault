@@ -409,6 +409,11 @@
     <button class="note" onclick="showTour()" style="margin-top:20px">
       ❓ Как это работает</button>
 
+    <div id="rosterBox" class="hidden">
+      <h2>Смена завтра <span id="rosterDay" class="badge"></span></h2>
+      <div id="rosterBody"></div>
+    </div>
+
     <div id="dispBox" class="hidden">
       <h2>Споры по баллам <span id="dispN" class="badge"></span></h2>
       <div id="dispList"></div>
@@ -640,6 +645,7 @@ async function boot(){
     renderShift(); renderSite(); renderTasks(); renderPending();
     renderJournals(); renderForms(); renderQuizzes(); renderKpi(); renderScore();
     renderDisputes(); renderAwards();
+    loadRoster();
     draftSweep();
     stages();
     maybeTour();
@@ -1537,7 +1543,164 @@ function renderKpi(){
 }
 
 /* ── баллы ───────────────────────────────────────────────────────────────── */
-function sign(n){ return (n > 0 ? '+' : '') + n; }
+function sign(n){ n = Number(n) || 0; return (n > 0 ? '+' : '') + n; }
+
+/* ── наряд на завтра ─────────────────────────────────────────────────────── */
+let ROSTER = null;
+
+async function loadRoster(){
+  try{
+    const r = await fetch('/api/roster', {method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({initData, point})});
+    ROSTER = await r.json();
+    if(ROSTER.ok) renderRoster();
+  }catch(e){ /* наряд не критичен для остального экрана */ }
+}
+
+function renderRoster(){
+  const box = $('#rosterBody'); box.innerHTML = '';
+  $('#rosterDay').textContent = ROSTER.day;
+  if(ROSTER.boss) renderRosterBoss(box); else renderRosterMine(box);
+  $('#rosterBox').classList.remove('hidden');
+}
+
+/* Сотруднику — только его строка и две кнопки. */
+function renderRosterMine(box){
+  const m = ROSTER.mine;
+  const c = document.createElement('div'); c.className = 'card';
+  if(!m){
+    c.innerHTML = '<div class="kv"><span>Завтра</span><b>выходной</b></div>'
+      + '<div class="hint">Тебя нет в наряде на завтра. Если это ошибка — '
+      + 'скажи управляющему.</div>';
+    box.appendChild(c);
+    return;
+  }
+  c.innerHTML = '<div class="kv"><span>' + (m.dept || '—') + '</span><b>с '
+    + (m.start || '—') + '</b></div>'
+    + (m.instead ? '<div class="hint">Замена: вместо ' + m.instead + '</div>' : '');
+  const st = document.createElement('div'); st.className = 'hint';
+  if(m.confirm === 'буду') st.textContent = '✅ Ты подтвердил, что будешь.';
+  else if(m.confirm === 'не смогу') st.textContent = '❌ Ты сказал, что не сможешь.';
+  else {
+    st.textContent = 'Подтверди до 21:30 — управляющему нужно знать состав смены.';
+    const acts = document.createElement('div'); acts.className = 'shift';
+    const yes = document.createElement('button');
+    yes.textContent = '✅ Буду';
+    yes.onclick = () => confirmRoster(true, c);
+    const no = document.createElement('button');
+    no.className = 'out'; no.textContent = '❌ Не смогу';
+    no.onclick = () => confirmRoster(false, c);
+    acts.append(yes, no); c.appendChild(acts);
+  }
+  c.appendChild(st);
+  box.appendChild(c);
+}
+
+async function confirmRoster(yes, card){
+  card.querySelectorAll('button').forEach(b => b.disabled = true);
+  const r = await fetch('/api/roster_confirm', {method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({initData, yes})});
+  const j = await r.json();
+  if(!j.ok){
+    card.querySelectorAll('button').forEach(b => b.disabled = false);
+    return alert(j.error || 'не записалось');
+  }
+  tg?.HapticFeedback?.notificationOccurred?.('success');
+  ROSTER.mine.confirm = yes ? 'буду' : 'не смогу';
+  renderRoster();
+}
+
+/* Управляющему — список с позициями, заменами и отправкой. */
+function renderRosterBoss(box){
+  const people = ROSTER.people || [];
+  const wrap = document.createElement('div');
+  people.forEach((p, i) => wrap.appendChild(rosterRow(p, i)));
+  box.appendChild(wrap);
+
+  const add = document.createElement('button');
+  add.className = 'add'; add.textContent = '+ Добавить человека';
+  add.onclick = () => {
+    // Подставляем того, кого в наряде ещё нет: иначе один человек попадает
+    // в смену дважды и наряд врёт про состав.
+    const busy = new Set(ROSTER.people.map(x => x.who));
+    const free = (ROSTER.team || []).find(n => !busy.has(n));
+    if(!free) return alert('Все люди точки уже в наряде.');
+    ROSTER.people.push({who: free, dept: 'кухня',
+                        start: ROSTER.starts['кухня'] || '', instead: ''});
+    renderRoster();
+  };
+  box.appendChild(add);
+
+  const send = document.createElement('button');
+  send.className = 'send'; send.style.marginTop = '12px';
+  send.textContent = ROSTER.sent ? 'Отправить изменения' : 'Отправить наряд';
+  send.onclick = () => sendRoster(send);
+  box.appendChild(send);
+
+  const hint = document.createElement('div');
+  hint.className = 'hint';
+  hint.textContent = ROSTER.sent
+    ? 'Наряд отправлен. Изменения уйдут тем, у кого поменялась позиция или время.'
+    : 'Черновик по сегодняшнему составу. Поправь и отправь — людям придёт '
+      + 'вопрос «Буду / Не смогу».';
+  box.appendChild(hint);
+}
+
+function rosterRow(p, i){
+  const d = document.createElement('div');
+  d.className = 'card'; d.style.marginBottom = '10px';
+  const st = p.confirm === 'буду' ? '✅' : p.confirm === 'не смогу' ? '❌' : '⏳';
+  d.innerHTML = '<div class="kv"><span>' + st + ' ' + (p.who || '—')
+    + '</span><b>' + (p.dept || '—') + '</b></div>';
+
+  const who = document.createElement('select');
+  who.innerHTML = (ROSTER.team || []).map(n =>
+    '<option' + (n === p.who ? ' selected' : '') + '>' + n + '</option>').join('');
+  who.onchange = () => { p.who = who.value; };
+
+  const dept = document.createElement('select');
+  dept.innerHTML = (ROSTER.depts || []).map(n =>
+    '<option' + (n === p.dept ? ' selected' : '') + '>' + n + '</option>').join('');
+  dept.onchange = () => {
+    p.dept = dept.value;
+    p.start = ROSTER.starts[p.dept] || p.start;
+    time.value = p.start;
+  };
+
+  const time = document.createElement('input');
+  time.type = 'time'; time.step = 60; time.value = p.start || '';
+  time.oninput = () => { p.start = time.value; };
+
+  const instead = document.createElement('input');
+  instead.type = 'text'; instead.placeholder = 'замена вместо кого (если замена)';
+  instead.value = p.instead || '';
+  instead.oninput = () => { p.instead = instead.value.trim(); };
+
+  const rm = document.createElement('button');
+  rm.className = 'note'; rm.textContent = '✕ Убрать из смены';
+  rm.onclick = () => { ROSTER.people.splice(i, 1); renderRoster(); };
+
+  d.append(who, dept, time, instead, rm);
+  return d;
+}
+
+async function sendRoster(btn){
+  const names = ROSTER.people.map(x => x.who);
+  const dup = names.find((n, i) => names.indexOf(n) !== i);
+  if(dup) return alert(dup + ' стоит в наряде дважды. Убери лишнюю строку.');
+  btn.disabled = true; btn.textContent = 'Отправляю…';
+  const r = await fetch('/api/roster_save', {method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({initData, point, people: ROSTER.people})});
+  const j = await r.json();
+  btn.disabled = false;
+  if(!j.ok){ btn.textContent = 'Отправить наряд'; return alert(j.error || 'не ушло'); }
+  tg?.HapticFeedback?.notificationOccurred?.('success');
+  alert('Наряд отправлен. Вопрос ушёл: ' + j.sent + ' из ' + j.total + '.');
+  loadRoster();
+}
 
 /* ── руководителю: споры и начисления ────────────────────────────────────── */
 function renderDisputes(){

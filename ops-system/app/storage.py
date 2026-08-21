@@ -91,6 +91,7 @@ def ensure_structure():
     from . import tasks as TSK
     from . import equipment as EQ
     from . import score as SC
+    from . import roster as RS
     s = session()
     want = {C.TABS['fails']: ['Дата', 'Точка', 'Кто', 'Документ', '№', 'Блок', 'Пункт'],
             C.TABS['ideas']: ['Дата', 'Кто', 'Точка', 'Откуда', 'Текст', 'Статус', 'Решение'],
@@ -102,6 +103,7 @@ def ensure_structure():
                                'Широта', 'Долгота', 'Радиус, м'],
             C.TABS['shift']: F.SHIFT_COLS,
             C.TABS['score']: SC.COLS,
+            RS.TAB: RS.COLS,
             C.TABS['fixes']: ['Дата', 'Кто', 'Форма', 'Блок', '№', 'Текст пункта',
                               'Что поправить', 'Документ', 'Статус', 'Решение'],
             C.TABS['tasks']: TSK.TASK_COLS,

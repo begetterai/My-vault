@@ -715,12 +715,34 @@ def on_message(msg):
 
 def on_callback(cq):
     data = cq.get('data', '')
-    if not data.startswith('cl:'):
+    if not data.startswith(('cl:', 'rs:')):
         return False
     chat_id = str(cq['message']['chat']['id'])
     mid = cq['message']['message_id']
     ack = lambda s='': tg('answerCallbackQuery', callback_query_id=cq['id'], text=s)
     who = S.team().get(chat_id)
+
+    # Наряд на завтра: ответ двумя кнопками, без открытия приложения —
+    # на подтверждение даётся полчаса, каждый лишний шаг тут лишний.
+    if data.startswith('rs:'):
+        if not who:
+            return ack('Тебя ещё нет в системе') or True
+        import datetime as _dt
+        from . import roster as RS
+        day = C.today() + _dt.timedelta(days=1)
+        yes = data == 'rs:y'
+        if not RS.confirm(day, who[0], yes):
+            return ack('Тебя нет в наряде на завтра') or True
+        tg('editMessageText', chat_id=chat_id, message_id=mid,
+           text=('✅ Записал: завтра будешь.' if yes else
+                 '❌ Записал: завтра не сможешь. Управляющий ищет замену.'))
+        if not yes:
+            txt = (f'⚠️ <b>Не выйдет завтра</b> · {who[1]} · {who[0]}\n'
+                   f'Позиция: {RS.dept_of(day, who[0], "—")}. Нужна замена.')
+            for cid in S.managers_of(who[1]):
+                say(cid, txt)
+            admin(txt)
+        return ack('Спасибо') or True
 
     if data == 'cl:cancel':
         STATE.pop(chat_id, None)
