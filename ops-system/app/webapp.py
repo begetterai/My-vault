@@ -65,10 +65,17 @@ def init_payload(who):
                         'icon': cl.get('icon', '📌'), 'doc': cl.get('doc'),
                         'fields': cl.get('fields', [])}
                        for k, cl in C.visible(role, 'journal', dept, who[1]).items()]
+    # Форма с требованием тренинга открывается только тому, кто его сдал:
+    # не пускать к операции, которой человек не владеет, полезнее, чем
+    # наказывать за необучение.
     out['forms'] = [{'key': k, 'title': cl['title'], 'code': cl['code'],
                      'icon': cl.get('icon', '📋'), 'doc': cl.get('doc'),
                      'columns': cl.get('columns', []),
-                     'photo_required': bool(cl.get('photo_required'))}
+                     'photo_required': bool(cl.get('photo_required')),
+                     'locked': (bool(cl.get('requires'))
+                                and not quiz_passed(cl['requires'], who[0])),
+                     'requires': (C.form(cl['requires'])['title']
+                                  if cl.get('requires') else '')}
                     for k, cl in C.visible(role, 'form', dept, who[1]).items()]
     # Правильные ответы наружу не уходят: страница открыта в браузере,
     # оттуда её видно целиком. Проверяет сервер.
@@ -311,6 +318,11 @@ def blank(who, body):
     cl = C.forms().get(key)
     if not cl or cl['type'] != 'form':
         return {'ok': False, 'error': 'неизвестная форма'}
+    need = cl.get('requires')
+    if need and not quiz_passed(need, who[0]):
+        return {'ok': False, 'error': f'Сначала сдай тренинг '
+                                      f'«{C.form(need)["title"]}» — он в разделе '
+                                      f'«Обучение».'}
     lines = [ln for ln in (body.get('lines') or [])
              if str(ln.get('item', '')).strip()]
     if not lines:

@@ -632,6 +632,20 @@ async function boot(){
     document.title = (j.company || '') + ' — чек-лист';
     $('#sub').textContent = (j.point_label || j.point) + ' · ' + j.day;
     const box = $('#pickList'); box.innerHTML = '';
+    // Позиция не задана — чек-листов не будет. Молчащий пустой экран человек
+    // читает как «приложение сломалось», поэтому говорим прямо.
+    if(!Object.keys(j.lists).length && j.role === 'staff'){
+      const d = document.createElement('div');
+      d.className = 'card';
+      d.innerHTML = '<b>Пока нет чек-листов</b><div class="hint" '
+        + 'style="margin-top:6px">' + (j.dept
+          ? 'Для позиции «' + j.dept + '» чек-листы ещё не заведены. '
+            + 'Скажи управляющему.'
+          : 'Управляющий ещё не назначил тебе позицию — кухня, касса, бар, зал '
+            + 'или цех. Без неё система не знает, что тебе показывать. '
+            + 'Скажи ему об этом.') + '</div>';
+      box.appendChild(d);
+    }
     for(const k of Object.keys(j.lists)){
       const b = document.createElement('button');
       b.className = 'big';
@@ -867,7 +881,21 @@ function renderForms(){
   const list = DATA.forms || [];
   if(!list.length) return;
   const box = $('#fList'); box.innerHTML = '';
-  list.forEach(x => cardBtn(box, x, () => openForm(x)));
+  list.forEach(x => {
+    // Бланк, к которому нужен тренинг, до его сдачи не открывается.
+    if(x.locked){
+      const b = document.createElement('button');
+      b.className = 'big';
+      b.style.opacity = '.55';
+      b.innerHTML = '🔒 ' + x.title + '<div class="sub">сначала сдай тренинг «'
+        + x.requires + '»</div>';
+      b.onclick = () => alert('Этот бланк откроется после тренинга «'
+        + x.requires + '». Он в разделе «Обучение», занимает несколько минут.');
+      box.appendChild(b);
+      return;
+    }
+    cardBtn(box, x, () => openForm(x));
+  });
   $('#fBox').classList.remove('hidden');
 }
 

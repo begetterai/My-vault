@@ -2662,7 +2662,8 @@
       "code": "05-SOP-04",
       "title": "Списания",
       "url": "https://docs.google.com/document/d/1DeB_WnSIyjUH-OwGTGdr4xR2IFRITMLgwfV36lKjL2s"
-    }
+    },
+    "requires": "edu_writeoff"
   },
   "delivery": {
     "title": "Приём поставки",
@@ -2726,7 +2727,8 @@
       "code": "05-SOP-01",
       "title": "Приём поставки",
       "url": "https://docs.google.com/document/d/17Rl_n-OqXLDEhEAwCifqG-u7az7EdbyGFcxaej9B-yU"
-    }
+    },
+    "requires": "edu_delivery"
   },
   "inventory": {
     "title": "Инвентаризация — сдача листа",
