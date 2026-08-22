@@ -28,7 +28,7 @@ log = logging.getLogger(__name__)
 TOKEN          = os.environ.get('TELEGRAM_BOT_TOKEN', '').strip()
 ALLOWED_CHAT   = os.environ.get('TELEGRAM_CHAT_ID', '').strip()
 SS_ID          = '1bTDELaAo8Ft9WIQqeWDFQQzp5rrDDHiRZ4VpFo-D4m8'
-DASHBOARD_URL  = 'https://claude.ai/code/artifact/4ae088f2-dadd-4b55-b65c-beeded5193d3'
+DASHBOARD_URL  = 'https://docs.google.com/spreadsheets/d/1bTDELaAo8Ft9WIQqeWDFQQzp5rrDDHiRZ4VpFo-D4m8'
 SCOPES         = ['https://www.googleapis.com/auth/spreadsheets']
 
 MONTHS_RU  = {'01':'январь','02':'февраль','03':'март','04':'апрель',

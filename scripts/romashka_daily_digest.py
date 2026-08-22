@@ -16,7 +16,7 @@ from google.oauth2 import service_account
 from google.auth.transport.requests import AuthorizedSession
 
 ROMASHKA_SS_ID = '1bTDELaAo8Ft9WIQqeWDFQQzp5rrDDHiRZ4VpFo-D4m8'
-DASHBOARD_URL  = 'https://claude.ai/code/artifact/4ae088f2-dadd-4b55-b65c-beeded5193d3'
+DASHBOARD_URL  = 'https://docs.google.com/spreadsheets/d/1bTDELaAo8Ft9WIQqeWDFQQzp5rrDDHiRZ4VpFo-D4m8'
 SCOPES         = ['https://www.googleapis.com/auth/spreadsheets']
 
 MONTHS_RU = {
