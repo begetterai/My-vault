@@ -121,6 +121,15 @@ def init_payload(who):
                 for x in RP.pending(None if role == 'coo' else who[1])]
         except Exception:
             out['pending'] = []
+        # Пункты всех чек-листов — руководителю, чтобы он мог пройти по ним
+        # ещё раз при проверке, а не верить сводке «12 из 14».
+        try:
+            out['check_items'] = {
+                k: [it['text'] for b in cl['blocks'] for it in b['items']]
+                for k, cl in C.checklists().items()}
+        except Exception as e:
+            print('пункты для проверки:', e)
+            out['check_items'] = {}
         try:
             from . import equipment as EQ
             out['equip_types'] = EQ.types_for_app()

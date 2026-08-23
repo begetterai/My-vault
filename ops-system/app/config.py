@@ -155,8 +155,18 @@ def visible(role, t=None, dept=None, point=None):
 
 
 def for_role(role, dept=None, point=None):
-    """Чек-листы, доступные роли."""
-    return visible(role, 'checklist', dept, point)
+    """Чек-листы, которые человек заполняет сам.
+
+    Руководитель заполняет только свой лист. Чужие он не заполняет — он их
+    проверяет, и это другое действие: заполнить за повара значит стереть
+    единственного ответственного за пункт. Чужие листы приходят ему
+    в блок «Проверка» уже заполненными.
+    """
+    out = visible(role, 'checklist', dept, point)
+    if role in ('manager', 'coo'):
+        out = {k: cl for k, cl in out.items()
+               if role in (cl.get('roles') or [])}
+    return out
 
 
 def scheduled():

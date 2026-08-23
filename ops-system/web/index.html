@@ -367,6 +367,22 @@
 .blk>*:not(summary):last-child{padding-bottom:16px}
 .blk h2{font-size:15px;margin:14px 0 8px}
 .blk.empty{display:none}
+
+.walk{margin-top:10px;border-top:1px solid var(--line);padding-top:8px}
+.walkhead{cursor:pointer;font-size:14px;color:var(--brand-2);font-weight:600;
+     padding:4px 0}
+.walkhead::after{content:' ▾'}
+.walkrow{display:flex;align-items:flex-start;gap:8px;padding:8px 0;
+     border-bottom:1px solid var(--line);font-size:14px}
+.walkrow:last-child{border-bottom:none}
+.walkrow .num{color:var(--ink-2);min-width:22px;font-size:13px}
+.walkrow .txt{flex:1;line-height:1.35}
+.walkrow .said{font-weight:700;color:var(--ok);min-width:18px;text-align:center}
+.walkrow .said.bad{color:var(--bad)}
+.walkrow.mismatch{background:rgba(255,90,90,.07);border-radius:8px;
+     padding-left:6px;padding-right:6px}
+.seg.mini{flex:0 0 auto}
+.seg.mini button{padding:5px 9px;font-size:12px}
 </style>
 </head>
 <body>
@@ -1588,6 +1604,54 @@ function renderPending(){
   list.forEach(x => box.appendChild(pendCard(x)));
 }
 
+
+/* Повторный проход по пунктам. Управляющий не верит сводке «12 из 14»:
+   он идёт по тем же пунктам и отмечает своё. Расхождение здесь — это
+   не спор о цифре, а факт, что отметка не совпала с тем, что видно. */
+function walkBox(x){
+  const box = document.createElement('div');
+  box.className = 'walk';
+  const items = (DATA.check_items || {})[x.key] || [];
+  const fails = new Set(String(x.fails || '').match(/\d+/g) || []);
+  x._walk = {};
+  if(!items.length){
+    box.innerHTML = '<div class="hint">Пункты не загрузились — '
+      + 'проверь по документу.</div>';
+    return box;
+  }
+  const head = document.createElement('div');
+  head.className = 'walkhead';
+  head.textContent = 'Пройти по пунктам · ' + items.length;
+  const list = document.createElement('div');
+  list.className = 'walklist hidden';
+  head.onclick = () => list.classList.toggle('hidden');
+  items.forEach((text, i) => {
+    const n = String(i + 1);
+    const row = document.createElement('div');
+    row.className = 'walkrow';
+    const said = fails.has(n) ? '✗' : '✓';
+    row.innerHTML = '<span class="num">' + n + '</span>'
+      + '<span class="txt">' + text + '</span>'
+      + '<span class="said' + (fails.has(n) ? ' bad' : '') + '">' + said + '</span>';
+    const seg = document.createElement('div'); seg.className = 'seg mini';
+    [['ok', 'Так'], ['bad', 'Не так']].forEach(([v, t]) => {
+      const b = document.createElement('button');
+      b.textContent = t; b.setAttribute('aria-pressed', 'false');
+      b.onclick = () => {
+        x._walk[n] = v;
+        [...seg.children].forEach(c =>
+          c.setAttribute('aria-pressed', c === b ? 'true' : 'false'));
+        row.classList.toggle('mismatch', v === 'bad');
+      };
+      seg.appendChild(b);
+    });
+    row.appendChild(seg);
+    list.appendChild(row);
+  });
+  box.append(head, list);
+  return box;
+}
+
 function pendCard(x){
   const d = document.createElement('div');
   d.className = 'chk' + (x.age >= 1 ? ' old' : '');
@@ -1601,10 +1665,17 @@ function pendCard(x){
     + '<div class="meta">' + x.point + ' · ' + x.who + ' · ' + x.day
     + ' в ' + x.at + ' · ' + age + '</div>'
     + '<div class="det">' + det + '</div>';
+  d.appendChild(walkBox(x));
   const acts = document.createElement('div'); acts.className = 'acts';
   const yes = document.createElement('button');
   yes.className = 'yes'; yes.textContent = '✓ Проверил';
-  yes.onclick = () => sendCheck(x, 'ok', '', d);
+  yes.onclick = () => {
+    const bad = Object.entries(x._walk || {})
+      .filter(([, v]) => v === 'bad').map(([n]) => n);
+    if(bad.length) return sendCheck(x, 'bad',
+      'Не сошлись пункты: ' + bad.join(', '), d);
+    sendCheck(x, 'ok', '', d);
+  };
   const no = document.createElement('button');
   no.className = 'no'; no.textContent = '⚠ Расхождение';
   no.onclick = () => {
