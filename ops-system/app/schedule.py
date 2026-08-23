@@ -394,10 +394,15 @@ def tick():
             except Exception:
                 pass
 
+    # Сводки отключены на время обкатки (23.08.2026): сначала люди привыкают
+    # к самой работе в приложении, отчёты подключим, когда будет что сводить.
+    # Напоминания о незакрытом и просроченных задачах остаются — это не сводка,
+    # а сигнал к действию.
     if minute >= hhmm(C.DAILY_AT) and once('daily'):
         unconfirmed(day)
         tasks_pass()
-        daily()
+        if C.SUMMARIES:
+            daily()
 
     # Состав смены на завтра: запрос, сводка, запасной вариант.
     if minute >= hhmm(C.ROSTER_AT) and once('roster'):
@@ -413,10 +418,12 @@ def tick():
         close_day()
 
     # Суббота вечером — сводка к воскресному собранию.
-    if day.weekday() == 5 and minute >= hhmm(C.SUMMARY_AT) and once('points'):
+    if (C.SUMMARIES and day.weekday() == 5
+            and minute >= hhmm(C.SUMMARY_AT) and once('points')):
         points_summary()
 
-    if day.weekday() == 0 and minute >= hhmm(C.WEEKLY_AT) and once('weekly'):
+    if (C.SUMMARIES and day.weekday() == 0
+            and minute >= hhmm(C.WEEKLY_AT) and once('weekly')):
         weekly()
 
     if day.day == 1 and minute >= hhmm(C.WEEKLY_AT) and once('monthly'):
