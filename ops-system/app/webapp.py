@@ -722,8 +722,13 @@ def roster_confirm(who, body):
     if not RS.confirm(day, who[0], yes):
         return {'ok': False, 'error': 'Тебя нет в составе на завтра'}
     if not yes:
+        dept = RS.dept_of(day, who[0], '')
+        busy = {r['who'] for r in RS.planned(day, who[1])}
+        able = [x for x in S.cover_for(who[1], dept, exclude=busy)]
         txt = (f'⚠️ <b>Не выйдет завтра</b> · {who[1]} · {who[0]}\n'
-               f'Нужна замена на {RS.dept_of(day, who[0], "—")}')
+               f'Позиция: {dept or "—"}. Нужна замена.\n'
+               + ('Могут подменить: ' + ', '.join(able) if able
+                  else 'Свободных, умеющих эту позицию, в команде нет.'))
         for cid in S.managers_of(who[1]):
             BOT.say(cid, txt)
         BOT.admin(txt)

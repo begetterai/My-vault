@@ -750,8 +750,13 @@ def on_callback(cq):
            text=('✅ Записал: завтра будешь.' if yes else
                  '❌ Записал: завтра не сможешь. Управляющий ищет замену.'))
         if not yes:
+            dept = RS.dept_of(day, who[0], '')
+            busy = {r['who'] for r in RS.planned(day, who[1])}
+            able = S.cover_for(who[1], dept, exclude=busy)
             txt = (f'⚠️ <b>Не выйдет завтра</b> · {who[1]} · {who[0]}\n'
-                   f'Позиция: {RS.dept_of(day, who[0], "—")}. Нужна замена.')
+                   f'Позиция: {dept or "—"}. Нужна замена.\n'
+                   + ('Могут подменить: ' + ', '.join(able) if able
+                      else 'Свободных, умеющих эту позицию, в команде нет.'))
             for cid in S.managers_of(who[1]):
                 say(cid, txt)
             admin(txt)

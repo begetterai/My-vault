@@ -98,7 +98,8 @@ def ensure_structure():
             C.TABS['items']: ['Документ', '№', 'Блок', 'Пункт', 'Норматив', 'Фото',
                               'Эталонное фото — вставь ссылку'],
             C.TABS['team']: ['chat_id', 'Имя', 'Точка', 'Роль', 'Активен',
-                             'Отдел'],
+                             'Отдел', 'Может подменить (позиции)',
+                             'Может быть старшим'],
             C.TABS['points']: ['Код', 'Название', 'Адрес', 'Активна',
                                'Широта', 'Долгота', 'Радиус, м'],
             C.TABS['shift']: F.SHIFT_COLS,
@@ -140,24 +141,64 @@ _TEAM = {'ts': None, 'map': {}}
 
 
 def team(force=False):
-    """chat_id → (имя, точка, роль, отдел)
+    """chat_id → (имя, точка, роль, отдел, подменяет, старший)
 
     Отдел появился 21.08.2026: чек-листы режутся по отделам, и без него
     система не знает, чьи пункты показывать и с кого спрашивать.
+
+    Квалификации (22.08.2026, по образцу графика кухни): какие ещё позиции
+    человек умеет закрывать и может ли быть старшим. Без этого при отказе
+    «не смогу» управляющий подбирает замену по памяти.
     """
     now = datetime.datetime.utcnow()
     if not force and _TEAM['ts'] and (now - _TEAM['ts']).seconds < 600:
         return _TEAM['map']
     m = {}
-    for r in get(C.TABS['team'], 'A2:F200'):
-        r = list(r) + [''] * (6 - len(r))
+    for r in get(C.TABS['team'], 'A2:H200'):
+        r = list(r) + [''] * (8 - len(r))
         if str(r[0]).strip() and str(r[1]).strip():
             act = (r[4].strip().lower() if r[4] else 'да')
             if act in ('да', 'yes', '1', 'true', ''):
+                can = [x.strip().lower() for x in str(r[6]).replace(';', ',').split(',')
+                       if x.strip()]
+                senior = str(r[7]).strip().lower() in ('да', 'yes', '1', 'true')
                 m[str(r[0]).strip()] = (str(r[1]).strip(), str(r[2]).strip(),
-                                        str(r[3]).strip(), str(r[5]).strip().lower())
+                                        str(r[3]).strip(), str(r[5]).strip().lower(),
+                                        can, senior)
     _TEAM['ts'], _TEAM['map'] = now, m
     return m
+
+
+def can_cover(who, dept):
+    """Может ли человек закрыть эту позицию: своя или в списке подмен."""
+    d = (dept or '').lower()
+    if not d:
+        return True
+    if dept_of(who) == d:
+        return True
+    return d in (who[4] if len(who) > 4 else [])
+
+
+def can_be_senior(who):
+    """Отмечен ли человек как способный быть старшим смены на кухне."""
+    return bool(who[5]) if len(who) > 5 else role_of(who) == 'senior'
+
+
+def cover_for(point, dept, exclude=()):
+    """Кто на точке может подменить на этой позиции. → [имена]
+
+    Подбор замены по памяти управляющего — это «кто первый вспомнился».
+    Список умений отвечает, кто действительно умеет.
+    """
+    out = []
+    for v in team().values():
+        if v[1] != point or v[0] in exclude:
+            continue
+        if role_of(v) in ('manager', 'coo'):
+            continue
+        if can_cover(v, dept):
+            out.append(v[0])
+    return sorted(out)
 
 
 def role_of(who):
@@ -331,15 +372,17 @@ def add_member(chat_id, name, point, role, dept=''):
     Отдел не затираем: его проставляет управляющий руками, а бот при
     повторном добавлении человека о нём не знает.
     """
-    rows = get(C.TABS['team'], 'A2:F200')
+    rows = get(C.TABS['team'], 'A2:H200')
     for i, r in enumerate(rows):
         if r and str(r[0]).strip() == str(chat_id):
-            old = r[5] if len(r) > 5 else ''
-            put(C.TABS['team'], f'A{i + 2}:F{i + 2}',
-                [[str(chat_id), name, point, role, 'да', dept or old]])
+            r = list(r) + [''] * (8 - len(r))
+            put(C.TABS['team'], f'A{i + 2}:H{i + 2}',
+                [[str(chat_id), name, point, role, 'да', dept or r[5],
+                  r[6], r[7]]])
             break
     else:
-        append(C.TABS['team'], [[str(chat_id), name, point, role, 'да', dept]])
+        append(C.TABS['team'],
+               [[str(chat_id), name, point, role, 'да', dept, '', '']])
     team(force=True)
     return True
 
