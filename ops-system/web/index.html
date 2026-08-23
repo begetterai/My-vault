@@ -389,6 +389,7 @@
     <div class="titles">
       <div class="who" id="who">Загрузка…</div>
       <div class="sub" id="sub"></div>
+      <div class="sub" id="ver" style="opacity:.45;font-size:11px"></div>
       <div class="sub"><span class="dist" id="distBadge"></span></div>
     </div>
   </div>
@@ -568,6 +569,7 @@
   <button class="send" id="send" disabled>Отправить</button>
 </div>
 <script>
+const BUILD = '2026-08-23 · блоки';
 // Заполняются на старте: скрипт телеграма грузится отложенно, и на момент
 // разбора этой строки window.Telegram может ещё не существовать.
 let tg = null, initData = '';
@@ -714,6 +716,7 @@ async function boot(){
       $('#pointBox').classList.remove('hidden');
     }
     document.title = (j.company || '') + ' — чек-лист';
+    $('#ver').textContent = 'сборка ' + BUILD;
     $('#sub').textContent = (j.point_label || j.point) + ' · ' + j.day;
     const box = $('#pickList'); box.innerHTML = '';
     // Новичок: сначала обучение, работа открывается после.
@@ -758,14 +761,30 @@ async function boot(){
       $('#foot').classList.add('hidden');
       return;
     }
-    renderJournals(); renderForms(); renderQuizzes(); renderScore();
+    // Каждая секция рисуется отдельно: ошибка в одной не должна закрывать
+    // приложение целиком. Сломанное показываем строкой, остальное работает.
+    const parts = [
+      ['журналы', renderJournals], ['бланки', renderForms],
+      ['обучение', renderQuizzes], ['баллы', renderScore],
+      ['споры', renderDisputes], ['начисления', renderAwards],
+      ['черновики', draftSweep], ['шаги', stages],
+    ];
+    const broken = [];
+    parts.forEach(([name, fn]) => {
+      try { fn(); } catch(e){ broken.push(name + ': ' + e.message); }
+    });
+    try { loadRoster(); } catch(e){ broken.push('состав: ' + e.message); }
+    try { maybeTour(); } catch(e){}
     setTimeout(tidyBlocks, 60);
-    renderDisputes(); renderAwards();
-    loadRoster();
-    draftSweep();
-    stages();
-    maybeTour();
     $('#pick').classList.remove('hidden');
+    if(broken.length){
+      const w = document.createElement('div');
+      w.className = 'msg';
+      w.style.marginTop = '14px';
+      w.textContent = 'Не отрисовалось: ' + broken.join(' · ');
+      $('#pick').appendChild(w);
+      console.error('broken sections', broken);
+    }
   }catch(e){ fail('Не открылось: ' + e.message); }
 }
 
