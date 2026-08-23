@@ -1977,13 +1977,6 @@ function renderScore(){
     : 'Своя работа в порядке. 1 балл = 1 сомони, итог — в конце периода.';
   $('#balHint').classList.toggle('bad', !!s.blocked);
   renderBalLines(s.lines || []);
-  const b = $('#board'); b.innerHTML = '';
-  (s.board || []).forEach(x => {
-    const d = document.createElement('div');
-    d.className = 'rank' + (x.who === DATA.name ? ' me' : '');
-    d.innerHTML = '<span>' + x.who + '</span><b>' + x.pts + '</b>';
-    b.appendChild(d);
-  });
 }
 
 function start(k){
