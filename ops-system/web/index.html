@@ -351,6 +351,22 @@
            margin:12px 0;font-variant-numeric:tabular-nums;letter-spacing:-.02em}
   .hidden{display:none!important}
   @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+
+/* ── блоки главного экрана ─────────────────────────────────────────────── */
+.blk{border:1px solid var(--line);border-radius:14px;margin:14px 0;
+     background:var(--card);overflow:hidden}
+.blk>summary{list-style:none;cursor:pointer;padding:15px 16px;
+     font-size:17px;font-weight:600;display:flex;align-items:center;
+     justify-content:space-between;gap:8px;user-select:none}
+.blk>summary::-webkit-details-marker{display:none}
+.blk>summary::after{content:'▾';color:var(--ink-2);font-size:15px;
+     transition:transform .15s}
+.blk[open]>summary::after{transform:rotate(180deg)}
+.blk[open]>summary{border-bottom:1px solid var(--line)}
+.blk>*:not(summary){padding:0 16px}
+.blk>*:not(summary):last-child{padding-bottom:16px}
+.blk h2{font-size:15px;margin:14px 0 8px}
+.blk.empty{display:none}
 </style>
 </head>
 <body>
@@ -380,6 +396,15 @@
 </header>
 
 <main>
+  <div id="wait" class="card hidden" style="margin-top:20px">
+    <h2 style="margin-top:0">Скоро подключим</h2>
+    <p style="color:var(--ink-2);line-height:1.5">Приложение запускается
+      по частям. Сейчас в нём работают управляющие — обкатывают порядок,
+      чтобы к твоему выходу всё было понятно и без сюрпризов.</p>
+    <p style="color:var(--ink-2);line-height:1.5">Пока работаем как обычно.
+      Управляющий скажет, когда очередь дойдёт до твоей позиции.</p>
+  </div>
+
   <div id="pick" class="hidden">
     <div id="pointBox" class="hidden">
       <h2><span class="steplabel" id="lb1">1</span><span id="pointHead">Заведение</span></h2>
@@ -405,6 +430,9 @@
     </div>
 
     <div id="rest">
+
+    <details class="blk" id="blkWork" open>
+      <summary>Моя работа</summary>
     <h2><span class="steplabel" id="lb3">3</span>Чек-листы</h2>
     <div class="pick" id="pickList"></div>
 
@@ -417,14 +445,18 @@
       <h2>Бланки</h2>
       <div class="pick" id="fList"></div>
     </div>
+    </details>
 
+    <details class="blk" id="blkEdu">
+      <summary>Обучение</summary>
     <div id="qBox" class="hidden">
-      <h2>Обучение</h2>
       <div class="pick" id="qList"></div>
     </div>
+    </details>
 
+    <details class="blk" id="blkSite">
+      <summary>Точка и оборудование</summary>
     <div id="siteBox" class="hidden">
-      <h2>Точка</h2>
       <div class="card">
         <div class="kv"><span>Координаты</span><b id="geoState">—</b></div>
         <div class="hint" id="geoHint">Задаются с телефона, стоя на точке.
@@ -438,42 +470,31 @@
       <div id="equipList"></div>
       <button class="add" id="equipAdd">+ Добавить оборудование</button>
     </div>
+    </details>
+
+    <details class="blk" id="blkCheck">
+      <summary>Проверка <span id="checkN" class="badge"></span></summary>
+    <div id="pendBox" class="hidden">
+      <h2>На проверке <span id="pendN" class="badge"></span></h2>
+      <div id="pendList"></div>
+    </div>
 
     <div id="taskBox" class="hidden">
       <h2>Задачи <span id="taskN" class="badge"></span></h2>
       <div id="taskList"></div>
     </div>
 
-    <div id="pendBox" class="hidden">
-      <h2>На проверке <span id="pendN" class="badge"></span></h2>
-      <div id="pendList"></div>
-    </div>
-
-    <div id="kpiCard" class="card hidden" style="margin-top:26px">
-      <div class="kv"><span>Индекс точки за неделю</span>
-        <span class="idx"><b id="kpiTotal">—</b></span></div>
-      <div id="kpiParts"></div>
-      <div id="kpiFlags"></div>
-      <div class="hint">Индекс — про исполнение. Флаги — про имитацию,
-        в индекс они не входят.</div>
-    </div>
-
-    <button class="note" onclick="showTour()" style="margin-top:20px">
-      ❓ Как это работает</button>
-
-    <div id="boardBox" class="hidden">
-      <h2>Обзор <span id="boardAt" class="badge"></span></h2>
-      <div id="boardBody"></div>
-    </div>
-
-    <div id="rosterBox" class="hidden">
-      <h2>Смена завтра <span id="rosterDay" class="badge"></span></h2>
-      <div id="rosterBody"></div>
-    </div>
-
     <div id="dispBox" class="hidden">
       <h2>Споры по баллам <span id="dispN" class="badge"></span></h2>
       <div id="dispList"></div>
+    </div>
+    </details>
+
+    <details class="blk" id="blkTeam">
+      <summary>Люди и смена</summary>
+    <div id="rosterBox" class="hidden">
+      <h2>Смена завтра <span id="rosterDay" class="badge"></span></h2>
+      <div id="rosterBody"></div>
     </div>
 
     <div id="awardBox" class="hidden">
@@ -489,6 +510,10 @@
       </div>
     </div>
 
+    </details>
+
+    <details class="blk" id="blkMoney">
+      <summary>Мои баллы</summary>
     <h2 id="balHead" class="hidden">Баллы за период</h2>
     <div id="scoreCard" class="card hidden">
       <div class="kv"><span id="balPeriod">—</span><b id="balPay">0</b></div>
@@ -499,8 +524,11 @@
       </div>
       <div class="hint" id="balHint"></div>
       <div id="balLines" style="margin-top:12px"></div>
-      <div id="board" style="margin-top:14px"></div>
     </div>
+    </details>
+
+    <button class="note" onclick="showTour()" style="margin-top:20px">
+      ❓ Как это работает</button>
     </div>
   </div>
 
@@ -724,9 +752,16 @@ async function boot(){
     }
     renderDistance();
     renderShift(); renderSite(); renderTasks(); renderPending();
-    renderJournals(); renderForms(); renderQuizzes(); renderKpi(); renderScore();
+    if(DATA.waiting){
+      $('#wait').classList.remove('hidden');
+      $('#pick').classList.add('hidden');
+      $('#foot').classList.add('hidden');
+      return;
+    }
+    renderJournals(); renderForms(); renderQuizzes(); renderScore();
+    setTimeout(tidyBlocks, 60);
     renderDisputes(); renderAwards();
-    loadBoard(); loadRoster();
+    loadRoster();
     draftSweep();
     stages();
     maybeTour();
@@ -1280,6 +1315,23 @@ function tourSteps(){
   return s;
 }
 
+
+/* Блок, внутри которого всё скрыто, сам прячется: пустой заголовок хуже,
+   чем его отсутствие. */
+function tidyBlocks(){
+  document.querySelectorAll('.blk').forEach(b => {
+    const kids = [...b.children].filter(x => x.tagName !== 'SUMMARY');
+    const alive = kids.some(x => !x.classList.contains('hidden')
+                                 && x.textContent.trim() !== '');
+    b.classList.toggle('empty', !alive);
+  });
+  const p = document.querySelector('#blkCheck #pendN');
+  const t = document.querySelector('#blkCheck #taskN');
+  const d = document.querySelector('#blkCheck #dispN');
+  const n = [p, t, d].reduce((a, x) => a + (parseInt(x && x.textContent) || 0), 0);
+  const badge = document.querySelector('#checkN');
+  if(badge) badge.textContent = n || '';
+}
 function showTour(){
   const b = $('#tourBody');
   b.innerHTML = '<h1>Как это работает</h1>'
@@ -1618,47 +1670,10 @@ async function sendCheck(x, verdict, note, card){
   $('#pendN').textContent = DATA.pending.length || '';
 }
 
-/* ── индекс точки ────────────────────────────────────────────────────────── */
-function renderKpi(){
-  const k = DATA.kpi;
-  if(!k) return;
-  $('#kpiCard').classList.remove('hidden');
-  const t = k.total;
-  $('#kpiTotal').textContent = (t == null ? '—' : t);
-  $('#kpiTotal').style.color = t == null ? 'var(--ink-2)'
-    : (t >= 85 ? 'var(--ok)' : t >= 70 ? 'var(--brand-2)' : 'var(--bad)');
-  const box = $('#kpiParts'); box.innerHTML = '';
-  Object.entries(k.parts || {}).forEach(([name, v]) => {
-    const d = document.createElement('div');
-    d.className = 'part';
-    d.innerHTML = '<span class="nm">' + name + '</span>'
-      + '<span class="track"><i style="width:' + (v == null ? 0 : v) + '%"></i></span>'
-      + '<span class="val">' + (v == null ? '—' : v + '%') + '</span>';
-    box.appendChild(d);
-  });
-  const fb = $('#kpiFlags'); fb.innerHTML = '';
-  (k.flags || []).forEach(f => {
-    const d = document.createElement('div');
-    d.className = 'flag';
-    d.textContent = '⚠️ ' + f.title + ' — ' + f.why;
-    fb.appendChild(d);
-  });
-}
 
 /* ── баллы ───────────────────────────────────────────────────────────────── */
 function sign(n){ n = Number(n) || 0; return (n > 0 ? '+' : '') + n; }
 
-/* ── обзор для руководителя ──────────────────────────────────────────────── */
-async function loadBoard(){
-  if(!['manager', 'coo'].includes(DATA.role)) return;
-  try{
-    const r = await fetch('/api/board', {method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({initData})});
-    const j = await r.json();
-    if(j.ok) renderBoard(j.board);
-  }catch(e){ /* обзор не критичен для остального экрана */ }
-}
 
 function bnum(v, label, cls){
   return '<div class="bnum ' + (cls || '') + '"><b>' + v + '</b><span>'
@@ -1668,141 +1683,7 @@ function bnum(v, label, cls){
 /* Сравнение точек: две колонки рядом. Директору нужен ответ на вопрос
    «где хуже», а не «как дела на каждой» — цифра рядом с цифрой отвечает
    на это быстрее, чем две карточки, между которыми надо листать. */
-function renderCompare(rows){
-  const d = document.createElement('div');
-  d.className = 'bcard';
-  const cols = rows.map(r => '<div class="ccol"><b>' + r.point + '</b></div>').join('');
-  const line = (label, get, bad) => '<div class="crow"><span>' + label + '</span>'
-    + rows.map(r => {
-        const v = get(r);
-        const isBad = bad ? bad(r) : false;
-        return '<div class="ccol' + (isBad ? ' bad' : '') + '">' + v + '</div>';
-      }).join('') + '</div>';
 
-  d.innerHTML = '<div class="bhead"><b>Заведения сегодня</b><span>сравнение</span></div>'
-    + '<div class="crow head"><span></span>' + cols + '</div>'
-    + line('Индекс за неделю', r => r.index ?? '—', r => r.index != null && r.index < 70)
-    + line('Просрочено сегодня', r => r.late, r => r.late > 0)
-    + line('Сдано / ждём', r => r.done + ' / ' + r.waiting)
-    + line('Флаги', r => r.flags, r => r.flags > 0)
-    + line('Задачи: всего / просроч.', r => r.tasks_open + ' / ' + r.tasks_late,
-           r => r.tasks_late > 0)
-    + line('Баллы к выплате', r => sign(r.pay), r => r.pay < 0)
-    + line('Людей в минусе', r => r.minus, r => r.minus > 0);
-  return d;
-}
-
-function renderBoard(b){
-  const box = $('#boardBody'); box.innerHTML = '';
-  $('#boardAt').textContent = 'на ' + b.now;
-  if((b.compare || []).length > 1) box.appendChild(renderCompare(b.compare));
-
-  // 1. Что требует тебя лично — самое верхнее, иначе не заметишь.
-  const att = document.createElement('div');
-  att.className = 'bcard';
-  att.innerHTML = '<div class="bhead"><b>Требует тебя</b><span>'
-    + (b.attention.length || 'ничего') + '</span></div>';
-  if(!b.attention.length){
-    att.innerHTML += '<div class="bempty">Сегодня всё ровно</div>';
-  } else {
-    b.attention.slice(0, 8).forEach(x => {
-      const d = document.createElement('div');
-      d.className = 'batt';
-      d.innerHTML = '<b>' + x.text + '</b><span>' + x.kind + ' · ' + x.why
-        + '</span>';
-      att.appendChild(d);
-    });
-  }
-  box.appendChild(att);
-
-  // 2. Чек-листы сегодня — по точкам.
-  b.today.forEach(p => {
-    const d = document.createElement('div');
-    d.className = 'bcard';
-    d.innerHTML = '<div class="bhead"><b>' + p.label + '</b><span>сегодня</span></div>'
-      + '<div class="bnums">'
-      + bnum(p.done, 'сдано', p.done ? 'ok' : '')
-      + bnum(p.waiting, 'ждём')
-      + bnum(p.late, 'просрочено', p.late ? 'bad' : '')
-      + '</div>';
-    p.items.forEach(it => {
-      const r = document.createElement('div');
-      r.className = 'brow';
-      r.innerHTML = '<span>' + it.title + '</span><span class="st'
-        + (it.state === 'просрочен' ? ' bad' : '') + '">'
-        + (it.state === 'сдан' ? '✓ сдан' : it.state + ' до ' + it.deadline)
-        + '</span>';
-      d.appendChild(r);
-    });
-    box.appendChild(d);
-  });
-
-  // 3. Индекс точки за неделю.
-  b.index.forEach(p => {
-    const d = document.createElement('div');
-    d.className = 'bcard';
-    const parts = Object.entries(p.parts || {}).map(([k, v]) =>
-      '<div class="bpart"><span>' + k + '</span>'
-      + '<span class="track"><i style="width:' + Math.max(0, Math.min(100, v))
-      + '%"></i></span><span>' + (v == null ? '—' : v + '%') + '</span></div>').join('');
-    d.innerHTML = '<div class="bhead"><b>' + p.label
-      + '</b><span>индекс за неделю</span></div>'
-      + '<div class="bidx"><div class="big">' + (p.total ?? '—') + '</div>'
-      + '<div style="flex:1">' + parts + '</div></div>'
-      + (p.flags || []).map(f => '<div class="batt"><b>⚠️ ' + f.title
-          + '</b><span>' + f.why + '</span></div>').join('');
-    box.appendChild(d);
-  });
-
-  // 4. Задачи и баллы — картина, а не сегодняшняя реакция.
-  const t = document.createElement('div');
-  t.className = 'bcard';
-  t.innerHTML = '<div class="bhead"><b>Задачи</b><span>открыто / просрочено</span></div>'
-    + '<div class="bnums">' + bnum(b.tasks.open, 'открыто')
-    + bnum(b.tasks.late, 'просрочено', b.tasks.late ? 'bad' : '') + '</div>';
-  (b.tasks.list || []).forEach(x => {
-    const r = document.createElement('div');
-    r.className = 'brow';
-    r.innerHTML = '<span>' + x.what + '</span><span class="st bad">'
-      + x.late + ' дн.</span>';
-    t.appendChild(r);
-  });
-  box.appendChild(t);
-
-  const s = document.createElement('div');
-  s.className = 'bcard';
-  s.innerHTML = '<div class="bhead"><b>Баллы</b><span>период '
-    + (b.points_sum.period || '—') + '</span></div>'
-    + '<div class="bnums">'
-    + bnum(sign(b.points_sum.sum), 'к выплате, сом',
-           b.points_sum.sum < 0 ? 'bad' : 'ok')
-    + bnum(b.points_sum.minus, 'в минусе', b.points_sum.minus ? 'bad' : '')
-    + '</div>';
-  (b.points_sum.people || []).forEach(p => {
-    const r = document.createElement('div');
-    r.className = 'brow';
-    r.innerHTML = '<span>' + p.who + '</span><span class="st'
-      + (p.payable < 0 ? ' bad' : '') + '">' + sign(p.payable) + ' сом · своя '
-      + sign(p.base) + ' · сверх ' + sign(p.extra) + '</span>';
-    s.appendChild(r);
-  });
-  box.appendChild(s);
-
-  $('#boardBox').classList.remove('hidden');
-  // Руководителю обзор — самое первое, что он видит: его работа начинается
-  // с вопроса «где сегодня горит», а не с отметки собственной смены.
-  // Поэтому поднимаем выше выбора точки и карточки смены.
-  const pick = $('#pick');
-  pick.insertBefore($('#boardBox'), pick.firstChild);
-  // Выбор точки у руководителя — не вход в систему, а уточнение картины,
-  // поэтому он идёт после обзора и подписан иначе.
-  if((DATA.points || []).length > 1){
-    pick.insertBefore($('#pointBox'), $('#boardBox').nextSibling);
-    $('#pointHead').textContent = 'Подробнее по точке';
-    $('#pointHint').classList.remove('hidden');
-    mark('#lb1', 'done');
-  }
-}
 
 /* ── состав смены на завтра ─────────────────────────────────────────────────────── */
 let ROSTER = null;

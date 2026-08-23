@@ -59,6 +59,11 @@ def init_payload(who):
     out = {'company': C.COMPANY, 'name': who[0], 'point': who[1],
            'point_label': S.point_label(who[1]), 'points': pts,
            'role': role, 'dept': dept, 'day': C.day_str(), 'lists': {}}
+    # Поэтапный запуск: пока роль не в ROLLOUT, человек видит одно сообщение
+    # и ничего больше. Лучше честное «скоро», чем половина системы.
+    if C.ROLLOUT and role not in C.ROLLOUT:
+        out['waiting'] = True
+        return out
     out['can_fix'] = C.FIX_MODE and role in ('manager', 'coo')
     out['can_check'] = role in ('manager', 'coo')
     out['journals'] = [{'key': k, 'title': cl['title'], 'code': cl['code'],
