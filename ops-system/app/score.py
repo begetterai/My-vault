@@ -295,6 +295,46 @@ def period_totals(point=None, d=None):
     return label, sorted(people.values(), key=lambda x: -x['payable'])
 
 
+def light(who, point=None, d=None):
+    """Светофор человека — вывод из баллов, а не отдельная оценка.
+
+    Решение прожарки 23.08.2026. Раньше цвет ставился на глаз раз в месяц
+    и спорил с баллами: два человека с одинаковым счётом могли получить
+    разные цвета. Теперь цвет считается сам:
+
+      период в плюсе        → зелёный  → премия по итогам месяца
+      период в минусе       → жёлтый   → разговор один на один
+      два минуса подряд     → красный  → дисциплинарная сетка
+    """
+    d = d or C.today()
+    now = balance(who, point, d)
+    a, _b, _l = period_of(d)
+    prev = balance(who, point, a - datetime.timedelta(days=1))
+    if now['payable'] >= 0:
+        return {'color': 'зелёный', 'why': 'период закрыт в плюсе',
+                'now': now['payable'], 'prev': prev['payable']}
+    if prev['payable'] < 0:
+        return {'color': 'красный', 'why': 'второй период подряд в минусе',
+                'now': now['payable'], 'prev': prev['payable']}
+    return {'color': 'жёлтый', 'why': 'период в минусе',
+            'now': now['payable'], 'prev': prev['payable']}
+
+
+def lights(point=None, d=None):
+    """Светофор по всем людям точки — к собранию."""
+    _label, people = period_totals(point, d)
+    out = []
+    for p in people:
+        try:
+            l = light(p['who'], point, d)
+        except Exception as e:
+            print('светофор:', e)
+            continue
+        out.append(dict(p, **{'color': l['color'], 'why': l['why']}))
+    order = {'красный': 0, 'жёлтый': 1, 'зелёный': 2}
+    return sorted(out, key=lambda x: (order.get(x['color'], 9), -x['payable']))
+
+
 def streak(who, point=None):
     """Сколько дней подряд человек закрывал день полностью."""
     good, bad = set(), set()

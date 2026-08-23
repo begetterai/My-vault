@@ -286,6 +286,56 @@ def weekly():
         BOT.say(cid, K.report('week', point))
 
 
+def review_month():
+    """1-го числа: разбор за прошлый месяц — правки людей и светофор.
+
+    Решение прожарки 23.08.2026. Правки от смены копились в листе «Правки»
+    и никто их не открывал: человек предлагает formulировку, она уходит
+    в пустоту, и на третий раз он перестаёт писать. Теперь раз в месяц
+    они приходят разбором, а принятые превращаются в баллы автору.
+    """
+    from . import score as SC
+    L = ['📋 <b>Разбор за месяц</b>', '']
+
+    try:
+        fixes = [r for r in S.get(C.TABS['fixes'], 'A2:J')
+                 if len(r) > 6 and not (len(r) > 8 and str(r[8]).strip())]
+    except Exception as e:
+        print('правки:', e)
+        fixes = []
+    L.append(f'✎ <b>Правки формулировок: {len(fixes)}</b>')
+    if fixes:
+        for r in fixes[:10]:
+            r = list(r) + [''] * 10
+            L.append(f'   · {r[1]} · {r[2]} п.{r[4]}: «{r[6][:80]}»')
+        L.append('   <i>Разобрать: что принимаем — вношу в чек-лист, '
+                 'автору доп. баллы.</i>')
+    else:
+        L.append('   <i>Предложений не было. Это тоже сигнал: либо всё '
+                 'понятно, либо люди перестали писать.</i>')
+    L.append('')
+
+    try:
+        rows = SC.lights()
+    except Exception as e:
+        print('светофор:', e)
+        rows = []
+    if rows:
+        L.append('🚦 <b>Светофор по людям</b> — считается из баллов')
+        icon = {'зелёный': '🟢', 'жёлтый': '🟡', 'красный': '🔴'}
+        for p in rows:
+            L.append(f'   {icon.get(p["color"], "·")} {p["who"]} · {p["point"]}'
+                     f' · {p["payable"]:+d} — {p["why"]}')
+        L.append('   <i>Зелёный — премия, жёлтый — разговор, '
+                 'красный — дисциплинарная сетка.</i>')
+    BOT.admin('\n'.join(L))
+    for cid, point in S.managers().items():
+        mine = [p for p in rows if p['point'] == point]
+        if mine:
+            BOT.say(cid, '🚦 <b>Светофор точки</b>\n' + '\n'.join(
+                f'{p["who"]}: {p["color"]} ({p["payable"]:+d})' for p in mine))
+
+
 def monthly():
     """Первого числа — итог месяца и квартал, если квартал закрылся."""
     from . import kpi as K
@@ -371,6 +421,7 @@ def tick():
 
     if day.day == 1 and minute >= hhmm(C.WEEKLY_AT) and once('monthly'):
         monthly()
+        review_month()
 
 
 def loop():
