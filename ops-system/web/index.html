@@ -493,6 +493,9 @@
       <summary>Проверка <span id="checkN" class="badge"></span></summary>
     <div id="pendBox" class="hidden">
       <h2>На проверке <span id="pendN" class="badge"></span></h2>
+      <div class="hint">Пройди по пунктам ещё раз и отметь своё.
+        Расхождение важнее честного «✗»: оно значит, что отметка
+        не совпала с тем, что видно на месте.</div>
       <div id="pendList"></div>
     </div>
 
@@ -1601,7 +1604,27 @@ function renderPending(){
       + 'не ждёт подтверждения.</div>';
     return;
   }
-  list.forEach(x => box.appendChild(pendCard(x)));
+  // Два уровня проверки. Директор проверяет и работу смены, и работу
+  // управляющего — это разные вещи, и мешать их в один список нельзя.
+  const upr = list.filter(x => (x.key || '') === 'shift_upr');
+  const rest = list.filter(x => (x.key || '') !== 'shift_upr');
+  const group = (title, rows) => {
+    if(!rows.length) return;
+    const h = document.createElement('div');
+    h.className = 'walkhead';
+    h.style.cursor = 'default';
+    h.style.color = 'var(--ink-2)';
+    h.style.margin = '10px 0 4px';
+    h.textContent = title + ' · ' + rows.length;
+    box.appendChild(h);
+    rows.forEach(x => box.appendChild(pendCard(x)));
+  };
+  if(DATA.role === 'coo' && upr.length){
+    group('Чек-листы управляющих', upr);
+    group('Чек-листы сотрудников', rest);
+  } else {
+    list.forEach(x => box.appendChild(pendCard(x)));
+  }
 }
 
 
