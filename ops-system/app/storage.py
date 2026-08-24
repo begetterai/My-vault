@@ -19,7 +19,7 @@ FILL_COLS = ['Дата', 'Точка', 'Кто заполнил', 'Заполн�
              'Выполнено', 'Всего', '%', 'Не выполнены пункты', 'Комментарий',
              'Замеры', 'Фото', 'Минут на заполнение',
              'Проверил', 'Когда проверил', 'Расхождение при проверке',
-             'Фото — проверка ИИ', 'Смена']
+             'Фото — проверка ИИ', 'Смена', 'Кому сдал']
 
 PART_RU = {'open': 'открывающая', 'close': 'закрывающая',
            'one': 'одна на день'}
@@ -354,24 +354,26 @@ def already_filled(key, day, point):
 
 
 def filled_today(day, point, keys):
-    """{ключ: 'Кто в ЧЧ:ММ'} по нескольким листам за один запрос.
+    """{ключ: {кто, во сколько, кому сдал}} по листам за один запрос.
 
-    Нужно, чтобы приложение знало, какой этап уже сдан: приём не открывают,
-    пока предыдущая смена не сдала передачу.
+    Нужно, чтобы приложение знало, какой этап уже сдан и кому именно сдают
+    смену: приём открывается только названному человеку.
     """
     cls = C.checklists()
     keys = [k for k in keys if k in cls]
     out = {}
-    for k, rows in zip(keys, get_many([(cls[k]['tab'], 'A2:D') for k in keys])):
+    for k, rows in zip(keys, get_many([(cls[k]['tab'], 'A2:S') for k in keys])):
         for r in rows:
             if len(r) >= 4 and str(r[0]).strip() == day and str(r[1]).strip() == point:
-                out[k] = f'{r[2]} в {r[3]}'
+                out[k] = {'who': str(r[2]).strip(), 'at': str(r[3]).strip(),
+                          'to': str(r[18]).strip() if len(r) > 18 else '',
+                          'line': ''}
                 break
     return out
 
 
 def save_fill(key, day, point, who, marks, measured, photos, time_s,
-              comment, seconds, part=None):
+              comment, seconds, part=None, to=''):
     """→ (выполнено, всего, [№ невыполненных], номер строки)"""
     cl = C.checklists()[key]
     names = {n: (b, t) for n, b, t in C.flat(key)}
@@ -384,7 +386,7 @@ def save_fill(key, day, point, who, marks, measured, photos, time_s,
            ok, tot, round(ok / tot, 4) if tot else 0,
            ', '.join(str(n) for n in fails) if fails else '—', comment,
            meas, ' '.join(photos), round(seconds / 60, 1),
-           '', '', '', '', PART_RU.get(part, '')]
+           '', '', '', '', PART_RU.get(part, ''), to]
     line = append(cl['tab'], [row])
     if fails:
         append(C.TABS['fails'], [[day, point, who, cl['title'], n,

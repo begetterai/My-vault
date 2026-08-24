@@ -117,6 +117,10 @@ def init_payload(who):
         for st in C.stations().values()]
     out['shift'] = shift_state(who)
     out['geo'] = {p: S.point_geo(p) for p in S.points()}
+    # Кому можно сдать смену: свои же на точке. Список нужен всем, а не только
+    # руководителю — передаёт смену тот, кто на ней стоял.
+    out['mates'] = sorted({v[0] for v in S.team().values()
+                           if v[1] == who[1] and v[0] != who[0]})
     if role in ('manager', 'coo'):
         try:
             from . import reports as RP
@@ -221,6 +225,50 @@ def init_payload(who):
         print('что сдано:', e)
         out['filled'] = {}
     return out
+
+
+def handover_notify(kind, day, point, who, to, ok, tot, fails, comment):
+    """Смена сдана — принимающему сообщение; принята — сдавшему ответ.
+
+    Без адресата передача остаётся словами на пересменке: сдал «вообще»,
+    принял «вообще», спросить некого. Названный человек получает сообщение
+    и открывает свой лист приёма.
+    """
+    cl = C.checklists().get(kind) or {}
+    stage = cl.get('stage')
+    if stage not in ('give', 'take'):
+        return
+    place = cl['title'].split(' · ')[0]
+
+    def chat_of(name):
+        return next((cid for cid, v in S.team().items()
+                     if v[0] == name and v[1] == point), None)
+
+    if stage == 'give':
+        if not to:
+            return
+        cid = chat_of(to)
+        if not cid:
+            BOT.admin(f'⚠️ <b>Некому передать смену</b> · {point} · {place}\n'
+                      f'{who} сдаёт «{to}», а такого человека на точке нет.')
+            return
+        BOT.say(cid, f'🔄 <b>Тебе сдают смену</b> · {place}\n'
+                     f'{who} закрыл передачу: {ok} из {tot}.'
+                     + (f'\nЗамечания: {comment}' if comment else '')
+                     + '\n\nОткрой приложение и пройди «Приём» — '
+                       'пока не принял, смена не сдана.')
+        return
+
+    # Приём: ответ тому, кто сдавал.
+    give = f"{kind[:-len('_take')]}_give"
+    src = S.filled_today(day, point, [give]).get(give) or {}
+    cid = chat_of(src.get('who', ''))
+    if not cid:
+        return
+    good = not fails
+    head = '✅ <b>Смена принята</b>' if good else '⚠️ <b>Принята с замечаниями</b>'
+    BOT.say(cid, f'{head} · {place}\n{who}: {ok} из {tot}.'
+                 + (f'\nЧто не так: {comment}' if comment else ''))
 
 
 def shift_state(who):
@@ -477,10 +525,15 @@ def submit(who, body):
     tempo = BOT.tempo(body.get('marks_ts') or [])
     comment = str(body.get('comment', ''))[:300]
     part = str(body.get('part') or '') or None
+    to = str(body.get('to') or '').strip()[:60]
     dup = S.already_filled(kind, day, point)
     ok, tot, fails, line = S.save_fill(
         kind, day, point, who[0], marks, measured, photos, hhmm, comment, sec,
-        part)
+        part, to)
+    try:
+        handover_notify(kind, day, point, who[0], to, ok, tot, fails, comment)
+    except Exception as e:
+        print('передача смены:', e)
     st = {'kind': kind, 'day': day, 'point': point, 'who': who[0]}
     try:
         fast = sec < C.MIN_SECONDS or (tempo is not None and tempo < C.MIN_GAP)

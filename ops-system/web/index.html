@@ -689,7 +689,7 @@
   <button class="send" id="send" disabled>Отправить</button>
 </div>
 <script>
-const BUILD = 'v24.08 этапы';
+const BUILD = 'v24.08 передача';
 // Заполняются на старте: скрипт телеграма грузится отложенно, и на момент
 // разбора этой строки window.Telegram может ещё не существовать.
 let tg = null, initData = '';
@@ -1617,8 +1617,14 @@ function lockedBy(k){
   const g = groupOf(k);
   const pk = Object.keys(DATA.lists).find(
     x => groupOf(x) === g && DATA.lists[x].stage === prev);
-  if(!pk || (DATA.filled || {})[pk]) return null;
-  return STAGE_RU[prev] || prev;
+  if(!pk) return null;
+  const src = (DATA.filled || {})[pk];
+  if(!src) return STAGE_RU[prev] || prev;
+  // Смену передали поимённо: принимает тот, кого назвали. Чужой приём —
+  // это подпись за работу, которую человек не видел.
+  if(L.stage === 'take' && src.to && src.to !== DATA.name)
+    return 'её принимает ' + src.to;
+  return null;
 }
 
 /* Список чек-листов. Показываем только листы своей смены и своего места:
@@ -1661,14 +1667,18 @@ function renderLists(){
     const wait = done ? null : lockedBy(k);
     const dl = all[k].deadline ? ' · до ' + all[k].deadline : '';
     let sub = all[k].code + dl;
-    if(done) sub = 'сдан · ' + done;
-    else if(wait) sub = 'откроется, когда сдадут ' + wait;
+    if(done) sub = 'сдан · ' + done.who + ' в ' + done.at
+                 + (done.to ? ' · принимает ' + done.to : '');
+    else if(wait) sub = wait.startsWith('её ') ? 'смену передали другому — '
+                                                 + wait.slice(3)
+                                               : 'откроется, когда сдадут ' + wait;
     b.innerHTML = all[k].title + '<div class="sub">' + sub + '</div>';
     if(wait){
       b.style.opacity = '.55';
       b.innerHTML = '🔒 ' + all[k].title + '<div class="sub">' + sub + '</div>';
-      b.onclick = () => note('Этот этап откроется, когда на этом месте сдадут '
-        + wait + '.');
+      b.onclick = () => note(wait.startsWith('её ')
+        ? 'Эту смену передали другому человеку: ' + wait.slice(3) + '.'
+        : 'Этот этап откроется, когда на этом месте сдадут ' + wait + '.');
     } else if(done){
       b.style.opacity = '.7';
       b.onclick = () => start(k);
@@ -2577,6 +2587,21 @@ function start(k){
     L.photos.forEach(p => f.appendChild(photoRow(p)));
   }
 
+  // Передача смены адресная: сдал не «вообще», а названному человеку.
+  // Он получит сообщение и откроет свой приём — пока не принял, смена не сдана.
+  if(L.stage === 'give'){
+    const hh = document.createElement('h2');
+    hh.textContent = 'Кому сдаёшь смену'; f.appendChild(hh);
+    const w = document.createElement('div');
+    const opts = (DATA.mates || []).map(n =>
+      '<option value="' + n + '">' + n + '</option>').join('');
+    w.innerHTML = '<select id="handTo"><option value="">— выбери человека —'
+      + '</option>' + opts + '</select>'
+      + '<div class="hint">Ему придёт сообщение, что смена ждёт приёмки.</div>';
+    w.querySelector('select').onchange = paint;
+    f.appendChild(w);
+  }
+
   const h = document.createElement('h2'); h.textContent = 'Итог'; f.appendChild(h);
   const t = document.createElement('div');
   t.innerHTML = '<label>' + L.ask_time + '</label>' +
@@ -2769,13 +2794,14 @@ function paint(){
   const okP = L.photos.every(p => photos[p.n]);
   const okT = /^\d{1,2}:\d{2}$/.test(($('#time')?.value || '').trim());
   const okC = !needC || ($('#comment')?.value || '').trim().length > 2;
+  const okTo = L.stage !== 'give' || !!($('#handTo')?.value || '');
   if($('#chint')){
     $('#chint').textContent = needC
       ? 'Не выполнено пунктов: ' + fails + ' — комментарий обязателен'
       : '';
     $('#chint').classList.toggle('bad', needC && !okC);
   }
-  const ready = done === total && okM && okP && okT && okC;
+  const ready = done === total && okM && okP && okT && okC && okTo;
   $('#send').disabled = !ready;
   if(ready){ $('#send').textContent = 'Отправить'; }
   else {
@@ -2785,6 +2811,7 @@ function paint(){
     if(!okP) left.push('фото');
     if(!okT) left.push('время');
     if(!okC) left.push('комментарий');
+    if(!okTo) left.push('кому сдаёшь');
     $('#send').innerHTML = 'Отмечено ' + done + ' из ' + total
       + '<small>осталось: ' + left.join(' · ') + '</small>';
   }
@@ -2794,6 +2821,7 @@ async function submit(){
   $('#send').disabled = true; $('#send').textContent = 'Отправляю…';
   const body = {
     initData, kind, point, marks, measures, part: PART,
+    to: $('#handTo')?.value || '',
     photos: Object.entries(photos).map(([n,data]) => ({n:+n, data})),
     time: $('#time').value.trim(),
     comment: $('#comment').value.trim(),
