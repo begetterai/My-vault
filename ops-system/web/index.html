@@ -1897,8 +1897,17 @@ async function sendTask(t, verdict, comment, card){
 function renderPending(){
   const list = DATA.pending || [];
   const box = $('#pendList');
-  if(!DATA.can_check) return;
+  const boss = !!DATA.can_check;
+  if(!boss && !list.length) return;
   $('#pendBox').classList.remove('hidden');
+  // Сотруднику блок называется иначе: он не проверяет, а видит, что его
+  // работа ушла на проверку и чем закончилась.
+  if(!boss){
+    const h = $('#blkCheck');
+    if(h) h.querySelector('summary').innerHTML =
+      '<span class="ic">✓</span>Моя работа на проверке'
+      + ' <span id="checkN" class="badge"></span>';
+  }
   $('#pendN').textContent = list.length || '';
   $('#pendN').className = 'badge' + (list.length > 3 ? ' warn' : '');
   box.innerHTML = '';
@@ -1991,6 +2000,13 @@ function pendCard(x){
     + '<div class="meta">' + x.point + ' · ' + x.who + ' · ' + x.day
     + ' в ' + x.at + ' · ' + age + '</div>'
     + '<div class="det">' + det + '</div>';
+  if(!DATA.can_check){
+    const w = document.createElement('div');
+    w.className = 'hint';
+    w.textContent = 'Ждёт проверки управляющего.';
+    d.appendChild(w);
+    return d;
+  }
   d.appendChild(walkBox(x));
   const acts = document.createElement('div'); acts.className = 'acts';
   const yes = document.createElement('button');
@@ -2105,6 +2121,8 @@ function bnum(v, label, cls){
 let ROSTER = null;
 
 async function loadRoster(){
+  // Сотруднику состав виден только для чтения: он должен знать, кто завтра
+  // в смене, но менять его — работа управляющего.
   try{
     const r = await fetch('/api/roster', {method:'POST',
       headers:{'Content-Type':'application/json'},

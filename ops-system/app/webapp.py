@@ -176,6 +176,28 @@ def init_payload(who):
         out['score'] = SC.card(who[0], who[1])
     except Exception:
         out['score'] = None
+    # Линейному сотруднику — своё: его заполнения, ждущие проверки,
+    # его споры и состав смены. Видеть статус своей работы он должен;
+    # чужие листы и начисления другим — нет.
+    if role not in ('manager', 'coo'):
+        try:
+            from . import reports as RP
+            out['pending'] = [
+                {'key': x['key'], 'line': x['line'], 'title': x['title'],
+                 'point': x['point'], 'who': x['who'], 'day': x['day'],
+                 'at': x['at'], 'ok': int(x['ok']), 'tot': int(x['tot']),
+                 'fails': x['fails'], 'comment': x['comment'],
+                 'minutes': x['minutes'], 'fast': x['fast'],
+                 'age': (C.today() - x['date']).days}
+                for x in RP.pending(who[1]) if x['who'] == who[0]]
+        except Exception as e:
+            print('свои заполнения:', e)
+            out['pending'] = []
+        try:
+            out['disputes'] = [x for x in SC.disputes(who[1])
+                               if x.get('who') == who[0]]
+        except Exception:
+            out['disputes'] = []
     for key, cl in (C.for_role(role, dept, who[1]).items() if not left else []):
         photos = C.photo_items(key)
         random.shuffle(photos)
