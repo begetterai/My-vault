@@ -63,6 +63,8 @@ def ready_workers(point, cl):
 
 
 def remind(key, cl, point, left):
+    if not C.REMINDERS:
+        return
     # Напоминание — тому, чей это чек-лист: своя позиция, своя роль.
     # Иначе кассир получает напоминания про кухню и перестаёт их читать.
     who = ready_workers(point, cl) or S.managers_of(point)
@@ -77,6 +79,8 @@ def remind(key, cl, point, left):
 
 
 def overdue(key, cl, point):
+    if not C.REMINDERS:
+        return
     txt = (f'🚨 <b>Просрочено</b> · {point}\n'
            f'{cl["title"].lower()} не заполнен к {cl["deadline"]}.')
     sent = set()
