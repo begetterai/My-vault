@@ -85,14 +85,16 @@ def _today(points):
     for p in points:
         done = late = waiting = 0
         items = []
-        for key, cl in C.checklists().items():
-            if not cl.get('deadline'):
-                continue
-            if cl.get('points') and p not in cl['points']:
-                continue
-            if not S.workers_of(p, cl.get('dept'), cl.get('roles')):
-                continue
-            filled = S.already_filled(key, day, p)
+        # Один пакетный запрос на точку: листов смены четыре десятка,
+        # по отдельности это сотня обращений к таблице на каждый пересчёт.
+        want = [(k, cl) for k, cl in C.checklists().items()
+                if cl.get('deadline')
+                and not (cl.get('points') and p not in cl['points'])
+                and S.workers_of(p, cl.get('dept'), cl.get('roles'))]
+        fmap = S.filled_today(day, p, [k for k, _ in want])
+        for key, cl in want:
+            got = fmap.get(key)
+            filled = f'{got["who"]} в {got["at"]}' if got else None
             dead = C.op_minute(C.deadline_for(cl, p))
             if filled:
                 done += 1

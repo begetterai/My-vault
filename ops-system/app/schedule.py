@@ -70,7 +70,8 @@ def remind(key, cl, point, left):
     for cid in who:
         v = S.team().get(str(cid))
         BOT.say(cid, f'⏰ <b>{cl["title"]}</b> · {point}\n'
-                     f'До дедлайна <b>{left} мин</b> (до {cl["deadline"]}). '
+                     f'До дедлайна <b>{left} мин</b> '
+                     f'(до {C.deadline_for(cl, point)}). '
                      f'Чек-лист ещё не заполнен.\n\n'
                      f'Открой приложение и пройди по точке.',
                 reply_markup=BOT.menu_kb(S.role_of(v) if v else 'staff',
@@ -81,7 +82,8 @@ def overdue(key, cl, point):
     if not C.REMINDERS:
         return
     txt = (f'🚨 <b>Просрочено</b> · {point}\n'
-           f'{cl["title"].lower()} не заполнен к {cl["deadline"]}.')
+           f'{cl["title"].lower()} не заполнен '
+           f'к {C.deadline_for(cl, point)}.')
     sent = set()
     for cid in S.managers_of(point):
         BOT.say(cid, txt)
@@ -358,26 +360,32 @@ def tick():
     minute = C.now_minute()
     dstr = day.strftime('%d.%m.%Y')
 
-    for key, cl, before in deadlines():
+    # Листов смены четыре десятка. Читать каждый по отдельности значит
+    # сотню обращений к таблице в минуту — квота Google кончится за час.
+    # Поэтому: точка снаружи, один пакетный запрос на все её листы.
+    if C.REMINDERS:
+        due = deadlines()
         for point in S.points():
-            # Срок закрытия у точек разный: ЗБ гасит свет в 00:30,
-            # ОВИР работает до 03:30.
-            dead = hhmm(C.deadline_for(cl, point))
-            # Цех есть только на ЗБ. Без этой проверки ОВИР каждый день
-            # получал бы «просрочено» по чек-листу, которого у него нет.
-            if cl.get('points') and point not in cl['points']:
+            work = [(k, cl, before) for k, cl, before in due
+                    # Цех есть только на ЗБ. Без этой проверки ОВИР каждый
+                    # день получал бы «просрочено» по чужому чек-листу.
+                    if not (cl.get('points') and point not in cl['points'])
+                    # Некому сдавать — не с кого и спрашивать: позиция
+                    # не занята. Новичок без обучения тоже не в счёт.
+                    and ready_workers(point, cl)]
+            if not work:
                 continue
-            # Некому сдавать — не с кого и спрашивать: позиция не занята,
-            # человека на ней нет. Новичок, не прошедший обучение, тоже
-            # не в счёт: чек-листы ему ещё не показаны.
-            if not ready_workers(point, cl):
-                continue
-            if S.already_filled(key, dstr, point):
-                continue
-            if dead - before <= minute < dead and once(f'rem:{key}:{point}'):
-                remind(key, cl, point, dead - minute)
-            if minute >= dead and once(f'over:{key}:{point}'):
-                overdue(key, cl, point)
+            filled = S.filled_today(dstr, point, [k for k, _, _ in work])
+            for key, cl, before in work:
+                if key in filled:
+                    continue
+                # Срок закрытия у точек разный: ЗБ гасит свет в 00:30,
+                # ОВИР работает до 03:30.
+                dead = hhmm(C.deadline_for(cl, point))
+                if dead - before <= minute < dead and once(f'rem:{key}:{point}'):
+                    remind(key, cl, point, dead - minute)
+                if minute >= dead and once(f'over:{key}:{point}'):
+                    overdue(key, cl, point)
 
     # Дашборд — раз в час: таблицу открывают в любой момент, она должна
     # показывать сегодняшнее, а не вчерашнее.

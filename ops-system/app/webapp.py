@@ -106,15 +106,16 @@ def init_payload(who):
     out['training_left'] = left
     if left:
         out['journals'], out['forms'] = [], []
-    # Рабочие места смены — фиксированный список, один на человека.
-    # Отдаём всем: выбор станции определяет, какой лист откроется,
-    # а не наоборот. Без этого человек видит чужие станции и гадает.
+    # Рабочие места смены — только своего отдела. Чужое место выбрать нельзя:
+    # его листы человеку всё равно не открыты, и он остался бы с пустым
+    # экраном, решив, что заполнять нечего.
     GROUPS = {'кухня': 'Кухня', 'цех': 'Цех', 'бар': 'Бар',
               'касса': 'Касса', 'зал': 'Зал'}
     out['stations'] = [
         {'key': st['key'], 'title': st['title'],
          'group': GROUPS.get(st['dept'] or '', 'Прочее')}
-        for st in C.stations().values()]
+        for st in C.stations().values()
+        if not dept or not st['dept'] or st['dept'].lower() == (dept or '').lower()]
     out['shift'] = shift_state(who)
     out['geo'] = {p: S.point_geo(p) for p in S.points()}
     # Кому можно сдать смену: свои же на точке. Список нужен всем, а не только

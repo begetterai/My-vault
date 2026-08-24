@@ -251,17 +251,36 @@ def close_day(d=None):
     except Exception as e:
         print('закрытие дня:', e)
         return 0
+    # Что сдано на точке — один пакетный запрос на точку, а не по листу
+    # на каждого человека.
+    seen = {}
+
+    def point_closed(point):
+        """День на точке закрыт, когда каждое начатое рабочее место закрыто.
+
+        Считаем по начатым, а не по всем: станций десять, работают не все
+        каждый день, и требовать закрытия пустой саладетты бессмысленно.
+        Событийные листы со сроком (санитарный) тоже должны быть сданы.
+        """
+        if point not in seen:
+            seen[point] = S.filled_today(
+                day, point, [k for k, cl in C.checklists().items()
+                             if cl.get('deadline')])
+        got = seen[point]
+        if not got:
+            return False
+        groups = {k.rsplit('_', 1)[0] for k in got if C.checklists()[k].get('stage')}
+        if not groups:
+            return False
+        if any(f'{g}_close' not in got for g in groups):
+            return False
+        return all(k in got for k, cl in C.checklists().items()
+                   if cl.get('deadline') and not cl.get('stage')
+                   and S.workers_of(point, cl.get('dept'), cl.get('roles')))
+
     for r in shifts:
         point, who = r[1].strip(), r[2].strip()
-        info = S.team()
-        me = next((v for v in info.values() if v[0] == who and v[1] == point), None)
-        role = S.role_of(me) if me else 'staff'
-        dept = S.dept_of(me) if me else ''
-        need = [cl for cl in C.for_role(role, dept, point).values()
-                if cl.get('deadline')]
-        if not need:
-            continue
-        if any(not S.already_filled(cl['key'], day, point) for cl in need):
+        if not point_closed(point):
             continue
         if any(x['event'] == 'day_closed' for x in rows(since=d, until=d, who=who)):
             continue
