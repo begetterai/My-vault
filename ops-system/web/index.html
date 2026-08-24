@@ -1583,7 +1583,13 @@ function renderLists(){
   const all = DATA.lists || {};
   const saved = loadStation();
   const keys = Object.keys(all);
-  const show = saved ? [saved].concat(keys.filter(k => k !== saved)) : keys;
+  // Станция определяет ровно один лист. Остальные станции человеку не нужны:
+  // он на них не стоит и отвечать за них не может. Личные листы роли
+  // (санитарный, собеседование, лист управляющего) станциями не являются
+  // и показываются всегда.
+  const stKeys = new Set((DATA.stations || []).map(x => x.key));
+  const own = keys.filter(k => !stKeys.has(k));
+  const show = saved ? [saved].concat(own) : (stKeys.size ? own : keys);
   [...box.querySelectorAll('button.big')].forEach(x => x.remove());
   [...box.querySelectorAll('.msg.warn')].forEach(x => x.remove());
   [...box.querySelectorAll('.grouphead')].forEach(x => x.remove());
@@ -1615,6 +1621,12 @@ function renderLists(){
   }
   // Место выбрано, а листа для него нет: человек стоит на станции, чек-лист
   // которой ему не открыт. Молчать нельзя — решит, что всё сдал.
+  if(!saved && stKeys.size && !own.length){
+    const d = document.createElement('div');
+    d.className = 'msg';
+    d.textContent = 'Выбери рабочее место выше — откроется его чек-лист.';
+    box.appendChild(d);
+  }
   if(saved && !all[saved]){
     const st = (DATA.stations || []).find(x => x.key === saved);
     const d = document.createElement('div');
