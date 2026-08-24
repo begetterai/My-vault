@@ -135,12 +135,7 @@
   .badge{display:inline-block;padding:2px 8px;border-radius:99px;font-size:12px;
          font-weight:700;background:var(--wash);color:var(--ink-2);margin-left:6px}
   .badge.warn{background:var(--bad-soft);color:var(--bad)}
-  .docrow{border:1px solid var(--line);border-radius:12px;padding:12px;
-    margin:8px 0;background:var(--card)}
-  .docrow .t{font-weight:600;margin-bottom:8px}
-  .docrow .sub{font-weight:400;font-size:12px;color:var(--ink-2);
-    margin-top:3px}
-  .docrow a.note{display:block;text-align:center;text-decoration:none}
+  .big.late{border-color:var(--bad);background:var(--bad-soft)}
   .gate{position:fixed;inset:0;z-index:30;background:var(--bg);
         display:flex;flex-direction:column;align-items:center;
         justify-content:center;text-align:center;padding:28px 24px}
@@ -540,13 +535,6 @@
     </div>
     </details>
 
-    <details class="blk" id="blkDocs">
-      <summary>Регламенты <span id="docsN" class="badge"></span></summary>
-      <div class="hint">По этим документам с тебя спрашивают. Открой оригинал
-        и подтверди, что прочитал — подпись сохранится.</div>
-      <div class="pick" id="docList"></div>
-    </details>
-
 <details class="blk" id="blkWork" open>
       <summary>Моя работа</summary>
     <h2><span class="steplabel" id="lb3">5</span>Чек-листы</h2>
@@ -702,7 +690,7 @@
   <button class="send" id="send" disabled>Отправить</button>
 </div>
 <script>
-const BUILD = 'v24.08 регламенты';
+const BUILD = 'v24.08 баллы';
 // Заполняются на старте: скрипт телеграма грузится отложенно, и на момент
 // разбора этой строки window.Telegram может ещё не существовать.
 let tg = null, initData = '';
@@ -912,8 +900,7 @@ async function boot(){
       ['смена', renderShift], ['точка', renderSite],
       ['задачи', renderTasks], ['проверка', renderPending],
       ['журналы', renderJournals], ['бланки', renderForms],
-      ['обучение', renderQuizzes], ['регламенты', renderDocs],
-      ['баллы', renderScore],
+      ['обучение', renderQuizzes], ['баллы', renderScore],
       ['споры', renderDisputes], ['начисления', renderAwards],
       ['черновики', draftSweep], ['шаги', stages],
     ];
@@ -1134,55 +1121,6 @@ function cardBtn(box, item, onclick){
     '<div class="sub">' + item.code + '</div>';
   b.onclick = onclick;
   box.appendChild(b);
-}
-
-/* Регламенты: открыть оригинал и подписаться, что прочитал.
-   Бумажный лист ознакомления умирает в папке — здесь видно, кто и когда. */
-function renderDocs(){
-  const box = $('#docList'), blk = $('#blkDocs');
-  if(!box || !blk) return;
-  const list = DATA.docs || [];
-  box.innerHTML = '';
-  blk.classList.toggle('hidden', !list.length);
-  const left = list.filter(d => !d.read).length;
-  const n = $('#docsN');
-  if(n){
-    n.textContent = left ? left : '';
-    n.classList.toggle('warn', left > 0);
-  }
-  list.forEach(d => {
-    const w = document.createElement('div');
-    w.className = 'docrow';
-    w.innerHTML = '<div class="t">' + (d.read ? '✅ ' : '') + d.title
-      + '<div class="sub">' + d.code + ' · нужен для «' + d.why + '»</div></div>';
-    const a = document.createElement('a');
-    a.className = 'note'; a.href = d.url; a.target = '_blank';
-    a.rel = 'noopener'; a.textContent = '📄 Открыть оригинал';
-    w.appendChild(a);
-    if(!d.read){
-      const b = document.createElement('button');
-      b.className = 'send';
-      b.textContent = 'Прочитал и согласился';
-      b.onclick = async () => {
-        b.disabled = true; b.textContent = 'Сохраняю…';
-        try{
-          const r = await fetch('/api/read', {method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({initData, point, code: d.code})});
-          const j = await r.json();
-          if(!j.ok) throw new Error(j.error || 'не сохранилось');
-          d.read = true;
-          note('Ознакомление записано: ' + d.code + '.', 'good');
-          renderDocs();
-        }catch(e){
-          b.disabled = false; b.textContent = 'Прочитал и согласился';
-          note('Не сохранилось: ' + e.message, 'bad');
-        }
-      };
-      w.appendChild(b);
-    }
-    box.appendChild(w);
-  });
 }
 
 function renderJournals(){
@@ -1418,7 +1356,68 @@ function openQuiz(q){
   qz = q; qIdx = 0; qAns = new Array(q.total).fill(-1); qStarted = Date.now();
   $('#pick').classList.add('hidden');
   enterScreen();
-  qTheory(0);
+  qDoc();
+}
+
+/* Первый экран тренинга — сам регламент. Объяснение своими словами и тест
+   идут после: человек сначала читает первоисточник и подписывается, что
+   прочитал, иначе обучение превращается в заучивание вопросов. */
+function qDoc(){
+  const d = qz.doc || {};
+  if(!d.url) return qTheory(0);
+  const f = qScreen();
+  const h = document.createElement('h2');
+  h.textContent = (qz.icon || '🎓') + ' ' + qz.title; f.appendChild(h);
+  const step = document.createElement('div');
+  step.className = 'qstep'; step.textContent = 'Шаг 1 · Регламент';
+  f.appendChild(step);
+  const card = document.createElement('div');
+  card.className = 'qteor';
+  card.innerHTML = '<h3></h3><p></p>';
+  card.querySelector('h3').textContent = d.code + ' · ' + (d.title || '');
+  card.querySelector('p').textContent = qz.read
+    ? 'Ты уже подписал ознакомление с этим регламентом. Перечитать можно '
+      + 'в любой момент.'
+    : 'Открой оригинал и прочитай. После этого подтверди — подпись '
+      + 'сохранится, и откроется объяснение с вопросами.';
+  f.appendChild(card);
+
+  const a = document.createElement('a');
+  a.className = 'note'; a.href = d.url; a.target = '_blank';
+  a.rel = 'noopener'; a.textContent = '📄 Открыть оригинал регламента';
+  a.style.display = 'block'; a.style.textAlign = 'center';
+  a.style.textDecoration = 'none';
+  f.appendChild(a);
+
+  const next = document.createElement('button');
+  next.className = 'send';
+  if(qz.read){
+    next.textContent = 'Дальше →';
+    next.onclick = () => qTheory(0);
+  } else {
+    next.textContent = 'Прочитал и согласен';
+    next.onclick = async () => {
+      next.disabled = true; next.textContent = 'Сохраняю…';
+      try{
+        const r = await fetch('/api/read', {method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({initData, point, code: d.code})});
+        const j = await r.json();
+        if(!j.ok) throw new Error(j.error || 'не сохранилось');
+        qz.read = true;
+        (DATA.quizzes || []).forEach(x => {
+          if((x.doc || {}).code === d.code) x.read = true;
+        });
+        note('Ознакомление записано: ' + d.code + '.', 'good');
+        qTheory(0);
+      }catch(e){
+        next.disabled = false; next.textContent = 'Прочитал и согласен';
+        note('Не сохранилось: ' + e.message, 'bad');
+      }
+    };
+  }
+  f.appendChild(next);
+  qBack(f, '◀ Выйти');
 }
 
 function qTheory(i){
@@ -1431,7 +1430,8 @@ function qTheory(i){
   if(qz.doc) f.appendChild(docLine(qz.doc));
   const step = document.createElement('div');
   step.className = 'qstep';
-  step.textContent = 'Теория · ' + (i + 1) + ' из ' + total;
+  step.textContent = 'Шаг ' + (i + 2) + ' · Объяснение ' + (i + 1)
+                  + ' из ' + total;
   f.appendChild(step);
   const card = document.createElement('div');
   card.className = 'qteor';
@@ -1448,6 +1448,11 @@ function qTheory(i){
     const prev = document.createElement('button');
     prev.className = 'note'; prev.textContent = '◀ Назад';
     prev.onclick = () => qTheory(i - 1);
+    f.appendChild(prev);
+  } else if((qz.doc || {}).url){
+    const prev = document.createElement('button');
+    prev.className = 'note'; prev.textContent = '◀ К регламенту';
+    prev.onclick = qDoc;
     f.appendChild(prev);
   } else {
     qBack(f, '◀ Выйти');
@@ -1668,6 +1673,11 @@ const savePart = (k) => saveKey(PART_KEY, k);
 
 function groupOf(k){ return k.replace(/_(open|give|take|close)$/, ''); }
 
+function hhmmFrom(min){
+  const h = Math.floor(min / 60), m = min % 60;
+  return h ? h + ' ч ' + m + ' мин' : m + ' мин';
+}
+
 /* Чей этап и не рано ли его открывать. Приём не открыть, пока предыдущая
    смена не сдала передачу: принимать нечего. */
 function lockedBy(k){
@@ -1728,6 +1738,7 @@ function renderLists(){
     b.className = 'big';
     const done = (DATA.filled || {})[k];
     const wait = done ? null : lockedBy(k);
+    const over = done ? 0 : ((DATA.overdue || {})[k] || 0);
     const dl = all[k].deadline ? ' · до ' + all[k].deadline : '';
     let sub = all[k].code + dl;
     if(done) sub = 'сдан · ' + done.who + ' в ' + done.at
@@ -1735,7 +1746,12 @@ function renderLists(){
     else if(wait) sub = wait.startsWith('её ') ? 'смену передали другому — '
                                                  + wait.slice(3)
                                                : 'откроется, когда сдадут ' + wait;
+    // Не сдан и срок прошёл: показываем, на сколько опоздали. Баллы за это
+    // не снимаются — снимается за факт сдачи позже срока, при отправке.
+    else if(over) sub = '⏰ не сдан · просрочка ' + hhmmFrom(over)
+                      + ' · срок был ' + all[k].deadline;
     b.innerHTML = all[k].title + '<div class="sub">' + sub + '</div>';
+    if(over) b.classList.add('late');
     if(wait){
       b.style.opacity = '.55';
       b.innerHTML = '🔒 ' + all[k].title + '<div class="sub">' + sub + '</div>';

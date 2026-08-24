@@ -395,7 +395,7 @@ def award_fill(st, ok, tot, fails, fast, late):
     from . import score as SC
     point, who = st['point'], st['who']
     if late:
-        SC.add(point, who, 'fill_missed', st['kind'])
+        SC.add(point, who, 'fill_late', st['kind'])
     if fast:
         SC.add(point, who, 'too_fast', st['kind'])
     # Найденные проблемы — доп. счёт, но только после подтверждения
@@ -470,9 +470,12 @@ def _award_check(kind, line, checker, verdict):
             return
         point, filler = r[0][1], r[0][2]
         # Проверяющему баллов нет: проверка входит в его работу и оценивается
-        # по 01-POL-01. Заполнявшему минус — только за расхождение.
-        if filler and filler != checker and verdict != 'ok':
-            SC.add(point, filler, 'mismatch', kind)
+        # по 01-POL-01. Заполнявшему — плюс за подтверждённый лист или минус
+        # за расхождение. Плюс даёт только подтверждение: балл за самоотчёт
+        # оплачивал бы галочки, а не работу.
+        if filler and filler != checker:
+            SC.add(point, filler, 'check_ok' if verdict == 'ok' else 'mismatch',
+                   kind)
     except Exception as e:
         print('баллы проверки:', e)
 
