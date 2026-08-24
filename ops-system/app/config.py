@@ -34,12 +34,35 @@ def now():
     return datetime.datetime.utcnow() + datetime.timedelta(hours=TZ_OFFSET)
 
 
+# Операционные сутки кончаются не в полночь: ЗБ закрывается в 00:30,
+# ОВИР в 03:30. Без сдвига закрытие ложится в следующий день, и смена
+# выглядит незакрытой, а закрытие — сделанным ни к чему.
+DAY_ENDS = float(ENV('DAY_ENDS', '5'))
+
+
+def biz_now():
+    """Время в рамках операционных суток: ночь принадлежит прошедшему дню."""
+    return now() - datetime.timedelta(hours=DAY_ENDS)
+
+
 def today():
-    return now().date()
+    return biz_now().date()
 
 
 def day_str():
-    return now().strftime('%d.%m.%Y')
+    return biz_now().strftime('%d.%m.%Y')
+
+
+def op_minute(t):
+    """Минута от начала операционных суток. 00:30 — это конец дня, не начало,
+    иначе закрытие считается просроченным с самого утра."""
+    h, m = str(t).split(':')
+    return (int(h) * 60 + int(m) - int(DAY_ENDS * 60)) % 1440
+
+
+def now_minute():
+    n = now()
+    return (n.hour * 60 + n.minute - int(DAY_ENDS * 60)) % 1440
 
 # ── поведение ────────────────────────────────────────────────────────────────
 PHOTOS_PER_RUN = int(ENV('PHOTOS_PER_RUN', '2'))
@@ -118,7 +141,6 @@ def forms():
             for it in b['items']:
                 n += 1
                 it['n'] = n
-                it['part'] = b.get('part', 'all')
         cl['total'] = n
         cl['measures'] = {int(k): v for k, v in (cl.get('measures') or {}).items()}
     return raw
@@ -187,26 +209,33 @@ def form(key):
     return forms()[key]
 
 
-def flat(key, part=None):
-    """[(№, блок, текст)]. С part — только этапы этой смены."""
+def flat(key):
+    """[(№, блок, текст)]"""
     cl = checklists()[key]
-    return [(it['n'], b['name'], it['text']) for b in cl['blocks']
-            for it in b['items'] if in_part(b.get('part', 'all'), part)]
+    return [(it['n'], b['name'], it['text']) for b in cl['blocks'] for it in b['items']]
 
 
-# Смена решает, какие этапы дня её. Открывающая ставит точку на ноги
-# и передаёт; закрывающая принимает и закрывает. Один человек на весь день
-# передавать некому — у него открытие и закрытие без передачи.
-PARTS = {'open': ('open', 'handover', 'all'),
-         'close': ('takeover', 'close', 'all'),
-         'one': ('open', 'close', 'all')}
+# Этапы дня идут в этом порядке. Приём не открыть, пока предыдущая смена
+# не сдала передачу: иначе принимать нечего.
+STAGES = ('open', 'give', 'take', 'close')
 
 
-def in_part(block_part, part):
-    """Виден ли этап выбранной смене. Без выбора — виден весь лист."""
-    if not part or part not in PARTS:
-        return True
-    return block_part in PARTS[part]
+def deadline_for(cl, point=None):
+    """Срок этапа. По точкам он разный: ОВИР закрывается на три часа позже."""
+    by = cl.get('deadline_point') or {}
+    return by.get(point) or cl.get('deadline', '')
+
+
+def stations():
+    """Рабочие места: ключ, название, отдел. Одно место — четыре листа."""
+    out = {}
+    for cl in checklists().values():
+        st = cl.get('station')
+        if not st or st in out:
+            continue
+        out[st] = {'key': st, 'title': cl['title'].split(' · ')[0],
+                   'dept': cl.get('dept', '')}
+    return out
 
 
 def photo_items(key):

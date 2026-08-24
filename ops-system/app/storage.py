@@ -340,20 +340,34 @@ def save_photo_data_url(url, name):
 
 
 # ── запись заполнения ────────────────────────────────────────────────────────
-def already_filled(key, day, point, part=None):
+def already_filled(key, day, point):
     """Кто и во сколько уже заполнял этот лист сегодня на этой точке.
 
-    Смена важна: на ЗБ их две, и лист закрывающей — не повтор листа
-    открывающей. Без part отвечаем по любой смене.
+    Этапы дня разведены по разным листам, и каждый этап делает одна смена —
+    повтор здесь означает именно повтор, а не вторую смену.
     """
     cl = C.checklists()[key]
-    for r in get(cl['tab'], 'A2:R'):
-        if len(r) < 4 or str(r[0]).strip() != day or str(r[1]).strip() != point:
-            continue
-        if part and str(r[17] if len(r) > 17 else '').strip() != PART_RU.get(part, ''):
-            continue
-        return f'{r[2]} в {r[3]}'
+    for r in get(cl['tab'], 'A2:D'):
+        if len(r) >= 4 and str(r[0]).strip() == day and str(r[1]).strip() == point:
+            return f'{r[2]} в {r[3]}'
     return None
+
+
+def filled_today(day, point, keys):
+    """{ключ: 'Кто в ЧЧ:ММ'} по нескольким листам за один запрос.
+
+    Нужно, чтобы приложение знало, какой этап уже сдан: приём не открывают,
+    пока предыдущая смена не сдала передачу.
+    """
+    cls = C.checklists()
+    keys = [k for k in keys if k in cls]
+    out = {}
+    for k, rows in zip(keys, get_many([(cls[k]['tab'], 'A2:D') for k in keys])):
+        for r in rows:
+            if len(r) >= 4 and str(r[0]).strip() == day and str(r[1]).strip() == point:
+                out[k] = f'{r[2]} в {r[3]}'
+                break
+    return out
 
 
 def save_fill(key, day, point, who, marks, measured, photos, time_s,
@@ -361,9 +375,8 @@ def save_fill(key, day, point, who, marks, measured, photos, time_s,
     """→ (выполнено, всего, [№ невыполненных], номер строки)"""
     cl = C.checklists()[key]
     names = {n: (b, t) for n, b, t in C.flat(key)}
-    mine = {n for n, _, _ in C.flat(key, part)}
-    fails = sorted(n for n, v in marks.items() if not v and n in mine)
-    tot = len(mine)
+    fails = sorted(n for n, v in marks.items() if not v)
+    tot = cl['total']
     ok = tot - len(fails)
     meas = '; '.join(f'{cl["measures"][n]["q"]}: {v}' for n, v in measured.items()
                      if n in cl['measures'])

@@ -19,7 +19,7 @@ PLACES = {
  'К-С2': ('shift_sal2',  'кухня', None,                  'Сотрудник кухни, саладетта 2'),
  'К-Р':  ('shift_razd',  'кухня', None,                  'Сотрудник кухни, раздача'),
  'К-Ф':  ('shift_frit',  'кухня', None,                  'Сотрудник кухни, фритюр'),
- 'К-СС': ('shift_ssk',   'кухня', ['senior', 'manager', 'coo'], 'Старший смены на кухне'),
+ 'К-СС': ('shift_ssk',   'кухня', ['senior'],            'Старший смены на кухне'),
  'Ц-М':  ('shift_ceh_m', 'цех',   None,                  'Сотрудник цеха, мясо и соусы'),
  'Ц-Л':  ('shift_ceh_l', 'цех',   None,                  'Сотрудник цеха, лаваши'),
  'Ц-Х':  ('shift_ceh_h', 'цех',   None,                  'Сотрудник цеха, выпечка'),
@@ -29,14 +29,24 @@ PLACES = {
  'У':    ('shift_upr',   '',      ['manager', 'coo'],    'Управляющий точки'),
 }
 
+# Этап дня → (ключ, как называется, кто его отмечает, каким сменам виден).
+# Смены две: открывающая ставит точку на ноги и передаёт, закрывающая
+# принимает и закрывает. Работает один человек весь день — передавать
+# некому, у него только открытие и закрытие.
 STAGES = [
- ('Этап 1. Открытие смены', 'open'),
- ('Этап 2. Рутина', 'routine'),
- ('Этап 3. Передача смены', 'give'),
- ('Этап 4. Приём смены', 'take'),
- ('Этап 5. Закрытие смены', 'close'),
- ('Этап 6. Сдача помещения', 'room'),
+ ('open',  'Открытие',  'О', 'утренний сотрудник', ['open', 'one']),
+ ('give',  'Передача',  'П', 'уходящий, пересменка', ['open']),
+ ('take',  'Приём',     'Т', 'заступающий, пересменка', ['close']),
+ ('close', 'Закрытие',  'З', 'вечерний сотрудник', ['close', 'one']),
 ]
+
+# Сроки этапов. Заданы Азизом 24.08.2026. Закрытие разное по точкам:
+# ЗБ гасит свет в 00:30, ОВИР работает до 03:30 — вторая смена там
+# дорабатывает до конца.
+DEADLINE = {'open': '09:30', 'give': '17:30', 'take': '17:30',
+            'close': '00:30'}
+DEADLINE_UPR = {'open': '09:50'}
+BY_POINT = {'close': {'ОВИР': '03:30'}}
 
 
 def clean(t):
@@ -44,61 +54,69 @@ def clean(t):
     return re.sub(r'<[^>]+>', '', t).replace('  ', ' ').strip()
 
 
-def stages_for(code):
-    """Те же шесть этапов, что в документе.
+def groups_for(code, stage):
+    """Содержимое этапа — те же блоки, что в документе листа смены.
 
-    Третий элемент — чья это часть дня. Открывающая смена отмечает открытие
-    и передачу, закрывающая — приём и закрытие. Работает один человек весь
-    день — отмечает открытие и закрытие, передавать некому.
+    Рутина («чистоту поддерживал всю смену») висит на конце своей смены:
+    у открывающей это передача, у закрывающей — закрытие. Сдача помещения
+    приклеена к закрытию: три пункта отдельным листом никому не нужны.
     """
-    o = M.collect(M.OPEN, code)
-    c = M.collect(M.CLOSE, code)
-    return [
-        ('Этап 1. Открытие смены',
-         [M.OPEN.PERSONAL] + o + [M.equip_block(code, 'на открытии')], 'open'),
-        ('Этап 2. Рутина', [M.ROUTINE], 'all'),
-        ('Этап 3. Передача смены',
-         [M.GIVE, M.equip_block(code, 'при передаче')], 'handover'),
-        ('Этап 4. Приём смены',
-         [M.TAKE, M.equip_block(code, 'при приёме'), M.VERDICT], 'takeover'),
-        ('Этап 5. Закрытие смены',
-         c + [M.equip_block(code, 'на закрытии')], 'close'),
-        ('Этап 6. Сдача помещения', [M.ROOM], 'close'),
-    ]
+    if stage == 'open':
+        return ([M.OPEN.PERSONAL] + M.collect(M.OPEN, code)
+                + [M.equip_block(code, 'на открытии')])
+    if stage == 'give':
+        return [M.GIVE, M.equip_block(code, 'при передаче'), M.ROUTINE]
+    if stage == 'take':
+        return [M.TAKE, M.equip_block(code, 'при приёме'), M.VERDICT]
+    return (M.collect(M.CLOSE, code) + [M.equip_block(code, 'на закрытии')]
+            + [M.ROOM, M.ROUTINE])
 
 
 def build(code, zone, who):
+    """Четыре листа станции — по одному на этап дня."""
     key, dept, roles, title_who = PLACES[code]
-    blocks = []
-    for stage, groups, part in stages_for(code):
-        items = []
-        for name, rows in groups:
-            for text, norm, photo in rows:
-                items.append({'text': clean(text), 'norm': norm,
-                              'photo': photo == 'фото'})
-        if items:
-            blocks.append({'name': stage, 'part': part, 'items': items})
-    form = {'title': f'Смена · {zone}', 'code': f'03-CL-01/{code}',
-            'type': 'checklist', 'ask_time': 'Во сколько закрыли этап?',
-            'deadline': '10:00', 'blocks': blocks}
-    if dept:
-        form['dept'] = dept
-    if roles:
-        form['roles'] = roles
-    return key, form
+    out = []
+    for stage, name, letter, when, parts in STAGES:
+        blocks = []
+        for gname, rows in groups_for(code, stage):
+            items = [{'text': clean(text), 'norm': norm, 'photo': photo == 'фото'}
+                     for text, norm, photo in rows]
+            if items:
+                blocks.append({'name': gname, 'items': items})
+        if not blocks:
+            continue
+        dead = (DEADLINE_UPR.get(stage) if key == 'shift_upr' else None) \
+            or DEADLINE[stage]
+        form = {'title': f'{zone} · {name}', 'code': f'03-CL-01/{code}-{letter}',
+                'type': 'checklist', 'ask_time': 'Во сколько закрыли этап?',
+                'stage': stage, 'part': parts, 'when': when,
+                'deadline': dead, 'blocks': blocks}
+        if stage in BY_POINT:
+            form['deadline_point'] = dict(BY_POINT[stage])
+        if key not in ('shift_ssk', 'shift_upr'):
+            form['station'] = key
+        if dept:
+            form['dept'] = dept
+        if roles:
+            form['roles'] = roles
+        out.append((f'{key}_{stage}', form))
+    return out
 
 
 def main():
     data = json.load(open(JSON, encoding='utf-8'))
+    for k in [k for k, v in data.items()
+              if k.startswith('shift_') and 'stage' not in v]:
+        del data[k]                      # лист из шести этапов заменён на четыре
     added = 0
     for suffix, zone, who, _ in M.OPEN.POSITIONS:
-        key, form = build(suffix, zone, who)
-        data[key] = form
-        added += 1
-        n = sum(len(b['items']) for b in form['blocks'])
-        print(f'{key:<14} {form["title"]:<34} блоков: {len(form["blocks"])}, пунктов: {n}')
+        for key, form in build(suffix, zone, who):
+            data[key] = form
+            added += 1
+            n = sum(len(b['items']) for b in form['blocks'])
+            print(f'{key:<20} {form["title"]:<34} пунктов: {n}')
     json.dump(data, open(JSON, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
-    print(f'\nформ в файле: {len(data)} (добавлено или обновлено: {added})')
+    print(f'\nформ в файле: {len(data)} (листов смены: {added})')
 
 
 if __name__ == '__main__':

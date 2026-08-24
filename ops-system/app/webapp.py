@@ -112,11 +112,9 @@ def init_payload(who):
     GROUPS = {'кухня': 'Кухня', 'цех': 'Цех', 'бар': 'Бар',
               'касса': 'Касса', 'зал': 'Зал'}
     out['stations'] = [
-        {'key': k, 'title': cl['title'].replace('Смена · ', ''),
-         'group': GROUPS.get((cl.get('dept') or ''), 'Прочее'),
-         'code': cl.get('code', '')}
-        for k, cl in C.checklists().items()
-        if k.startswith('shift_') and k not in ('shift_upr', 'shift_ssk')]
+        {'key': st['key'], 'title': st['title'],
+         'group': GROUPS.get(st['dept'] or '', 'Прочее')}
+        for st in C.stations().values()]
     out['shift'] = shift_state(who)
     out['geo'] = {p: S.point_geo(p) for p in S.points()}
     if role in ('manager', 'coo'):
@@ -201,29 +199,27 @@ def init_payload(who):
     for key, cl in (C.for_role(role, dept, who[1]).items() if not left else []):
         photos = C.photo_items(key)
         random.shuffle(photos)
-        # Этап дня по номеру пункта: замеры и фото прячутся вместе со своим
-        # этапом, иначе закрывающая смена ждёт снимок с открытия.
-        pmap = {it['n']: it.get('part', 'all')
-                for b in cl['blocks'] for it in b['items']}
         out['lists'][key] = {
             'title': cl['title'], 'code': cl['code'], 'ask_time': cl['ask_time'],
-            'deadline': cl.get('deadline', ''),
-            'parted': any(p != 'all' for p in pmap.values()),
-            'blocks': [{'name': b['name'], 'doc': b.get('doc'),
-                        'part': b.get('part', 'all'), 'items': [
+            'deadline': C.deadline_for(cl, who[1]),
+            'station': cl.get('station', ''), 'stage': cl.get('stage', ''),
+            'part': cl.get('part') or [], 'when': cl.get('when', ''),
+            'blocks': [{'name': b['name'], 'doc': b.get('doc'), 'items': [
                 {'n': it['n'], 'text': it['text'], 'norm': it.get('norm', '')}
                 for it in b['items']]} for b in cl['blocks']],
             'measures': [{'n': n, 'q': m['q'], 'norm': m['norm'], 'unit': m['unit'],
                           'min': m.get('min'), 'max': m.get('max'),
-                          'ok_min': m.get('ok_min'), 'ok_max': m.get('ok_max'),
-                          'part': pmap.get(n, 'all')}
+                          'ok_min': m.get('ok_min'), 'ok_max': m.get('ok_max')}
                          for n, m in cl['measures'].items()],
-            # Отдаём все и режем на клиенте: снимки выбираются уже внутри
-            # своего этапа, иначе смене достанется список из чужой половины дня.
-            'photos_n': C.PHOTOS_PER_RUN,
-            'photos': [{'n': n, 'text': t, 'part': pmap.get(n, 'all')}
-                       for n, t in photos],
+            'photos': [{'n': n, 'text': t} for n, t in photos[:C.PHOTOS_PER_RUN]],
         }
+    # Что уже сдано сегодня на точке: приём не открывают, пока предыдущая
+    # смена не сдала передачу.
+    try:
+        out['filled'] = S.filled_today(C.day_str(), who[1], list(out['lists']))
+    except Exception as e:
+        print('что сдано:', e)
+        out['filled'] = {}
     return out
 
 
@@ -481,7 +477,7 @@ def submit(who, body):
     tempo = BOT.tempo(body.get('marks_ts') or [])
     comment = str(body.get('comment', ''))[:300]
     part = str(body.get('part') or '') or None
-    dup = S.already_filled(kind, day, point, part)
+    dup = S.already_filled(kind, day, point)
     ok, tot, fails, line = S.save_fill(
         kind, day, point, who[0], marks, measured, photos, hhmm, comment, sec,
         part)
@@ -489,7 +485,7 @@ def submit(who, body):
     try:
         fast = sec < C.MIN_SECONDS or (tempo is not None and tempo < C.MIN_GAP)
         BOT.notify_check(st, ok, tot, fails, line, comment, fast, bool(dup))
-        BOT.award_fill(st, ok, tot, fails, fast, BOT.is_late(kind))
+        BOT.award_fill(st, ok, tot, fails, fast, BOT.is_late(kind, point))
     except Exception:
         pass
     if V.enabled():

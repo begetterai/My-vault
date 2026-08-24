@@ -487,8 +487,16 @@
         Выбор нужен, чтобы посмотреть подробности и работать с точкой.</div>
     </div>
 
+    <div id="partBox" class="hidden">
+      <h2><span class="steplabel" id="lb15">2</span>Смена дня</h2>
+      <div class="stgrid" id="partSeg"></div>
+      <div class="hint" id="partHint">Открывающая ставит точку на ноги
+        и передаёт, закрывающая принимает и закрывает. Выбор живёт до конца
+        дня и решает, какие листы тебе откроются.</div>
+    </div>
+
     <h2 id="shiftHead" class="hidden">
-      <span class="steplabel" id="lb2">2</span>Смена</h2>
+      <span class="steplabel" id="lb2">3</span>Приход и уход</h2>
     <div id="shiftCard" class="card hidden">
       <div class="kv"><span>Смена сегодня</span><b id="shiftInfo">—</b></div>
       <div class="shift">
@@ -511,7 +519,7 @@
     </div>
 
     <div id="stationBox" class="hidden">
-      <h2><span class="steplabel" id="lb25">3</span>Рабочее место</h2>
+      <h2><span class="steplabel" id="lb25">4</span>Рабочее место</h2>
       <div class="stgrid" id="stationSeg"></div>
       <div class="hint" id="stationHint">Выбери, где сегодня работаешь —
         откроются чек-листы и документы этого места.</div>
@@ -528,7 +536,7 @@
 
 <details class="blk" id="blkWork" open>
       <summary>Моя работа</summary>
-    <h2><span class="steplabel" id="lb3">4</span>Чек-листы</h2>
+    <h2><span class="steplabel" id="lb3">5</span>Чек-листы</h2>
     <div class="pick" id="pickList"></div>
 
     <div id="jBox" class="hidden">
@@ -681,7 +689,7 @@
   <button class="send" id="send" disabled>Отправить</button>
 </div>
 <script>
-const BUILD = 'v24.08 смены';
+const BUILD = 'v24.08 этапы';
 // Заполняются на старте: скрипт телеграма грузится отложенно, и на момент
 // разбора этой строки window.Telegram может ещё не существовать.
 let tg = null, initData = '';
@@ -899,7 +907,8 @@ async function boot(){
     parts.forEach(([name, fn]) => {
       try { fn(); } catch(e){ broken.push(name + ': ' + e.message); }
     });
-    try { renderStations(); renderLists(); } catch(e){ broken.push('места: ' + e.message); }
+    try { renderParts(); renderStations(); renderLists(); }
+    catch(e){ broken.push('места: ' + e.message); }
     try { loadRoster(); } catch(e){ broken.push('состав: ' + e.message); }
     try { maybeTour(); } catch(e){}
     setTimeout(tidyBlocks, 60);
@@ -934,22 +943,29 @@ function stages(){
   const boss = ['manager', 'coo'].includes(DATA.role);
   // Руководителю шаг «рабочее место» не показывается, но и не запирает
   // работу: он идёт сразу от прихода к своим листам и проверке.
-  const openStation = pointOK && came && !boss;
+  // Смена дня идёт сразу за точкой: от неё зависит, какие этапы твои
+  // и до какого часа их ждут. Без неё приход отмечать рано.
+  const partOK = !!loadPart();
+  const openStation = pointOK && partOK && came && !boss;
   const stationOK = boss || !!loadStation() || !(DATA.stations || []).length;
-  const openRest = pointOK && came && stationOK;
+  const openRest = pointOK && partOK && came && stationOK;
 
   mark('#lb1', pointOK ? 'done' : 'now');
-  mark('#lb2', came ? 'done' : (pointOK ? 'now' : 'wait'));
+  mark('#lb15', partOK ? 'done' : (pointOK ? 'now' : 'wait'));
+  mark('#lb2', came ? 'done' : (partOK ? 'now' : 'wait'));
   mark('#lb25', stationOK ? 'done' : (openStation ? 'now' : 'wait'));
   mark('#lb3', openRest ? 'now' : 'wait');
+  $('#partBox').classList.toggle('hidden', !pointOK);
   $('#stationBox').classList.toggle('hidden', !openStation);
-  $('#shiftCard').classList.toggle('locked', !pointOK);
-  $('#shiftHead').classList.toggle('locked', !pointOK);
+  $('#shiftCard').classList.toggle('locked', !partOK);
+  $('#shiftHead').classList.toggle('locked', !partOK);
   $('#rest').classList.toggle('locked', !openRest);
   $('#rest').classList.toggle('hidden', !openRest);
 
   if(!pointOK){
     $('#shiftHint').textContent = 'Сначала выбери заведение.';
+  } else if(!partOK){
+    $('#shiftHint').textContent = 'Сначала выбери смену дня.';
   } else if(!came){
     $('#shiftHint').textContent =
       'Отметь приход — после этого выберешь рабочее место.';
@@ -1551,45 +1567,74 @@ function fillMe(){
 }
 
 
-/* Рабочее место на смену. Один человек сегодня на саладетте, завтра
-   на фритюре — и чек-листы должны открыться те, что нужны сегодня.
-   Выбор живёт до конца дня: перезаход в приложение его не сбрасывает. */
-let STATION = null;
-const STATION_KEY = 'romashka.station';
+/* Смена дня и рабочее место. Выбор живёт до конца дня: перезаход
+   в приложение его не сбрасывает. Смена решает, какие этапы дня твои,
+   место — на какой станции ты их отмечаешь. */
+let STATION = null, PART = null;
+const STATION_KEY = 'romashka.station', PART_KEY = 'romashka.part';
 
-function loadStation(){
+const PART_NAME = {open: 'Открывающая', close: 'Закрывающая',
+                   one: 'Один на весь день'};
+const PART_SUB = {open: 'открытие точки и передача смены',
+                  close: 'приём смены и закрытие',
+                  one: 'открытие и закрытие, передавать некому'};
+// Этапы дня по порядку. Кто работает один — передачи и приёма у него нет.
+const CHAIN = {open: ['open', 'give', 'take', 'close'],
+               close: ['open', 'give', 'take', 'close'],
+               one: ['open', 'close']};
+const STAGE_RU = {open: 'открытие', give: 'передачу', take: 'приём',
+                  close: 'закрытие'};
+
+function loadKey(name){
   try{
-    const raw = localStorage.getItem(STATION_KEY);
-    if(!raw) return null;
-    const o = JSON.parse(raw);
-    if(o.day !== DATA.day || o.point !== point) return null;
+    const o = JSON.parse(localStorage.getItem(name) || 'null');
+    if(!o || o.day !== DATA.day || o.point !== point) return null;
     return o.key;
   }catch(e){ return null; }
 }
-
-function saveStation(k){
+function saveKey(name, k){
   try{
-    localStorage.setItem(STATION_KEY,
+    localStorage.setItem(name,
       JSON.stringify({key: k, day: DATA.day, point: point}));
   }catch(e){}
 }
+const loadStation = () => loadKey(STATION_KEY);
+const saveStation = (k) => saveKey(STATION_KEY, k);
+const loadPart = () => loadKey(PART_KEY);
+const savePart = (k) => saveKey(PART_KEY, k);
 
+function groupOf(k){ return k.replace(/_(open|give|take|close)$/, ''); }
 
-/* Список чек-листов. Лист выбранного места — первым, дальше личные листы
-   роли. Станция определяет работу дня, остальное к ней добавляется. */
+/* Чей этап и не рано ли его открывать. Приём не открыть, пока предыдущая
+   смена не сдала передачу: принимать нечего. */
+function lockedBy(k){
+  const L = DATA.lists[k];
+  if(!L || !L.stage || !PART) return null;
+  const chain = CHAIN[PART] || [];
+  const i = chain.indexOf(L.stage);
+  if(i <= 0) return null;
+  const prev = chain[i - 1];
+  const g = groupOf(k);
+  const pk = Object.keys(DATA.lists).find(
+    x => groupOf(x) === g && DATA.lists[x].stage === prev);
+  if(!pk || (DATA.filled || {})[pk]) return null;
+  return STAGE_RU[prev] || prev;
+}
+
+/* Список чек-листов. Показываем только листы своей смены и своего места:
+   отвечать за чужой этап человек не может, а видеть его — только путаться. */
 function renderLists(){
   const box = $('#pickList');
   if(!box || !DATA) return;
   const all = DATA.lists || {};
   const saved = loadStation();
-  const keys = Object.keys(all);
-  // Станция определяет ровно один лист. Остальные станции человеку не нужны:
-  // он на них не стоит и отвечать за них не может. Личные листы роли
-  // (санитарный, собеседование, лист управляющего) станциями не являются
-  // и показываются всегда.
-  const stKeys = new Set((DATA.stations || []).map(x => x.key));
-  const own = keys.filter(k => !stKeys.has(k));
-  const show = saved ? [saved].concat(own) : (stKeys.size ? own : keys);
+  const boss = ['manager', 'coo'].includes(DATA.role);
+  const show = Object.keys(all).filter(k => {
+    const L = all[k];
+    if(L.station && L.station !== saved) return false;
+    if((L.part || []).length && PART && !L.part.includes(PART)) return false;
+    return true;
+  });
   [...box.querySelectorAll('button.big')].forEach(x => x.remove());
   [...box.querySelectorAll('.msg.warn')].forEach(x => x.remove());
   [...box.querySelectorAll('.grouphead')].forEach(x => x.remove());
@@ -1597,14 +1642,36 @@ function renderLists(){
   // Ежедневное и событийное — разные вещи. Первое ждут сегодня и считают
   // по нему процент; второе открывают, когда случилось: пришёл кандидат,
   // вышел новичок, приехал тайный гость. В одном списке они мешают друг другу.
-  const live = show.filter(k => all[k] && all[k].deadline);
-  const rare = show.filter(k => all[k] && !all[k].deadline);
+  // Сутки операционные: 00:30 — это конец дня, а не его начало,
+  // иначе закрытие встаёт в списке первым.
+  const dmin = (t) => {
+    if(!t) return 9999;
+    const [h, m] = t.split(':').map(Number);
+    const v = h * 60 + m;
+    return v < 5 * 60 ? v + 24 * 60 : v;
+  };
+  const live = show.filter(k => all[k].deadline)
+    .sort((x, y) => dmin(all[x].deadline) - dmin(all[y].deadline));
+  const rare = show.filter(k => !all[k].deadline);
   const add = (k) => {
     const b = document.createElement('button');
     b.className = 'big';
+    const done = (DATA.filled || {})[k];
+    const wait = done ? null : lockedBy(k);
     const dl = all[k].deadline ? ' · до ' + all[k].deadline : '';
-    b.innerHTML = all[k].title + '<div class="sub">' + all[k].code + dl + '</div>';
-    b.onclick = () => start(k);
+    let sub = all[k].code + dl;
+    if(done) sub = 'сдан · ' + done;
+    else if(wait) sub = 'откроется, когда сдадут ' + wait;
+    b.innerHTML = all[k].title + '<div class="sub">' + sub + '</div>';
+    if(wait){
+      b.style.opacity = '.55';
+      b.innerHTML = '🔒 ' + all[k].title + '<div class="sub">' + sub + '</div>';
+      b.onclick = () => note('Этот этап откроется, когда на этом месте сдадут '
+        + wait + '.');
+    } else if(done){
+      b.style.opacity = '.7';
+      b.onclick = () => start(k);
+    } else b.onclick = () => start(k);
     box.appendChild(b);
   };
   const head = (t, sub) => {
@@ -1619,22 +1686,36 @@ function renderLists(){
     if(live.length) head('По необходимости', 'когда случилось');
     rare.forEach(add);
   }
-  // Место выбрано, а листа для него нет: человек стоит на станции, чек-лист
-  // которой ему не открыт. Молчать нельзя — решит, что всё сдал.
-  if(!saved && stKeys.size && !own.length){
+  // Место не выбрано, а листы станции есть: молчать нельзя — человек
+  // решит, что ему нечего заполнять.
+  if(!saved && !boss && !live.length && !rare.length){
     const d = document.createElement('div');
     d.className = 'msg';
-    d.textContent = 'Выбери рабочее место выше — откроется его чек-лист.';
+    d.textContent = 'Выбери рабочее место выше — откроются его чек-листы.';
     box.appendChild(d);
   }
-  if(saved && !all[saved]){
-    const st = (DATA.stations || []).find(x => x.key === saved);
-    const d = document.createElement('div');
-    d.className = 'msg warn';
-    d.textContent = 'Лист места «' + (st ? st.title : saved)
-      + '» тебе не открыт. Скажи управляющему.';
-    box.appendChild(d);
-  }
+}
+
+function renderParts(){
+  const box = $('#partSeg');
+  if(!box) return;
+  box.innerHTML = '';
+  const saved = loadPart();
+  Object.keys(PART_NAME).forEach(k => {
+    const b = document.createElement('button');
+    b.className = 'st';
+    b.innerHTML = PART_NAME[k] + '<span class="sub">' + PART_SUB[k] + '</span>';
+    b.setAttribute('aria-pressed', String(k === saved));
+    b.onclick = () => {
+      savePart(k); PART = k;
+      [...box.children].forEach(c =>
+        c.setAttribute('aria-pressed', String(c === b)));
+      renderLists(); fillMe(); stages();
+      tg?.HapticFeedback?.selectionChanged?.();
+    };
+    box.appendChild(b);
+  });
+  PART = saved;
 }
 
 function renderStations(){
@@ -2431,79 +2512,18 @@ function renderScore(){
   renderBalLines(s.lines || []);
 }
 
-/* Смена решает, какие этапы дня твои. Открывающая ставит точку на ноги
-   и передаёт, закрывающая принимает и закрывает. Один человек на весь день
-   передавать некому — у него открытие и закрытие без передачи. */
-let PART = null;
-const PARTS = {open: ['open', 'handover', 'all'],
-               close: ['takeover', 'close', 'all'],
-               one: ['open', 'close', 'all']};
-const PART_NAME = {open: 'Открывающая смена', close: 'Закрывающая смена',
-                   one: 'Один на весь день'};
-
-function inPart(p){
-  const allow = PARTS[PART];
-  return !allow || allow.includes(p || 'all');
-}
-function vBlocks(L){ return L.blocks.filter(b => inPart(b.part)); }
-function vMeasures(L){ return L.measures.filter(m => inPart(m.part)); }
-function vPhotos(L){
-  return L.photos.filter(p => inPart(p.part)).slice(0, L.photos_n || 3);
-}
-
-function partKey(k){ return 'romashka.part.' + k; }
-function loadPart(k){
-  try{
-    const o = JSON.parse(localStorage.getItem(partKey(k)) || 'null');
-    if(!o || o.day !== DATA.day || o.point !== point) return null;
-    return o.part;
-  }catch(e){ return null; }
-}
-function savePart(k, p){
-  try{
-    localStorage.setItem(partKey(k),
-      JSON.stringify({part: p, day: DATA.day, point: point}));
-  }catch(e){}
-}
-
-function askPart(k){
-  const f = $('#form'); f.innerHTML = ''; f.classList.remove('hidden');
-  $('#bar').classList.add('hidden'); $('#foot').classList.add('hidden');
-  const h = document.createElement('h2');
-  h.textContent = 'Какая у тебя сегодня смена?'; f.appendChild(h);
-  const hint = document.createElement('div');
-  hint.className = 'hint';
-  hint.textContent = 'От этого зависит, какие этапы дня откроются. '
-    + 'Выбор живёт до конца дня.';
-  f.appendChild(hint);
-  Object.entries(PART_NAME).forEach(([p, name]) => {
-    const b = document.createElement('button');
-    b.className = 'note';
-    b.innerHTML = name + '<small>' + ({
-      open: 'открытие точки и передача смены',
-      close: 'приём смены, закрытие, сдача помещения',
-      one: 'открытие и закрытие — передавать некому'}[p]) + '</small>';
-    b.onclick = () => { savePart(k, p); start(k); };
-    f.appendChild(b);
-  });
-}
-
 function start(k){
   kind = k; started = Date.now(); marks = {}; measures = {}; photos = {}; markTs = [];
   const L = DATA.lists[k];
   $('#pick').classList.add('hidden');
-  PART = L.parted ? loadPart(k) : null;
-  if(L.parted && !PART){ enterScreen(); $('#who').textContent = L.title;
-                         return askPart(k); }
   $('#bar').classList.remove('hidden');
   $('#foot').classList.remove('hidden');
   const pl = (DATA.points || []).find(q => q.code === point);
-  $('#who').textContent = L.title
-    + (PART ? ' · ' + PART_NAME[PART].toLowerCase() : '');
+  $('#who').textContent = L.title;
 
   const f = $('#form'); f.innerHTML = ''; f.classList.remove('hidden');
   enterScreen();
-  vBlocks(L).forEach(bl => {
+  L.blocks.forEach(bl => {
     const h = document.createElement('h2'); h.textContent = bl.name; f.appendChild(h);
     if(bl.doc){
       const d = document.createElement('div'); d.className = 'docline';
@@ -2516,9 +2536,9 @@ function start(k){
     bl.items.forEach(it => f.appendChild(itemRow(it, bl)));
   });
 
-  if(vMeasures(L).length){
+  if(L.measures.length){
     const h = document.createElement('h2'); h.textContent = 'Замеры'; f.appendChild(h);
-    vMeasures(L).forEach(m => {
+    L.measures.forEach(m => {
       const w = document.createElement('div');
       const lim = (m.min != null ? ' min="' + m.min + '"' : '')
                 + (m.max != null ? ' max="' + m.max + '"' : '');
@@ -2551,9 +2571,9 @@ function start(k){
     });
   }
 
-  if(vPhotos(L).length){
+  if(L.photos.length){
     const h = document.createElement('h2'); h.textContent = 'Фото'; f.appendChild(h);
-    vPhotos(L).forEach(p => f.appendChild(photoRow(p)));
+    L.photos.forEach(p => f.appendChild(photoRow(p)));
   }
 
   const h = document.createElement('h2'); h.textContent = 'Итог'; f.appendChild(h);
@@ -2578,7 +2598,7 @@ function start(k){
     const when = mins < 1 ? 'только что' : mins + ' мин назад';
     if(confirm('Есть незаконченный чек-лист: отмечено '
                + Object.keys(d.marks).length + ' пунктов, ' + when + '.'
-               + (vPhotos(L).length ? '\nФото придётся сделать заново.' : '')
+               + (L.photos.length ? '\nФото придётся сделать заново.' : '')
                + '\n\nПродолжить с того места?\nОтмена — начать заново.')){
       draftApply(d);
     } else {
@@ -2682,8 +2702,7 @@ function shrink(file){
    обрыв стирает тридцать отметок, и второй раз человек отмечает не глядя.
    Фото не храним — они тяжёлые и переснять их проще, чем чистить память.  */
 function draftKey(k){
-  return 'romashka_draft_' + k + '_' + (DATA?.day || '') + '_' + point
-         + (PART ? '_' + PART : '');
+  return 'romashka_draft_' + k + '_' + (DATA?.day || '') + '_' + point;
 }
 
 function draftSweep(){
@@ -2740,15 +2759,13 @@ function draftApply(d){
 function paint(){
   const L = DATA.lists[kind];
   draftSave();
-  const total = vBlocks(L).reduce((s,b) => s + b.items.length, 0);
-  const mine = new Set(vBlocks(L).flatMap(b => b.items.map(i => i.n)));
-  const done = Object.keys(marks).filter(n => mine.has(+n)).length;
+  const total = L.blocks.reduce((s,b) => s + b.items.length, 0);
+  const done = Object.keys(marks).length;
   $('#bar').firstElementChild.style.width = (done/total*100) + '%';
-  const fails = Object.entries(marks)
-    .filter(([n,v]) => !v && mine.has(+n)).length;
+  const fails = Object.entries(marks).filter(([,v]) => !v).length;
   const needC = fails > 0;
-  const okM = vMeasures(L).every(m => (measures[m.n] ?? '') !== '');
-  const okP = vPhotos(L).every(p => photos[p.n]);
+  const okM = L.measures.every(m => (measures[m.n] ?? '') !== '');
+  const okP = L.photos.every(p => photos[p.n]);
   const okT = /^\d{1,2}:\d{2}$/.test(($('#time')?.value || '').trim());
   const okC = !needC || ($('#comment')?.value || '').trim().length > 2;
   if($('#chint')){

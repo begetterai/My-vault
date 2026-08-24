@@ -402,13 +402,12 @@ def award_fill(st, ok, tot, fails, fast, late):
     # управляющим: иначе достаточно наставить ✕, чтобы набрать баллов.
 
 
-def is_late(kind):
+def is_late(kind, point=None):
     cl = C.checklists()[kind]
-    if not cl.get('deadline'):
+    dead = C.deadline_for(cl, point)
+    if not dead:
         return False
-    n = C.now()
-    h, m = cl['deadline'].split(':')
-    return n.hour * 60 + n.minute > int(h) * 60 + int(m)
+    return C.now_minute() > C.op_minute(dead)
 
 
 def notify_check(st, ok, tot, fails, line, comment, fast, dup=False):

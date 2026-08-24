@@ -79,7 +79,7 @@ def _today(points):
     """Что со сдачей чек-листов прямо сейчас: сдано, ждём, просрочено."""
     from . import forms as F
     now = C.now()
-    minute = now.hour * 60 + now.minute
+    minute = C.now_minute()
     day = C.day_str()
     out = []
     for p in points:
@@ -93,8 +93,7 @@ def _today(points):
             if not S.workers_of(p, cl.get('dept'), cl.get('roles')):
                 continue
             filled = S.already_filled(key, day, p)
-            h, m = cl['deadline'].split(':')
-            dead = int(h) * 60 + int(m)
+            dead = C.op_minute(C.deadline_for(cl, p))
             if filled:
                 done += 1
                 state = 'сдан'
@@ -104,7 +103,7 @@ def _today(points):
             else:
                 waiting += 1
                 state = 'ждём'
-            items.append({'title': cl['title'], 'deadline': cl['deadline'],
+            items.append({'title': cl['title'], 'deadline': C.deadline_for(cl, p),
                           'state': state})
         out.append({'point': p, 'label': S.point_label(p), 'done': done,
                     'late': late, 'waiting': waiting, 'items': items})

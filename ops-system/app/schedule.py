@@ -27,8 +27,7 @@ def once(key):
 
 
 def hhmm(t):
-    h, m = str(t).split(':')
-    return int(h) * 60 + int(m)
+    return C.op_minute(t)
 
 
 def deadlines():
@@ -36,7 +35,7 @@ def deadlines():
     out = []
     for key, cl in C.checklists().items():
         if cl.get('deadline'):
-            out.append((key, cl, hhmm(cl['deadline']), int(cl.get('remind_before', 45))))
+            out.append((key, cl, int(cl.get('remind_before', 45))))
     return out
 
 
@@ -356,11 +355,14 @@ def monthly():
 def tick():
     now = C.now()
     day = now.date()
-    minute = now.hour * 60 + now.minute
+    minute = C.now_minute()
     dstr = day.strftime('%d.%m.%Y')
 
-    for key, cl, dead, before in deadlines():
+    for key, cl, before in deadlines():
         for point in S.points():
+            # Срок закрытия у точек разный: ЗБ гасит свет в 00:30,
+            # ОВИР работает до 03:30.
+            dead = hhmm(C.deadline_for(cl, point))
             # Цех есть только на ЗБ. Без этой проверки ОВИР каждый день
             # получал бы «просрочено» по чек-листу, которого у него нет.
             if cl.get('points') and point not in cl['points']:
