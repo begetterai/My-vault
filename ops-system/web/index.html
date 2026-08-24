@@ -854,9 +854,6 @@ async function boot(){
             + 'Скажи ему об этом.') + '</div>';
       box.appendChild(d);
     }
-    renderLists();
-    renderDistance();
-    renderShift(); renderSite(); renderTasks(); renderPending();
     if(DATA.waiting){
       $('#wait').classList.remove('hidden');
       $('#pick').classList.add('hidden');
@@ -866,6 +863,9 @@ async function boot(){
     // Каждая секция рисуется отдельно: ошибка в одной не должна закрывать
     // приложение целиком. Сломанное показываем строкой, остальное работает.
     const parts = [
+      ['списки', renderLists], ['расстояние', renderDistance],
+      ['смена', renderShift], ['точка', renderSite],
+      ['задачи', renderTasks], ['проверка', renderPending],
       ['журналы', renderJournals], ['бланки', renderForms],
       ['обучение', renderQuizzes], ['баллы', renderScore],
       ['споры', renderDisputes], ['начисления', renderAwards],
@@ -907,8 +907,9 @@ function stages(){
   const came = !!sh.in;
   // Руководитель работает по обеим точкам и проверяет смену из дома —
   // для него отметка прихода не запирает остальное.
-  const openStation = pointOK && came;
-  const stationOK = !!loadStation() || !(DATA.stations || []).length;
+  const boss = ['manager', 'coo'].includes(DATA.role);
+  const openStation = pointOK && came && !boss;
+  const stationOK = boss || !!loadStation() || !(DATA.stations || []).length;
   const openRest = openStation && stationOK;
 
   mark('#lb1', pointOK ? 'done' : 'now');
@@ -1529,7 +1530,10 @@ function renderLists(){
 function renderStations(){
   const box = $('#stationSeg');
   if(!box) return;
-  const list = DATA.stations || [];
+  // Управляющий и директор не выбирают рабочее место: они не стоят
+  // на станции, а проверяют её. Их работа — свой лист и «Проверка».
+  const list = ['manager', 'coo'].includes(DATA.role)
+    ? [] : (DATA.stations || []);
   box.innerHTML = '';
   if(!list.length){ $('#stationBox').classList.add('hidden'); return; }
   const saved = loadStation();
