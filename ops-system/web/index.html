@@ -1494,6 +1494,38 @@ function saveStation(k){
   }catch(e){}
 }
 
+
+/* Список чек-листов. Лист выбранного места — первым, дальше личные листы
+   роли. Станция определяет работу дня, остальное к ней добавляется. */
+function renderLists(){
+  const box = $('#pickList');
+  if(!box || !DATA) return;
+  const all = DATA.lists || {};
+  const saved = loadStation();
+  const keys = Object.keys(all);
+  const show = saved ? [saved].concat(keys.filter(k => k !== saved)) : keys;
+  [...box.querySelectorAll('button.big')].forEach(x => x.remove());
+  [...box.querySelectorAll('.msg.warn')].forEach(x => x.remove());
+  show.filter(k => all[k]).forEach(k => {
+    const b = document.createElement('button');
+    b.className = 'big';
+    const dl = all[k].deadline ? ' · до ' + all[k].deadline : '';
+    b.innerHTML = all[k].title + '<div class="sub">' + all[k].code + dl + '</div>';
+    b.onclick = () => start(k);
+    box.appendChild(b);
+  });
+  // Место выбрано, а листа для него нет: человек стоит на станции, чек-лист
+  // которой ему не открыт. Молчать нельзя — решит, что всё сдал.
+  if(saved && !all[saved]){
+    const st = (DATA.stations || []).find(x => x.key === saved);
+    const d = document.createElement('div');
+    d.className = 'msg warn';
+    d.textContent = 'Лист места «' + (st ? st.title : saved)
+      + '» тебе не открыт. Скажи управляющему.';
+    box.appendChild(d);
+  }
+}
+
 function renderStations(){
   const box = $('#stationSeg');
   if(!box) return;
@@ -2156,14 +2188,14 @@ function renderDisputes(){
 }
 
 async function resolveDispute(d, verdict, card){
-  const note = prompt(verdict === 'drop'
+  const why = prompt(verdict === 'drop'
     ? 'Почему снимаешь? Одной фразой — человек это увидит.'
     : 'Почему оставляешь? Одной фразой — человек это увидит.');
-  if(!note) return;
+  if(!why) return;
   card.querySelectorAll('button').forEach(b => b.disabled = true);
   const r = await fetch('/api/dispute_resolve', {method:'POST',
     headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({initData, line: d.line, verdict, note})});
+    body: JSON.stringify({initData, line: d.line, verdict, note: why})});
   const j = await r.json();
   if(!j.ok){
     card.querySelectorAll('button').forEach(b => b.disabled = false);
