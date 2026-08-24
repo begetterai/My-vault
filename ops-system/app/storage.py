@@ -23,6 +23,10 @@ FILL_COLS = ['Дата', 'Точка', 'Кто заполнил', 'Заполн�
 
 PART_RU = {'open': 'открывающая', 'close': 'закрывающая',
            'one': 'одна на день'}
+
+# Ознакомление с регламентом: подпись человека, что документ прочитан.
+# Бумажный лист ознакомления умирает в папке — здесь видно, кто и когда.
+READ_COLS = ['Дата', 'Время', 'Точка', 'Кто', 'Код', 'Документ', 'Ссылка']
 _S = {'v': None}
 
 
@@ -111,7 +115,8 @@ def ensure_structure():
             C.TABS['fixes']: ['Дата', 'Кто', 'Форма', 'Блок', '№', 'Текст пункта',
                               'Что поправить', 'Документ', 'Статус', 'Решение'],
             C.TABS['tasks']: TSK.TASK_COLS,
-            C.TABS['equip']: EQ.EQUIP_COLS}
+            C.TABS['equip']: EQ.EQUIP_COLS,
+            'Ознакомление': READ_COLS}
     for key, cl in C.forms().items():
         cols = F.cols_for(cl)
         if cols:
@@ -149,6 +154,7 @@ def ensure_structure():
 
 # ── команда ──────────────────────────────────────────────────────────────────
 _TEAM = {'ts': None, 'map': {}}
+_READ = {'ts': None, 'rows': []}
 
 
 def team(force=False):
@@ -399,6 +405,35 @@ def save_check(key, line, name, verdict, text=''):
     put(cl['tab'], f'N{line}:P{line}',
         [[name, C.now().strftime('%d.%m %H:%M'),
           text if verdict != 'ok' else '']])
+
+
+def read_rows(force=False):
+    """Лист ознакомлений целиком, с коротким кэшем."""
+    now = datetime.datetime.utcnow()
+    if not force and _READ['ts'] and (now - _READ['ts']).seconds < 60:
+        return _READ['rows']
+    try:
+        rows = get('Ознакомление', 'A2:G')
+    except Exception:
+        rows = []
+    _READ['ts'], _READ['rows'] = now, rows
+    return rows
+
+
+def read_codes(who):
+    """Коды документов, с которыми человек уже ознакомился."""
+    return {r[4].strip() for r in read_rows() if len(r) >= 5 and r[3].strip() == who}
+
+
+def save_read(point, who, code, title, url):
+    """Записать подпись «прочитал и согласился». Повтор не дублируем."""
+    if code in read_codes(who):
+        return False
+    n = C.now()
+    append('Ознакомление', [[n.strftime('%d.%m.%Y'), n.strftime('%H:%M'),
+                             point, who, code, title, url]])
+    _READ['ts'] = None
+    return True
 
 
 def add_member(chat_id, name, point, role, dept=''):

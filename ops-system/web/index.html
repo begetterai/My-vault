@@ -135,6 +135,12 @@
   .badge{display:inline-block;padding:2px 8px;border-radius:99px;font-size:12px;
          font-weight:700;background:var(--wash);color:var(--ink-2);margin-left:6px}
   .badge.warn{background:var(--bad-soft);color:var(--bad)}
+  .docrow{border:1px solid var(--line);border-radius:12px;padding:12px;
+    margin:8px 0;background:var(--card)}
+  .docrow .t{font-weight:600;margin-bottom:8px}
+  .docrow .sub{font-weight:400;font-size:12px;color:var(--ink-2);
+    margin-top:3px}
+  .docrow a.note{display:block;text-align:center;text-decoration:none}
   .gate{position:fixed;inset:0;z-index:30;background:var(--bg);
         display:flex;flex-direction:column;align-items:center;
         justify-content:center;text-align:center;padding:28px 24px}
@@ -534,6 +540,13 @@
     </div>
     </details>
 
+    <details class="blk" id="blkDocs">
+      <summary>Регламенты <span id="docsN" class="badge"></span></summary>
+      <div class="hint">По этим документам с тебя спрашивают. Открой оригинал
+        и подтверди, что прочитал — подпись сохранится.</div>
+      <div class="pick" id="docList"></div>
+    </details>
+
 <details class="blk" id="blkWork" open>
       <summary>Моя работа</summary>
     <h2><span class="steplabel" id="lb3">5</span>Чек-листы</h2>
@@ -689,7 +702,7 @@
   <button class="send" id="send" disabled>Отправить</button>
 </div>
 <script>
-const BUILD = 'v24.08 сквозная';
+const BUILD = 'v24.08 регламенты';
 // Заполняются на старте: скрипт телеграма грузится отложенно, и на момент
 // разбора этой строки window.Telegram может ещё не существовать.
 let tg = null, initData = '';
@@ -899,7 +912,8 @@ async function boot(){
       ['смена', renderShift], ['точка', renderSite],
       ['задачи', renderTasks], ['проверка', renderPending],
       ['журналы', renderJournals], ['бланки', renderForms],
-      ['обучение', renderQuizzes], ['баллы', renderScore],
+      ['обучение', renderQuizzes], ['регламенты', renderDocs],
+      ['баллы', renderScore],
       ['споры', renderDisputes], ['начисления', renderAwards],
       ['черновики', draftSweep], ['шаги', stages],
     ];
@@ -1120,6 +1134,55 @@ function cardBtn(box, item, onclick){
     '<div class="sub">' + item.code + '</div>';
   b.onclick = onclick;
   box.appendChild(b);
+}
+
+/* Регламенты: открыть оригинал и подписаться, что прочитал.
+   Бумажный лист ознакомления умирает в папке — здесь видно, кто и когда. */
+function renderDocs(){
+  const box = $('#docList'), blk = $('#blkDocs');
+  if(!box || !blk) return;
+  const list = DATA.docs || [];
+  box.innerHTML = '';
+  blk.classList.toggle('hidden', !list.length);
+  const left = list.filter(d => !d.read).length;
+  const n = $('#docsN');
+  if(n){
+    n.textContent = left ? left : '';
+    n.classList.toggle('warn', left > 0);
+  }
+  list.forEach(d => {
+    const w = document.createElement('div');
+    w.className = 'docrow';
+    w.innerHTML = '<div class="t">' + (d.read ? '✅ ' : '') + d.title
+      + '<div class="sub">' + d.code + ' · нужен для «' + d.why + '»</div></div>';
+    const a = document.createElement('a');
+    a.className = 'note'; a.href = d.url; a.target = '_blank';
+    a.rel = 'noopener'; a.textContent = '📄 Открыть оригинал';
+    w.appendChild(a);
+    if(!d.read){
+      const b = document.createElement('button');
+      b.className = 'send';
+      b.textContent = 'Прочитал и согласился';
+      b.onclick = async () => {
+        b.disabled = true; b.textContent = 'Сохраняю…';
+        try{
+          const r = await fetch('/api/read', {method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({initData, point, code: d.code})});
+          const j = await r.json();
+          if(!j.ok) throw new Error(j.error || 'не сохранилось');
+          d.read = true;
+          note('Ознакомление записано: ' + d.code + '.', 'good');
+          renderDocs();
+        }catch(e){
+          b.disabled = false; b.textContent = 'Прочитал и согласился';
+          note('Не сохранилось: ' + e.message, 'bad');
+        }
+      };
+      w.appendChild(b);
+    }
+    box.appendChild(w);
+  });
 }
 
 function renderJournals(){

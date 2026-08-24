@@ -116,6 +116,14 @@ def init_payload(who):
          'group': GROUPS.get(st['dept'] or '', 'Прочее')}
         for st in C.stations().values()
         if not dept or not st['dept'] or st['dept'].lower() == (dept or '').lower()]
+    # Регламенты человека: документы, на которые ссылаются его тренинги,
+    # чек-листы, журналы и бланки. Ознакомление — подпись в приложении,
+    # а не строчка в бумажном листе, который никто не перечитывает.
+    try:
+        out['docs'] = my_docs(role, dept, who)
+    except Exception as e:
+        print('регламенты:', e)
+        out['docs'] = []
     out['shift'] = shift_state(who)
     out['geo'] = {p: S.point_geo(p) for p in S.points()}
     # Кому можно сдать смену: свои же на точке. Список нужен всем, а не только
@@ -226,6 +234,46 @@ def init_payload(who):
         print('что сдано:', e)
         out['filled'] = {}
     return out
+
+
+def my_docs(role, dept, who):
+    """Регламенты, к которым человека отсылает его же работа.
+
+    Список не выдуман: он собран из ссылок на документы в тренингах,
+    чек-листах, журналах и бланках, которые человеку открыты. Значит
+    в нём ровно то, по чему с него спрашивают.
+    """
+    seen, out = set(), []
+    for cl in C.visible(role, None, dept, who[1]).values():
+        d = cl.get('doc') or {}
+        code, url = d.get('code', ''), d.get('url', '')
+        if not code or not url or code in seen:
+            continue
+        seen.add(code)
+        out.append({'code': code, 'title': d.get('title', ''), 'url': url,
+                    'why': cl['title']})
+    done = S.read_codes(who[0])
+    for d in out:
+        d['read'] = d['code'] in done
+    return sorted(out, key=lambda x: (x['read'], x['code']))
+
+
+def read_doc(who, body):
+    """Подпись «прочитал и согласился»."""
+    code = str(body.get('code', '')).strip()[:20]
+    if not code:
+        return {'ok': False, 'error': 'не указан документ'}
+    point = pick_point(who, body)
+    role, dept = S.role_of(who), S.dept_of(who)
+    doc = next((d for d in my_docs(role, dept, who) if d['code'] == code), None)
+    if not doc:
+        return {'ok': False, 'error': 'этот регламент тебе не открыт'}
+    try:
+        S.save_read(point, who[0], code, doc['title'], doc['url'])
+    except Exception as e:
+        print('ознакомление:', e)
+        return {'ok': False, 'error': 'не сохранилось, попробуй ещё раз'}
+    return {'ok': True, 'code': code}
 
 
 def handover_notify(kind, day, point, who, to, ok, tot, fails, comment):
@@ -995,6 +1043,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, journal(who, body))
             if p == '/api/form':
                 return self._send(200, blank(who, body))
+            if p == '/api/read':
+                return self._send(200, read_doc(who, body))
             if p == '/api/quiz':
                 return self._send(200, quiz(who, body))
             if p == '/api/points':
