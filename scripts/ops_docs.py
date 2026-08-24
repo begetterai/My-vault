@@ -112,7 +112,16 @@ def find(s, name, parent):
 
 
 def folder_by_name(s, name, parent):
-    return find(s, name, parent)
+    """Папка по имени. Нет такой — падаем громко.
+
+    Молчаливый None приводил к тому, что документ создавался в «Моём диске»
+    вместо своей папки: ссылка работает, документа в системе нет. Поймано
+    24.08.2026 на четырёх документах.
+    """
+    fid = find(s, name, parent)
+    if not fid:
+        raise LookupError(f'нет папки «{name}» — проверь название')
+    return fid
 
 
 def put_doc(s, name, parent, html, replace=True):

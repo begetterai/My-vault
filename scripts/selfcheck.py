@@ -228,6 +228,130 @@ def check_sheet():
     return len(want), len(have)
 
 
+def check_live():
+    """Что выкачено на Railway против того, что лежит в репозитории."""
+    import urllib.request, hashlib
+    url = 'https://my-vault-production-3cf7.up.railway.app/'
+    try:
+        live = urllib.request.urlopen(url, timeout=30).read()
+    except Exception as e:
+        warn.append(f'приложение не ответило: {e}')
+        return '—'
+    local = open(PAGE, 'rb').read()
+    if hashlib.sha256(live).digest() != hashlib.sha256(local).digest():
+        bad.append('на сервере не та версия страницы, что в репозитории — '
+                   'деплой не прошёл или ещё идёт')
+    m = re.search(r"const BUILD = '([^']*)'", live.decode('utf-8'))
+    return m.group(1) if m else '?'
+
+
+def check_drive():
+    """Реестр ↔ Drive: живые ссылки, дубли по коду, документы вне папок."""
+    from ops_docs import session
+    import collections
+    ROOT = '1cSLEkOXikhTv0g6lPxZ31xJca1Yu-q43'
+    REG = '1TzB9gjpJvj_ziBwKdVuOhfKezMVsdXzeLxQMJWz-cQk'
+    T = '00-REF-01 — Реестр документов операций'
+    import urllib.parse
+    s = session()
+    rows = s.get(f'https://sheets.googleapis.com/v4/spreadsheets/{REG}/values/'
+                 + urllib.parse.quote(f"'{T}'!A2:K300"), timeout=60
+                 ).json().get('values', [])
+    link = {}
+    for r in rows:
+        r = list(r) + [''] * 11
+        code = r[0].strip()
+        if not code:
+            continue
+        if 'claude.ai' in r[10]:
+            bad.append(f'{code}: ссылка ведёт на артефакт claude.ai — '
+                       f'его нельзя открыть никому, кроме Азиза')
+            continue
+        m = re.search(r'/d/([A-Za-z0-9_-]{20,})', r[10])
+        if m:
+            link[code] = m.group(1)
+
+    def kids(fid):
+        out, tok = [], None
+        while True:
+            p = {'q': f"'{fid}' in parents and trashed=false", 'pageSize': 200,
+                 'fields': 'nextPageToken,files(id,name,mimeType)',
+                 'supportsAllDrives': 'true', 'includeItemsFromAllDrives': 'true'}
+            if tok:
+                p['pageToken'] = tok
+            r = s.get('https://www.googleapis.com/drive/v3/files',
+                      params=p, timeout=60).json()
+            out += r.get('files', [])
+            tok = r.get('nextPageToken')
+            if not tok:
+                return out
+
+    FOLDER = 'application/vnd.google-apps.folder'
+    infolder = {}
+    for f in kids(ROOT):
+        if f['mimeType'] == FOLDER:
+            for g in kids(f['id']):
+                if g['mimeType'] != FOLDER:
+                    infolder[g['id']] = (f['name'], g['name'])
+        else:
+            infolder[f['id']] = ('(корень)', f['name'])
+
+    for code, fid in link.items():
+        if fid not in infolder:
+            bad.append(f'{code}: документ есть, но лежит вне папок системы')
+
+    rx = re.compile(r'^(\d\d-[A-Z]{2,3}-\d\d)(?!/)')
+    by = collections.defaultdict(list)
+    for fid, (folder, name) in infolder.items():
+        m = rx.match(name)
+        if m:
+            by[m.group(1)].append((fid, name))
+    for code, gs in sorted(by.items()):
+        if len(gs) > 1:
+            extra = [n for i, n in gs if link.get(code) != i]
+            warn.append(f'{code}: на Drive {len(gs)} файла, лишние — '
+                        + '; '.join(x[:44] for x in extra))
+    return len(link), len(infolder)
+
+
+def check_rules_docs():
+    """Баллы: код ↔ документ 01-POL-02 ↔ заметка в базе."""
+    from app import score as SC
+    doc = open('/home/user/My-vault/scripts/docs_01_points.py',
+               encoding='utf-8').read()
+    note = open('/home/user/My-vault/1-Области/Ромашка/'
+                'Баллы-штрафы-механика.md', encoding='utf-8').read()
+    WHERE = {'day_closed': 'Полностью закрытый день',
+             'check_ok': 'Чек-лист подтверждён управляющим',
+             'fill_late': 'Чек-лист сдан позже срока',
+             'item_fail': 'Невыполненный пункт',
+             'mismatch': 'Расхождение',
+             'replace_shift': 'Вышел на замену',
+             'idea_accepted': 'Идея принята',
+             'taught': 'Обучил новичка',
+             'quiz_passed': 'Сдал тренинг',
+             'found_issue': 'Нашёл и записал'}
+
+    def near(src, txt):
+        i = src.find(txt)
+        if i < 0:
+            return None
+        m = re.search(r'[+−-]\s?(\d+)', src[i:i + 220])
+        if not m:
+            return None
+        return int(m.group(1)) * (-1 if ('−' in m.group(0) or '-' in m.group(0))
+                                  else 1)
+
+    for ev, txt in WHERE.items():
+        pts = SC.RULES[ev][0]
+        for what, src in (('01-POL-02', doc), ('заметке', note)):
+            got = near(src, txt)
+            if got is None:
+                warn.append(f'«{txt}» не найдено в {what}')
+            elif got != pts:
+                bad.append(f'«{txt}»: в коде {pts:+}, в {what} {got:+}')
+
+
 def main():
     check_python()
     check_js_functions()
@@ -236,12 +360,21 @@ def main():
     D = check_forms()
     check_score()
     check_time()
+    check_rules_docs()
     try:
         nw, nh = check_sheet()
         sheet = f'{nw} форм ↔ {nh} вкладок'
     except Exception as e:
         sheet = f'не проверено: {e}'
         warn.append(f'таблица не проверена: {e}')
+    build = check_live()
+    try:
+        nl, nf = check_drive()
+        drive = f'{nl} ссылок реестра ↔ {nf} файлов'
+    except Exception as e:
+        drive = f'не проверено: {e}'
+        warn.append(f'Drive не проверен: {e}')
+    print(f'на сервере сборка: {build} · Drive: {drive}')
 
     from app import config as C
     print(f'форм: {len(D)} · чек-листов: {len(C.checklists())} · '
