@@ -372,6 +372,7 @@ def quiz(who, body):
     try:
         F.save_quiz(key, point, who[0], right, len(qs), need, wrong,
                     seconds, attempt)
+        F.quiz_forget()
     except Exception as e:
         print('запись тренинга:', e)
     done = right >= need
