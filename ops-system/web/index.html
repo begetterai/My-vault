@@ -1626,6 +1626,7 @@ function lockedBy(k){
 function renderLists(){
   const box = $('#pickList');
   if(!box || !DATA) return;
+  PART = loadPart();
   const all = DATA.lists || {};
   const saved = loadStation();
   const boss = ['manager', 'coo'].includes(DATA.role);
