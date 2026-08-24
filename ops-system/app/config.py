@@ -118,6 +118,7 @@ def forms():
             for it in b['items']:
                 n += 1
                 it['n'] = n
+                it['part'] = b.get('part', 'all')
         cl['total'] = n
         cl['measures'] = {int(k): v for k, v in (cl.get('measures') or {}).items()}
     return raw
@@ -186,10 +187,26 @@ def form(key):
     return forms()[key]
 
 
-def flat(key):
-    """[(№, блок, текст)]"""
+def flat(key, part=None):
+    """[(№, блок, текст)]. С part — только этапы этой смены."""
     cl = checklists()[key]
-    return [(it['n'], b['name'], it['text']) for b in cl['blocks'] for it in b['items']]
+    return [(it['n'], b['name'], it['text']) for b in cl['blocks']
+            for it in b['items'] if in_part(b.get('part', 'all'), part)]
+
+
+# Смена решает, какие этапы дня её. Открывающая ставит точку на ноги
+# и передаёт; закрывающая принимает и закрывает. Один человек на весь день
+# передавать некому — у него открытие и закрытие без передачи.
+PARTS = {'open': ('open', 'handover', 'all'),
+         'close': ('takeover', 'close', 'all'),
+         'one': ('open', 'close', 'all')}
+
+
+def in_part(block_part, part):
+    """Виден ли этап выбранной смене. Без выбора — виден весь лист."""
+    if not part or part not in PARTS:
+        return True
+    return block_part in PARTS[part]
 
 
 def photo_items(key):

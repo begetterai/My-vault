@@ -2431,18 +2431,79 @@ function renderScore(){
   renderBalLines(s.lines || []);
 }
 
+/* Смена решает, какие этапы дня твои. Открывающая ставит точку на ноги
+   и передаёт, закрывающая принимает и закрывает. Один человек на весь день
+   передавать некому — у него открытие и закрытие без передачи. */
+let PART = null;
+const PARTS = {open: ['open', 'handover', 'all'],
+               close: ['takeover', 'close', 'all'],
+               one: ['open', 'close', 'all']};
+const PART_NAME = {open: 'Открывающая смена', close: 'Закрывающая смена',
+                   one: 'Один на весь день'};
+
+function inPart(p){
+  const allow = PARTS[PART];
+  return !allow || allow.includes(p || 'all');
+}
+function vBlocks(L){ return L.blocks.filter(b => inPart(b.part)); }
+function vMeasures(L){ return L.measures.filter(m => inPart(m.part)); }
+function vPhotos(L){
+  return L.photos.filter(p => inPart(p.part)).slice(0, L.photos_n || 3);
+}
+
+function partKey(k){ return 'romashka.part.' + k; }
+function loadPart(k){
+  try{
+    const o = JSON.parse(localStorage.getItem(partKey(k)) || 'null');
+    if(!o || o.day !== DATA.day || o.point !== point) return null;
+    return o.part;
+  }catch(e){ return null; }
+}
+function savePart(k, p){
+  try{
+    localStorage.setItem(partKey(k),
+      JSON.stringify({part: p, day: DATA.day, point: point}));
+  }catch(e){}
+}
+
+function askPart(k){
+  const f = $('#form'); f.innerHTML = ''; f.classList.remove('hidden');
+  $('#bar').classList.add('hidden'); $('#foot').classList.add('hidden');
+  const h = document.createElement('h2');
+  h.textContent = 'Какая у тебя сегодня смена?'; f.appendChild(h);
+  const hint = document.createElement('div');
+  hint.className = 'hint';
+  hint.textContent = 'От этого зависит, какие этапы дня откроются. '
+    + 'Выбор живёт до конца дня.';
+  f.appendChild(hint);
+  Object.entries(PART_NAME).forEach(([p, name]) => {
+    const b = document.createElement('button');
+    b.className = 'note';
+    b.innerHTML = name + '<small>' + ({
+      open: 'открытие точки и передача смены',
+      close: 'приём смены, закрытие, сдача помещения',
+      one: 'открытие и закрытие — передавать некому'}[p]) + '</small>';
+    b.onclick = () => { savePart(k, p); start(k); };
+    f.appendChild(b);
+  });
+}
+
 function start(k){
   kind = k; started = Date.now(); marks = {}; measures = {}; photos = {}; markTs = [];
   const L = DATA.lists[k];
   $('#pick').classList.add('hidden');
+  PART = L.parted ? loadPart(k) : null;
+  if(L.parted && !PART){ enterScreen(); $('#who').textContent = L.title;
+                         return askPart(k); }
   $('#bar').classList.remove('hidden');
   $('#foot').classList.remove('hidden');
   const pl = (DATA.points || []).find(q => q.code === point);
-  $('#who').textContent = L.title;
+  $('#who').textContent = L.title
+    + (PART ? ' · ' + PART_NAME[PART].toLowerCase() : '');
 
   const f = $('#form'); f.innerHTML = ''; f.classList.remove('hidden');
   enterScreen();
-  L.blocks.forEach(bl => {
+  vBlocks(L).forEach(bl => {
     const h = document.createElement('h2'); h.textContent = bl.name; f.appendChild(h);
     if(bl.doc){
       const d = document.createElement('div'); d.className = 'docline';
@@ -2455,9 +2516,9 @@ function start(k){
     bl.items.forEach(it => f.appendChild(itemRow(it, bl)));
   });
 
-  if(L.measures.length){
+  if(vMeasures(L).length){
     const h = document.createElement('h2'); h.textContent = 'Замеры'; f.appendChild(h);
-    L.measures.forEach(m => {
+    vMeasures(L).forEach(m => {
       const w = document.createElement('div');
       const lim = (m.min != null ? ' min="' + m.min + '"' : '')
                 + (m.max != null ? ' max="' + m.max + '"' : '');
@@ -2490,9 +2551,9 @@ function start(k){
     });
   }
 
-  if(L.photos.length){
+  if(vPhotos(L).length){
     const h = document.createElement('h2'); h.textContent = 'Фото'; f.appendChild(h);
-    L.photos.forEach(p => f.appendChild(photoRow(p)));
+    vPhotos(L).forEach(p => f.appendChild(photoRow(p)));
   }
 
   const h = document.createElement('h2'); h.textContent = 'Итог'; f.appendChild(h);
@@ -2517,7 +2578,7 @@ function start(k){
     const when = mins < 1 ? 'только что' : mins + ' мин назад';
     if(confirm('Есть незаконченный чек-лист: отмечено '
                + Object.keys(d.marks).length + ' пунктов, ' + when + '.'
-               + (L.photos.length ? '\nФото придётся сделать заново.' : '')
+               + (vPhotos(L).length ? '\nФото придётся сделать заново.' : '')
                + '\n\nПродолжить с того места?\nОтмена — начать заново.')){
       draftApply(d);
     } else {
@@ -2621,7 +2682,8 @@ function shrink(file){
    обрыв стирает тридцать отметок, и второй раз человек отмечает не глядя.
    Фото не храним — они тяжёлые и переснять их проще, чем чистить память.  */
 function draftKey(k){
-  return 'romashka_draft_' + k + '_' + (DATA?.day || '') + '_' + point;
+  return 'romashka_draft_' + k + '_' + (DATA?.day || '') + '_' + point
+         + (PART ? '_' + PART : '');
 }
 
 function draftSweep(){
@@ -2678,13 +2740,15 @@ function draftApply(d){
 function paint(){
   const L = DATA.lists[kind];
   draftSave();
-  const total = L.blocks.reduce((s,b) => s + b.items.length, 0);
-  const done = Object.keys(marks).length;
+  const total = vBlocks(L).reduce((s,b) => s + b.items.length, 0);
+  const mine = new Set(vBlocks(L).flatMap(b => b.items.map(i => i.n)));
+  const done = Object.keys(marks).filter(n => mine.has(+n)).length;
   $('#bar').firstElementChild.style.width = (done/total*100) + '%';
-  const fails = Object.entries(marks).filter(([,v]) => !v).length;
+  const fails = Object.entries(marks)
+    .filter(([n,v]) => !v && mine.has(+n)).length;
   const needC = fails > 0;
-  const okM = L.measures.every(m => (measures[m.n] ?? '') !== '');
-  const okP = L.photos.every(p => photos[p.n]);
+  const okM = vMeasures(L).every(m => (measures[m.n] ?? '') !== '');
+  const okP = vPhotos(L).every(p => photos[p.n]);
   const okT = /^\d{1,2}:\d{2}$/.test(($('#time')?.value || '').trim());
   const okC = !needC || ($('#comment')?.value || '').trim().length > 2;
   if($('#chint')){
@@ -2711,7 +2775,7 @@ function paint(){
 async function submit(){
   $('#send').disabled = true; $('#send').textContent = 'Отправляю…';
   const body = {
-    initData, kind, point, marks, measures,
+    initData, kind, point, marks, measures, part: PART,
     photos: Object.entries(photos).map(([n,data]) => ({n:+n, data})),
     time: $('#time').value.trim(),
     comment: $('#comment').value.trim(),

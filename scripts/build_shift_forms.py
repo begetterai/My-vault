@@ -45,31 +45,39 @@ def clean(t):
 
 
 def stages_for(code):
-    """Те же шесть этапов, что в документе."""
+    """Те же шесть этапов, что в документе.
+
+    Третий элемент — чья это часть дня. Открывающая смена отмечает открытие
+    и передачу, закрывающая — приём и закрытие. Работает один человек весь
+    день — отмечает открытие и закрытие, передавать некому.
+    """
     o = M.collect(M.OPEN, code)
     c = M.collect(M.CLOSE, code)
     return [
         ('Этап 1. Открытие смены',
-         [M.OPEN.PERSONAL] + o + [M.equip_block(code, 'на открытии')]),
-        ('Этап 2. Рутина', [M.ROUTINE]),
-        ('Этап 3. Передача смены', [M.GIVE, M.equip_block(code, 'при передаче')]),
-        ('Этап 4. Приём смены', [M.TAKE, M.equip_block(code, 'при приёме'), M.VERDICT]),
-        ('Этап 5. Закрытие смены', c + [M.equip_block(code, 'на закрытии')]),
-        ('Этап 6. Сдача помещения', [M.ROOM]),
+         [M.OPEN.PERSONAL] + o + [M.equip_block(code, 'на открытии')], 'open'),
+        ('Этап 2. Рутина', [M.ROUTINE], 'all'),
+        ('Этап 3. Передача смены',
+         [M.GIVE, M.equip_block(code, 'при передаче')], 'handover'),
+        ('Этап 4. Приём смены',
+         [M.TAKE, M.equip_block(code, 'при приёме'), M.VERDICT], 'takeover'),
+        ('Этап 5. Закрытие смены',
+         c + [M.equip_block(code, 'на закрытии')], 'close'),
+        ('Этап 6. Сдача помещения', [M.ROOM], 'close'),
     ]
 
 
 def build(code, zone, who):
     key, dept, roles, title_who = PLACES[code]
     blocks = []
-    for stage, groups in stages_for(code):
+    for stage, groups, part in stages_for(code):
         items = []
         for name, rows in groups:
             for text, norm, photo in rows:
                 items.append({'text': clean(text), 'norm': norm,
                               'photo': photo == 'фото'})
         if items:
-            blocks.append({'name': stage, 'items': items})
+            blocks.append({'name': stage, 'part': part, 'items': items})
     form = {'title': f'Смена · {zone}', 'code': f'03-CL-01/{code}',
             'type': 'checklist', 'ask_time': 'Во сколько закрыли этап?',
             'deadline': '10:00', 'blocks': blocks}

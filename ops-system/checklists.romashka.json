@@ -3282,7 +3282,8 @@
       "norm": "",
       "photo": false
      }
-    ]
+    ],
+    "part": "open"
    },
    {
     "name": "Этап 2. Рутина",
@@ -3292,7 +3293,8 @@
       "norm": "",
       "photo": false
      }
-    ]
+    ],
+    "part": "all"
    },
    {
     "name": "Этап 3. Передача смены",
@@ -3342,7 +3344,8 @@
       "norm": "",
       "photo": false
      }
-    ]
+    ],
+    "part": "handover"
    },
    {
     "name": "Этап 4. Приём смены",
@@ -3397,7 +3400,8 @@
       "norm": "",
       "photo": false
      }
-    ]
+    ],
+    "part": "takeover"
    },
    {
     "name": "Этап 5. Закрытие смены",
@@ -3462,7 +3466,8 @@
       "norm": "",
       "photo": false
      }
-    ]
+    ],
+    "part": "close"
    },
    {
     "name": "Этап 6. Сдача помещения",
@@ -3482,7 +3487,8 @@
       "norm": "",
       "photo": false
      }
-    ]
+    ],
+    "part": "close"
    }
   ],
   "dept": "кухня"
@@ -3607,7 +3613,8 @@
       "norm": "",
       "photo": false
      }
-    ]
+    ],
+    "part": "open"
    },
    {
     "name": "Этап 2. Рутина",
@@ -3617,7 +3624,8 @@
       "norm": "",
       "photo": false
      }
-    ]
+    ],
+    "part": "all"
    },
    {
     "name": "Этап 3. Передача смены",
@@ -3662,7 +3670,8 @@
       "norm": "",
       "photo": false
      }
-    ]
+    ],
+    "part": "handover"
    },
    {
     "name": "Этап 4. Приём смены",
@@ -3712,7 +3721,8 @@
       "norm": "",
       "photo": false
      }
-    ]
+    ],
+    "part": "takeover"
    },
    {
     "name": "Этап 5. Закрытие смены",
@@ -3772,7 +3782,8 @@
       "norm": "",
       "photo": false
      }
-    ]
+    ],
+    "part": "close"
    },
    {
     "name": "Этап 6. Сдача помещения",
@@ -3792,7 +3803,8 @@
       "norm": "",
       "photo": false
      }
-    ]
+    ],
+    "part": "close"
    }
   ],
   "dept": "кухня"
@@ -3922,7 +3934,8 @@
       "norm": "",
       "photo": false
      }
-    ]
+    ],
+    "part": "open"
    },
    {
     "name": "Этап 2. Рутина",
@@ -3932,7 +3945,8 @@
       "norm": "",
       "photo": false
      }
-    ]
+    ],
+    "part": "all"
    },
    {
     "name": "Этап 3. Передача смены",
@@ -3982,7 +3996,8 @@
       "norm": "",
       "photo": false
      }
-    ]
+    ],
+    "part": "handover"
    },
    {
     "name": "Этап 4. Приём смены",
@@ -4037,7 +4052,8 @@
       "norm": "",
       "photo": false
      }
-    ]
+    ],
+    "part": "takeover"
    },
    {
     "name": "Этап 5. Закрытие смены",
@@ -4117,7 +4133,8 @@
       "norm": "",
       "photo": false
      }
-    ]
+    ],
+    "part": "close"
    },
    {
     "name": "Этап 6. Сдача помещения",
@@ -4137,7 +4154,8 @@
       "norm": "",
       "photo": false
      }
-    ]
+    ],
+    "part": "close"
    }
   ],
   "dept": "кухня"
@@ -4277,7 +4295,8 @@
       "norm": "",
       "photo": false
      }
-    ]
+    ],
+    "part": "open"
    },
    {
     "name": "Этап 2. Рутина",
@@ -4287,7 +4306,8 @@
       "norm": "",
       "photo": false
      }
-    ]
+    ],
+    "part": "all"
    },
    {
     "name": "Этап 3. Передача смены",
@@ -4352,7 +4372,8 @@
       "norm": "",
       "photo": false
      }
-    ]
+    ],
+    "part": "handover"
    },
    {
     "name": "Этап 4. Приём смены",
@@ -4422,7 +4443,8 @@
       "norm": "",
       "photo": false
      }
-    ]
+    ],
+    "part": "takeover"
    },
    {
     "name": "Этап 5. Закрытие смены",
@@ -4502,7 +4524,8 @@
       "norm": "",
       "photo": false
      }
-    ]
+    ],
+    "part": "close"
    },
    {
     "name": "Этап 6. Сдача помещения",
@@ -4522,7 +4545,8 @@
       "norm": "",
       "photo": false
      }
-    ]
+    ],
+    "part": "close"
    }
   ],
   "dept": "кухня"
@@ -4637,7 +4661,8 @@
       "norm": "",
       "photo": false
      }
-    ]
+    ],
+    "part": "open"
    },
    {
     "name": "Этап 2. Рутина",
@@ -4647,7 +4672,8 @@
       "norm": "",
       "photo": false
      }
-    ]
+    ],
+    "part": "all"
    },
    {
     "name": "Этап 3. Передача смены",
@@ -4697,7 +4723,8 @@
       "norm": "",
       "photo": false
      }
-    ]
+    ],
+    "part": "handover"
    },
    {
     "name": "Этап 4. Приём смены",
@@ -4752,7 +4779,8 @@
       "norm": "",
       "photo": false
      }
-    ]
+    ],
+    "part": "takeover"
    },
    {
     "name": "Этап 5. Закрытие смены",
@@ -4832,7 +4860,8 @@
       "norm": "",
       "photo": false
      }
-    ]
+    ],
+    "part": "close"
    },
    {
     "name": "Этап 6. Сдача помещения",
@@ -4852,7 +4881,8 @@
       "norm": "",
       "photo": false
      }
-    ]
+    ],
+    "part": "close"
    }
   ],
   "dept": "кухня",
@@ -4975,7 +5005,8 @@
       "norm": "",
       "photo": false
      }
-    ]
+    ],
+    "part": "open"
    },
    {
     "name": "Этап 2. Рутина",
@@ -4985,7 +5016,8 @@
       "norm": "",
       "photo": false
      }
-    ]
+    ],
+    "part": "all"
    },
    {
     "name": "Этап 3. Передача смены",
@@ -5030,7 +5062,8 @@
       "norm": "",
       "photo": false
      }
-    ]
+    ],
+    "part": "handover"
    },
    {
     "name": "Этап 4. Приём смены",
@@ -5080,7 +5113,8 @@
       "norm": "",
       "photo": false
      }
-    ]
+    ],
+    "part": "takeover"
    },
    {
     "name": "Этап 5. Закрытие смены",
@@ -5145,7 +5179,8 @@
       "norm": "",
       "photo": false
      }
-    ]
+    ],
+    "part": "close"
    },
    {
     "name": "Этап 6. Сдача помещения",
@@ -5165,7 +5200,8 @@
       "norm": "",
       "photo": false
      }
-    ]
+    ],
+    "part": "close"
    }
   ],
   "dept": "цех"
@@ -5275,7 +5311,8 @@
       "norm": "",
       "photo": false
      }
-    ]
+    ],
+    "part": "open"
    },
    {
     "name": "Этап 2. Рутина",
@@ -5285,7 +5322,8 @@
       "norm": "",
       "photo": false
      }
-    ]
+    ],
+    "part": "all"
    },
    {
     "name": "Этап 3. Передача смены",
@@ -5330,7 +5368,8 @@
       "norm": "",
       "photo": false
      }
-    ]
+    ],
+    "part": "handover"
    },
    {
     "name": "Этап 4. Приём смены",
@@ -5380,7 +5419,8 @@
       "norm": "",
       "photo": false
      }
-    ]
+    ],
+    "part": "takeover"
    },
    {
     "name": "Этап 5. Закрытие смены",
@@ -5440,7 +5480,8 @@
       "norm": "",
       "photo": false
      }
-    ]
+    ],
+    "part": "close"
    },
    {
     "name": "Этап 6. Сдача помещения",
@@ -5460,7 +5501,8 @@
       "norm": "",
       "photo": false
      }
-    ]
+    ],
+    "part": "close"
    }
   ],
   "dept": "цех"
@@ -5575,7 +5617,8 @@
       "norm": "",
       "photo": false
      }
-    ]
+    ],
+    "part": "open"
    },
    {
     "name": "Этап 2. Рутина",
@@ -5585,7 +5628,8 @@
       "norm": "",
       "photo": false
      }
-    ]
+    ],
+    "part": "all"
    },
    {
     "name": "Этап 3. Передача смены",
@@ -5630,7 +5674,8 @@
       "norm": "",
       "photo": false
      }
-    ]
+    ],
+    "part": "handover"
    },
    {
     "name": "Этап 4. Приём смены",
@@ -5680,7 +5725,8 @@
       "norm": "",
       "photo": false
      }
-    ]
+    ],
+    "part": "takeover"
    },
    {
     "name": "Этап 5. Закрытие смены",
@@ -5735,7 +5781,8 @@
       "norm": "",
       "photo": false
      }
-    ]
+    ],
+    "part": "close"
    },
    {
     "name": "Этап 6. Сдача помещения",
@@ -5755,7 +5802,8 @@
       "norm": "",
       "photo": false
      }
-    ]
+    ],
+    "part": "close"
    }
   ],
   "dept": "цех"
@@ -5890,7 +5938,8 @@
       "norm": "",
       "photo": false
      }
-    ]
+    ],
+    "part": "open"
    },
    {
     "name": "Этап 2. Рутина",
@@ -5900,7 +5949,8 @@
       "norm": "",
       "photo": false
      }
-    ]
+    ],
+    "part": "all"
    },
    {
     "name": "Этап 3. Передача смены",
@@ -5970,7 +6020,8 @@
       "norm": "",
       "photo": false
      }
-    ]
+    ],
+    "part": "handover"
    },
    {
     "name": "Этап 4. Приём смены",
@@ -6045,7 +6096,8 @@
       "norm": "",
       "photo": false
      }
-    ]
+    ],
+    "part": "takeover"
    },
    {
     "name": "Этап 5. Закрытие смены",
@@ -6170,7 +6222,8 @@
       "norm": "",
       "photo": false
      }
-    ]
+    ],
+    "part": "close"
    },
    {
     "name": "Этап 6. Сдача помещения",
@@ -6190,7 +6243,8 @@
       "norm": "",
       "photo": false
      }
-    ]
+    ],
+    "part": "close"
    }
   ],
   "dept": "бар"
@@ -6350,7 +6404,8 @@
       "norm": "",
       "photo": false
      }
-    ]
+    ],
+    "part": "open"
    },
    {
     "name": "Этап 2. Рутина",
@@ -6360,7 +6415,8 @@
       "norm": "",
       "photo": false
      }
-    ]
+    ],
+    "part": "all"
    },
    {
     "name": "Этап 3. Передача смены",
@@ -6425,7 +6481,8 @@
       "norm": "",
       "photo": false
      }
-    ]
+    ],
+    "part": "handover"
    },
    {
     "name": "Этап 4. Приём смены",
@@ -6495,7 +6552,8 @@
       "norm": "",
       "photo": false
      }
-    ]
+    ],
+    "part": "takeover"
    },
    {
     "name": "Этап 5. Закрытие смены",
@@ -6625,7 +6683,8 @@
       "norm": "",
       "photo": false
      }
-    ]
+    ],
+    "part": "close"
    },
    {
     "name": "Этап 6. Сдача помещения",
@@ -6645,7 +6704,8 @@
       "norm": "",
       "photo": false
      }
-    ]
+    ],
+    "part": "close"
    }
   ],
   "dept": "касса"
@@ -6785,7 +6845,8 @@
       "norm": "",
       "photo": false
      }
-    ]
+    ],
+    "part": "open"
    },
    {
     "name": "Этап 2. Рутина",
@@ -6795,7 +6856,8 @@
       "norm": "",
       "photo": false
      }
-    ]
+    ],
+    "part": "all"
    },
    {
     "name": "Этап 3. Передача смены",
@@ -6840,7 +6902,8 @@
       "norm": "",
       "photo": false
      }
-    ]
+    ],
+    "part": "handover"
    },
    {
     "name": "Этап 4. Приём смены",
@@ -6890,7 +6953,8 @@
       "norm": "",
       "photo": false
      }
-    ]
+    ],
+    "part": "takeover"
    },
    {
     "name": "Этап 5. Закрытие смены",
@@ -6955,7 +7019,8 @@
       "norm": "",
       "photo": false
      }
-    ]
+    ],
+    "part": "close"
    },
    {
     "name": "Этап 6. Сдача помещения",
@@ -6975,7 +7040,8 @@
       "norm": "",
       "photo": false
      }
-    ]
+    ],
+    "part": "close"
    }
   ],
   "dept": "зал"
@@ -7060,7 +7126,8 @@
       "norm": "",
       "photo": false
      }
-    ]
+    ],
+    "part": "open"
    },
    {
     "name": "Этап 2. Рутина",
@@ -7070,7 +7137,8 @@
       "norm": "",
       "photo": false
      }
-    ]
+    ],
+    "part": "all"
    },
    {
     "name": "Этап 3. Передача смены",
@@ -7120,7 +7188,8 @@
       "norm": "",
       "photo": false
      }
-    ]
+    ],
+    "part": "handover"
    },
    {
     "name": "Этап 4. Приём смены",
@@ -7175,7 +7244,8 @@
       "norm": "",
       "photo": false
      }
-    ]
+    ],
+    "part": "takeover"
    },
    {
     "name": "Этап 5. Закрытие смены",
@@ -7250,7 +7320,8 @@
       "norm": "",
       "photo": false
      }
-    ]
+    ],
+    "part": "close"
    },
    {
     "name": "Этап 6. Сдача помещения",
@@ -7270,7 +7341,8 @@
       "norm": "",
       "photo": false
      }
-    ]
+    ],
+    "part": "close"
    }
   ],
   "roles": [

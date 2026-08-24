@@ -201,17 +201,28 @@ def init_payload(who):
     for key, cl in (C.for_role(role, dept, who[1]).items() if not left else []):
         photos = C.photo_items(key)
         random.shuffle(photos)
+        # Этап дня по номеру пункта: замеры и фото прячутся вместе со своим
+        # этапом, иначе закрывающая смена ждёт снимок с открытия.
+        pmap = {it['n']: it.get('part', 'all')
+                for b in cl['blocks'] for it in b['items']}
         out['lists'][key] = {
             'title': cl['title'], 'code': cl['code'], 'ask_time': cl['ask_time'],
             'deadline': cl.get('deadline', ''),
-            'blocks': [{'name': b['name'], 'doc': b.get('doc'), 'items': [
+            'parted': any(p != 'all' for p in pmap.values()),
+            'blocks': [{'name': b['name'], 'doc': b.get('doc'),
+                        'part': b.get('part', 'all'), 'items': [
                 {'n': it['n'], 'text': it['text'], 'norm': it.get('norm', '')}
                 for it in b['items']]} for b in cl['blocks']],
             'measures': [{'n': n, 'q': m['q'], 'norm': m['norm'], 'unit': m['unit'],
                           'min': m.get('min'), 'max': m.get('max'),
-                          'ok_min': m.get('ok_min'), 'ok_max': m.get('ok_max')}
+                          'ok_min': m.get('ok_min'), 'ok_max': m.get('ok_max'),
+                          'part': pmap.get(n, 'all')}
                          for n, m in cl['measures'].items()],
-            'photos': [{'n': n, 'text': t} for n, t in photos[:C.PHOTOS_PER_RUN]],
+            # Отдаём все и режем на клиенте: снимки выбираются уже внутри
+            # своего этапа, иначе смене достанется список из чужой половины дня.
+            'photos_n': C.PHOTOS_PER_RUN,
+            'photos': [{'n': n, 'text': t, 'part': pmap.get(n, 'all')}
+                       for n, t in photos],
         }
     return out
 
@@ -469,9 +480,11 @@ def submit(who, body):
     sec = float(body.get('seconds') or 0)
     tempo = BOT.tempo(body.get('marks_ts') or [])
     comment = str(body.get('comment', ''))[:300]
-    dup = S.already_filled(kind, day, point)
+    part = str(body.get('part') or '') or None
+    dup = S.already_filled(kind, day, point, part)
     ok, tot, fails, line = S.save_fill(
-        kind, day, point, who[0], marks, measured, photos, hhmm, comment, sec)
+        kind, day, point, who[0], marks, measured, photos, hhmm, comment, sec,
+        part)
     st = {'kind': kind, 'day': day, 'point': point, 'who': who[0]}
     try:
         fast = sec < C.MIN_SECONDS or (tempo is not None and tempo < C.MIN_GAP)

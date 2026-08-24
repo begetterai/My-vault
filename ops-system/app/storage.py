@@ -19,7 +19,10 @@ FILL_COLS = ['Дата', 'Точка', 'Кто заполнил', 'Заполн�
              'Выполнено', 'Всего', '%', 'Не выполнены пункты', 'Комментарий',
              'Замеры', 'Фото', 'Минут на заполнение',
              'Проверил', 'Когда проверил', 'Расхождение при проверке',
-             'Фото — проверка ИИ']
+             'Фото — проверка ИИ', 'Смена']
+
+PART_RU = {'open': 'открывающая', 'close': 'закрывающая',
+           'one': 'одна на день'}
 _S = {'v': None}
 
 
@@ -120,6 +123,14 @@ def ensure_structure():
     add = [{'addSheet': {'properties': {'title': t, 'gridProperties': {
         'rowCount': 2000, 'columnCount': max(len(h), 8), 'frozenRowCount': 1}}}}
         for t, h in want.items() if t not in have]
+    # Колонку добавили в шапку — вкладка должна стать шире, иначе запись
+    # упрётся в границу сетки и строка не сохранится.
+    for t, h in want.items():
+        p = have.get(t)
+        if p and p['gridProperties'].get('columnCount', 0) < len(h):
+            add.append({'appendDimension': {
+                'sheetId': p['sheetId'], 'dimension': 'COLUMNS',
+                'length': len(h) - p['gridProperties']['columnCount']}})
     if add:
         s.post(B + C.DATA_SHEET + ':batchUpdate', json={'requests': add}, timeout=60
                ).raise_for_status()
@@ -329,29 +340,38 @@ def save_photo_data_url(url, name):
 
 
 # ── запись заполнения ────────────────────────────────────────────────────────
-def already_filled(key, day, point):
-    """Кто и во сколько уже заполнял этот чек-лист сегодня на этой точке."""
+def already_filled(key, day, point, part=None):
+    """Кто и во сколько уже заполнял этот лист сегодня на этой точке.
+
+    Смена важна: на ЗБ их две, и лист закрывающей — не повтор листа
+    открывающей. Без part отвечаем по любой смене.
+    """
     cl = C.checklists()[key]
-    for r in get(cl['tab'], 'A2:D'):
-        if len(r) >= 4 and str(r[0]).strip() == day and str(r[1]).strip() == point:
-            return f'{r[2]} в {r[3]}'
+    for r in get(cl['tab'], 'A2:R'):
+        if len(r) < 4 or str(r[0]).strip() != day or str(r[1]).strip() != point:
+            continue
+        if part and str(r[17] if len(r) > 17 else '').strip() != PART_RU.get(part, ''):
+            continue
+        return f'{r[2]} в {r[3]}'
     return None
 
 
 def save_fill(key, day, point, who, marks, measured, photos, time_s,
-              comment, seconds):
+              comment, seconds, part=None):
     """→ (выполнено, всего, [№ невыполненных], номер строки)"""
     cl = C.checklists()[key]
     names = {n: (b, t) for n, b, t in C.flat(key)}
-    fails = sorted(n for n, v in marks.items() if not v)
-    tot = cl['total']
+    mine = {n for n, _, _ in C.flat(key, part)}
+    fails = sorted(n for n, v in marks.items() if not v and n in mine)
+    tot = len(mine)
     ok = tot - len(fails)
     meas = '; '.join(f'{cl["measures"][n]["q"]}: {v}' for n, v in measured.items()
                      if n in cl['measures'])
     row = [day, point, who, C.now().strftime('%H:%M'), time_s,
            ok, tot, round(ok / tot, 4) if tot else 0,
            ', '.join(str(n) for n in fails) if fails else '—', comment,
-           meas, ' '.join(photos), round(seconds / 60, 1)]
+           meas, ' '.join(photos), round(seconds / 60, 1),
+           '', '', '', '', PART_RU.get(part, '')]
     line = append(cl['tab'], [row])
     if fails:
         append(C.TABS['fails'], [[day, point, who, cl['title'], n,
