@@ -690,7 +690,7 @@
   <button class="send" id="send" disabled>Отправить</button>
 </div>
 <script>
-const BUILD = 'v24.08 баллы-2';
+const BUILD = 'v24.08 чисто';
 // Заполняются на старте: скрипт телеграма грузится отложенно, и на момент
 // разбора этой строки window.Telegram может ещё не существовать.
 let tg = null, initData = '';
@@ -2247,19 +2247,6 @@ function faultBox(x){
     row.appendChild(seg); box.appendChild(row);
   });
   return box;
-}
-
-async function sendFail(x, what, btn){
-  btn.disabled = true;
-  const r = await fetch('/api/task', {method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({initData, create: true, point: x.point, what,
-                          why: x.title + ', заполнял ' + x.who})});
-  const j = await r.json();
-  btn.disabled = false;
-  if(!j.ok) return note(j.error || 'Не записалось. Попробуй ещё раз.', 'err');
-  btn.textContent = '✓ Задача заведена';
-  tg?.HapticFeedback?.notificationOccurred?.('success');
 }
 
 async function sendCheck(x, verdict, note, card){
