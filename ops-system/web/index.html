@@ -1484,7 +1484,13 @@ function qResult(res){
     const done = document.createElement('button');
     done.className = 'send'; done.style.marginTop = '16px';
     done.textContent = 'Готово';
-    done.onclick = goHome;
+    // После сдачи перечитываем данные с сервера: допуск к чек-листам
+    // считается там, а не в браузере. Без этого человек сдал последний
+    // тренинг, вернулся на главный — и всё ещё «сначала обучение».
+    done.onclick = async () => {
+      goHome();
+      if(res.passed){ try{ await boot(); }catch(e){} }
+    };
     f.appendChild(done);
   }
   qBack(f, res.passed ? '◀ На главную' : '◀ Выйти');
