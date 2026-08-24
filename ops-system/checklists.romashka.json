@@ -3353,9 +3353,9 @@
   "minutes": 6,
   "pass": 5,
   "doc": {
-   "code": "09-POL-01",
-   "title": "Экономия электроэнергии и климат-контроль",
-   "url": "https://docs.google.com/document/d/1d6RK8mP_UomRAhj5tP33ENANaOCRM0sO0mh6d6xwDLI"
+   "code": "09-SOP-02",
+   "title": "Вентиляция: вытяжка и приток",
+   "url": "https://docs.google.com/document/d/1BkIcsQjHIMRCtlAoqfzvkM1R869-OnHPAU7fpG7eHFQ"
   },
   "intro": [
    {
@@ -3648,7 +3648,7 @@
   "doc": {
    "code": "05-SOP-02",
    "title": "Закупка на базаре",
-   "url": ""
+   "url": "https://docs.google.com/document/d/1SxB7ITYMi3NdPRul3Epveq7WU2dqSnySXCdPM_4lKx0"
   },
   "intro": [
    {
