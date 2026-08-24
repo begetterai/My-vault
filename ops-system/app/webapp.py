@@ -106,6 +106,17 @@ def init_payload(who):
     out['training_left'] = left
     if left:
         out['journals'], out['forms'] = [], []
+    # Рабочие места смены — фиксированный список, один на человека.
+    # Отдаём всем: выбор станции определяет, какой лист откроется,
+    # а не наоборот. Без этого человек видит чужие станции и гадает.
+    GROUPS = {'кухня': 'Кухня', 'цех': 'Цех', 'бар': 'Бар',
+              'касса': 'Касса', 'зал': 'Зал'}
+    out['stations'] = [
+        {'key': k, 'title': cl['title'].replace('Смена · ', ''),
+         'group': GROUPS.get((cl.get('dept') or ''), 'Прочее'),
+         'code': cl.get('code', '')}
+        for k, cl in C.checklists().items()
+        if k.startswith('shift_') and k not in ('shift_upr', 'shift_ssk')]
     out['shift'] = shift_state(who)
     out['geo'] = {p: S.point_geo(p) for p in S.points()}
     if role in ('manager', 'coo'):

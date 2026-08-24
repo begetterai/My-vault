@@ -414,6 +414,17 @@
 .toast.good{background:var(--ok-soft);border-color:var(--ok);color:var(--ok)}
 .toast.err{background:var(--bad-soft);border-color:var(--bad);color:var(--bad)}
 .toast.warn{background:var(--wash);border-color:var(--brand-2)}
+
+/* Рабочие места — сетка в две колонки. Горизонтальной лентой они уезжали
+   за край экрана, и половину было не видно. */
+.stgrid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:4px}
+.stgrid .st{text-align:left;padding:12px;border-radius:12px;
+     border:1.5px solid var(--line);background:var(--card);color:var(--ink);
+     font-size:14px;font-weight:600;line-height:1.25;cursor:pointer}
+.stgrid .st .sub{display:block;font-size:11.5px;font-weight:500;
+     color:var(--ink-2);margin-top:3px}
+.stgrid .st[aria-pressed="true"]{border-color:var(--brand);
+     background:var(--wash);color:var(--brand-2)}
 </style>
 </head>
 <body>
@@ -477,7 +488,7 @@
 
     <div id="stationBox" class="hidden">
       <h2><span class="steplabel" id="lb25">3</span>Рабочее место</h2>
-      <div class="seg wrap" id="stationSeg"></div>
+      <div class="stgrid" id="stationSeg"></div>
       <div class="hint" id="stationHint">Выбери, где сегодня работаешь —
         откроются чек-листы и документы этого места.</div>
     </div>
@@ -888,22 +899,23 @@ function stages(){
   // Одна точка — выбирать нечего, шаг считается пройденным сразу.
   // Руководителя выбор точки тоже не держит: он входит смотреть обе,
   // а точку выбирает потом, чтобы уточнить картину.
-  // Выбор точки — первый шаг для всех, кроме директора: он работает
-  // по обеим и уточняет точку потом, а не входит через неё.
-  if(!many || DATA.role === 'coo') pointOK = true;
+  // Одна точка — выбирать нечего. Во всех остальных случаях порядок строгий
+  // для всех: без точки не откроется приход, без прихода — рабочее место,
+  // без места — чек-листы. Иначе отметки повисают в воздухе.
+  if(!many) pointOK = true;
   const sh = DATA.shift || {};
   const came = !!sh.in;
   // Руководитель работает по обеим точкам и проверяет смену из дома —
   // для него отметка прихода не запирает остальное.
-  const strict = DATA.role === 'staff';
-  const openRest = pointOK && (came || !strict);
+  const openStation = pointOK && came;
+  const stationOK = !!loadStation() || !(DATA.stations || []).length;
+  const openRest = openStation && stationOK;
 
   mark('#lb1', pointOK ? 'done' : 'now');
   mark('#lb2', came ? 'done' : (pointOK ? 'now' : 'wait'));
-  mark('#lb25', openRest ? 'now' : 'wait');
+  mark('#lb25', stationOK ? 'done' : (openStation ? 'now' : 'wait'));
   mark('#lb3', openRest ? 'now' : 'wait');
-  $('#stationBox').classList.toggle('hidden',
-    !openRest || Object.keys(DATA.lists || {}).length <= 1);
+  $('#stationBox').classList.toggle('hidden', !openStation);
   $('#shiftCard').classList.toggle('locked', !pointOK);
   $('#shiftHead').classList.toggle('locked', !pointOK);
   $('#rest').classList.toggle('locked', !openRest);
@@ -911,9 +923,9 @@ function stages(){
 
   if(!pointOK){
     $('#shiftHint').textContent = 'Сначала выбери заведение.';
-  } else if(!came && strict){
+  } else if(!came){
     $('#shiftHint').textContent =
-      'Отметь приход — после этого откроются чек-листы и остальное.';
+      'Отметь приход — после этого выберешь рабочее место.';
   } else {
     $('#shiftHint').textContent =
       'Отметка ставит время, подтверждает место и фиксирует, что пришёл ты.';
@@ -977,8 +989,11 @@ async function mark2(direction){
   tg?.HapticFeedback?.notificationOccurred?.('success');
 }
 const selfieInput = document.createElement('input');
-selfieInput.type = 'file'; selfieInput.accept = 'image/*';
-selfieInput.capture = 'user';          // фронтальная камера
+selfieInput.type = 'file';
+// capture работает только как HTML-атрибут: заданный свойством, он молча
+// игнорируется, и вместо камеры открывается галерея. Ровно это и было.
+selfieInput.setAttribute('accept', 'image/*');
+selfieInput.setAttribute('capture', 'user');   // фронтальная камера
 selfieInput.style.display = 'none';
 document.body.appendChild(selfieInput);
 selfieInput.onchange = async () => {
@@ -1057,7 +1072,10 @@ function openJournal(j){
   ph.className = 'photo';
   ph.innerHTML = '<div><b>Фото</b></div><div class="hint">Если есть что показать</div>';
   const inp = document.createElement('input');
-  inp.type='file'; inp.accept='image/*'; inp.capture='environment'; inp.style.display='none';
+  inp.type='file';
+  inp.setAttribute('accept', 'image/*');
+  inp.setAttribute('capture', 'environment');   // основная камера
+  inp.style.display='none';
   const lab = document.createElement('span');
   lab.className='shoot'; lab.textContent='📷 Сфотографировать';
   lab.onclick = () => inp.click();
@@ -1167,7 +1185,10 @@ function openForm(cl){
   ph.innerHTML = '<div><b>Фото' + (cl.photo_required ? ' — обязательно' : '') + '</b></div>'
     + '<div class="hint">Снимок листа или позиций</div>';
   const inp = document.createElement('input');
-  inp.type='file'; inp.accept='image/*'; inp.capture='environment'; inp.style.display='none';
+  inp.type='file';
+  inp.setAttribute('accept', 'image/*');
+  inp.setAttribute('capture', 'environment');   // основная камера
+  inp.style.display='none';
   const lab = document.createElement('span'); lab.className='shoot';
   lab.textContent='📷 Сфотографировать'; lab.onclick=()=>inp.click();
   const img = document.createElement('img'); img.className='hidden';
@@ -1456,11 +1477,6 @@ function fillMe(){
 let STATION = null;
 const STATION_KEY = 'romashka.station';
 
-function stationList(){
-  const all = DATA.lists || {};
-  return Object.entries(all).map(([k, v]) => ({key: k, title: v.title}));
-}
-
 function loadStation(){
   try{
     const raw = localStorage.getItem(STATION_KEY);
@@ -1481,63 +1497,27 @@ function saveStation(k){
 function renderStations(){
   const box = $('#stationSeg');
   if(!box) return;
-  const list = stationList();
+  const list = DATA.stations || [];
   box.innerHTML = '';
-  // Одно место — выбирать нечего, оно и есть рабочее.
-  if(list.length <= 1){
-    STATION = list.length ? list[0].title : null;
-    $('#stationBox').classList.add('hidden');
-    return;
-  }
-  $('#stationBox').classList.remove('hidden');
+  if(!list.length){ $('#stationBox').classList.add('hidden'); return; }
   const saved = loadStation();
   list.forEach(x => {
     const b = document.createElement('button');
-    b.textContent = x.title.replace(/^Смена · /, '');
+    b.className = 'st';
+    b.innerHTML = x.title + '<span class="sub">' + x.group + '</span>';
     b.setAttribute('aria-pressed', String(x.key === saved));
     b.onclick = () => {
       saveStation(x.key);
       STATION = x.title;
       [...box.children].forEach(c =>
         c.setAttribute('aria-pressed', String(c === b)));
-      renderLists();
-      fillMe();
+      renderLists(); fillMe(); stages();
       tg?.HapticFeedback?.selectionChanged?.();
     };
     box.appendChild(b);
   });
-  if(saved && list.some(x => x.key === saved)){
-    STATION = (list.find(x => x.key === saved) || {}).title;
-  }
-}
-
-
-/* Список чек-листов. Если выбрано рабочее место — показываем только его лист:
-   человек на фритюре не должен видеть четыре станции и гадать, какая его. */
-function renderLists(){
-  const box = $('#pickList');
-  if(!box || !DATA) return;
-  const all = DATA.lists || {};
-  const saved = loadStation();
-  const keys = Object.keys(all);
-  const show = (saved && all[saved]) ? [saved] : keys;
-  [...box.querySelectorAll('button.big')].forEach(x => x.remove());
-  show.forEach(k => {
-    const b = document.createElement('button');
-    b.className = 'big';
-    const dl = all[k].deadline ? ' · до ' + all[k].deadline : '';
-    b.innerHTML = all[k].title + '<div class="sub">' + all[k].code + dl + '</div>';
-    b.onclick = () => start(k);
-    box.appendChild(b);
-  });
-  if(saved && all[saved] && keys.length > 1){
-    const d = document.createElement('div');
-    d.className = 'hint';
-    d.style.marginTop = '8px';
-    d.textContent = 'Показан лист выбранного места. Сменить — в разделе '
-      + '«Рабочее место» выше.';
-    box.appendChild(d);
-  }
+  const cur = list.find(x => x.key === saved);
+  STATION = cur ? cur.title : null;
 }
 
 function tidyBlocks(){
