@@ -54,8 +54,20 @@ def say(chat_id, text, **kw):
 
 
 def admin(text):
+    """Сообщение директору. Нет ADMIN_CHAT — шлём тем, у кого роль директора.
+
+    Без запасного адреса такие сообщения исчезали бесследно: «некому передать
+    смену», «замер вне нормы», «идея с точки» уходили в пустоту, и никто
+    об этом не узнавал.
+    """
     if C.ADMIN_CHAT:
-        say(C.ADMIN_CHAT, text)
+        return say(C.ADMIN_CHAT, text)
+    try:
+        for cid, v in S.team().items():
+            if S.role_of(v) == 'coo':
+                say(cid, text)
+    except Exception as e:
+        print('сообщение директору:', e)
 
 
 # ── проверки ввода ───────────────────────────────────────────────────────────
