@@ -425,6 +425,15 @@
      color:var(--ink-2);margin-top:3px}
 .stgrid .st[aria-pressed="true"]{border-color:var(--brand);
      background:var(--wash);color:var(--brand-2)}
+
+/* Заголовок группы внутри списка: отделяет ежедневное от событийного,
+   не заводя ещё один сворачиваемый блок. */
+.grouphead{display:flex;align-items:baseline;justify-content:space-between;
+     gap:8px;margin:14px 0 6px;font-size:13px;font-weight:700;
+     text-transform:uppercase;letter-spacing:.04em;color:var(--ink-2)}
+.grouphead:first-child{margin-top:2px}
+.grouphead span{font-size:11.5px;font-weight:500;text-transform:none;
+     letter-spacing:0;color:var(--ink-2);opacity:.75}
 </style>
 </head>
 <body>
@@ -1509,14 +1518,33 @@ function renderLists(){
   const show = saved ? [saved].concat(keys.filter(k => k !== saved)) : keys;
   [...box.querySelectorAll('button.big')].forEach(x => x.remove());
   [...box.querySelectorAll('.msg.warn')].forEach(x => x.remove());
-  show.filter(k => all[k]).forEach(k => {
+  [...box.querySelectorAll('.grouphead')].forEach(x => x.remove());
+
+  // Ежедневное и событийное — разные вещи. Первое ждут сегодня и считают
+  // по нему процент; второе открывают, когда случилось: пришёл кандидат,
+  // вышел новичок, приехал тайный гость. В одном списке они мешают друг другу.
+  const live = show.filter(k => all[k] && all[k].deadline);
+  const rare = show.filter(k => all[k] && !all[k].deadline);
+  const add = (k) => {
     const b = document.createElement('button');
     b.className = 'big';
     const dl = all[k].deadline ? ' · до ' + all[k].deadline : '';
     b.innerHTML = all[k].title + '<div class="sub">' + all[k].code + dl + '</div>';
     b.onclick = () => start(k);
     box.appendChild(b);
-  });
+  };
+  const head = (t, sub) => {
+    const d = document.createElement('div');
+    d.className = 'grouphead';
+    d.innerHTML = t + (sub ? '<span>' + sub + '</span>' : '');
+    box.appendChild(d);
+  };
+  if(live.length && rare.length) head('Сегодня', 'ждут каждый день');
+  live.forEach(add);
+  if(rare.length){
+    if(live.length) head('По необходимости', 'когда случилось');
+    rare.forEach(add);
+  }
   // Место выбрано, а листа для него нет: человек стоит на станции, чек-лист
   // которой ему не открыт. Молчать нельзя — решит, что всё сдал.
   if(saved && !all[saved]){
