@@ -2321,9 +2321,9 @@
   "minutes": 7,
   "pass": 5,
   "doc": {
-   "code": "05-EDU-02",
-   "title": "Тренинг: списания",
-   "url": ""
+   "code": "05-SOP-04",
+   "title": "Списания",
+   "url": "https://docs.google.com/document/d/1DeB_WnSIyjUH-OwGTGdr4xR2IFRITMLgwfV36lKjL2s"
   },
   "intro": [
    {
@@ -2427,7 +2427,7 @@
   "doc": {
    "code": "02-POL-03",
    "title": "Внешний вид и личная гигиена",
-   "url": ""
+   "url": "https://docs.google.com/document/d/1qQzXUAzZgaR0PH2Epnkv-GHd0NsMTcDuh1zw1S_3z1A"
   },
   "intro": [
    {
@@ -2534,7 +2534,7 @@
   "doc": {
    "code": "03-SOP-03",
    "title": "Кассовая дисциплина и инкассация",
-   "url": ""
+   "url": "https://docs.google.com/document/d/1jAI4suCQ5EyjfeiWLnzzItI2opACDKEfAZuYOl7Z3zA"
   },
   "intro": [
    {
@@ -2643,7 +2643,7 @@
   "doc": {
    "code": "04-POL-01",
    "title": "Маркировка и сроки годности",
-   "url": ""
+   "url": "https://docs.google.com/document/d/13hkUMfYUpA84vsO44oyacJ02WNjO3zal8tcvwPOsjh0"
   },
   "intro": [
    {
@@ -2741,9 +2741,9 @@
   "minutes": 6,
   "pass": 5,
   "doc": {
-   "code": "01-POL-02",
-   "title": "Баллы: надбавки и удержания",
-   "url": ""
+   "code": "00-REF-04",
+   "title": "Памятка: как работать в приложении",
+   "url": "https://docs.google.com/document/d/18aYZcNNCmLY2UT_YYqxoq5jPIqJe9XNWfgxiDUIBckQ"
   },
   "intro": [
    {
@@ -2851,7 +2851,7 @@
   "doc": {
    "code": "05-SOP-01",
    "title": "Приём поставки",
-   "url": ""
+   "url": "https://docs.google.com/document/d/17Rl_n-OqXLDEhEAwCifqG-u7az7EdbyGFcxaej9B-yU"
   },
   "intro": [
    {
@@ -2958,8 +2958,8 @@
   "pass": 5,
   "doc": {
    "code": "04-POL-03",
-   "title": "Mise en place",
-   "url": ""
+   "title": "Mise en place — подготовка станции к сервису",
+   "url": "https://docs.google.com/document/d/1TxnyOHypXtl1uDWBQx8QmbuSSJ2_HC-nw1Og1kxMoaQ"
   },
   "intro": [
    {
@@ -3064,7 +3064,7 @@
   "doc": {
    "code": "07-LOG-02",
    "title": "Жалоба гостя",
-   "url": ""
+   "url": "https://docs.google.com/document/d/1wkWOQt-EilhjCSboVbAWH7T2ycHKXmrmNw3Ekd7lTDA"
   },
   "intro": [
    {
@@ -3166,9 +3166,9 @@
   "minutes": 6,
   "pass": 5,
   "doc": {
-   "code": "03-EDU-01",
-   "title": "Сдача и приём смены",
-   "url": ""
+   "code": "03-SOP-01",
+   "title": "Передача смены",
+   "url": "https://docs.google.com/document/d/1is3kBXPNa6Mc2Pz6AYAS7p3QmVdWtFxybHAaprvJ0sE"
   },
   "intro": [
    {
@@ -3258,9 +3258,9 @@
   "minutes": 6,
   "pass": 5,
   "doc": {
-   "code": "04-EDU-03",
-   "title": "Фритюр: время, температура, масло",
-   "url": ""
+   "code": "04-INS-01",
+   "title": "Стандарт фритюра",
+   "url": "https://docs.google.com/document/d/1ajly_rGUyfLyM6KFxf4ooyWDopDIsus52Is45GDCd7w"
   },
   "intro": [
    {
@@ -3353,9 +3353,9 @@
   "minutes": 6,
   "pass": 5,
   "doc": {
-   "code": "09-EDU-01",
-   "title": "Вытяжка и электроэнергия",
-   "url": ""
+   "code": "09-POL-01",
+   "title": "Экономия электроэнергии и климат-контроль",
+   "url": "https://docs.google.com/document/d/1d6RK8mP_UomRAhj5tP33ENANaOCRM0sO0mh6d6xwDLI"
   },
   "intro": [
    {
@@ -3445,9 +3445,9 @@
   "minutes": 6,
   "pass": 5,
   "doc": {
-   "code": "04-EDU-04",
-   "title": "Хранение продуктов",
-   "url": ""
+   "code": "04-POL-02",
+   "title": "Товарное соседство и хранение",
+   "url": "https://docs.google.com/document/d/1xN1D1pLd9HmFOpl-uNcwQYmY0Z_GRxKiGh2j7ZcSybI"
   },
   "intro": [
    {
@@ -3538,9 +3538,9 @@
   "minutes": 7,
   "pass": 6,
   "doc": {
-   "code": "05-EDU-03",
-   "title": "Инвентаризация: как считать",
-   "url": ""
+   "code": "05-SOP-03",
+   "title": "Инвентаризация",
+   "url": "https://docs.google.com/document/d/1KhOydXRawCcWKXn-3aOhXdAO5QpX7r0oEqmDGLarPig"
   },
   "intro": [
    {
@@ -3646,8 +3646,8 @@
   "minutes": 6,
   "pass": 5,
   "doc": {
-   "code": "05-EDU-04",
-   "title": "Закуп и приёмка поставки",
+   "code": "05-SOP-02",
+   "title": "Закупка на базаре",
    "url": ""
   },
   "intro": [
@@ -3739,9 +3739,9 @@
   "minutes": 6,
   "pass": 5,
   "doc": {
-   "code": "03-EDU-02",
-   "title": "Заказ, чек и ошибка в чеке",
-   "url": ""
+   "code": "03-SOP-02",
+   "title": "Работа с кассой и Poster",
+   "url": "https://docs.google.com/document/d/1EhUEaZgXqwDM2XzQz4BUY-JA8hjVfalD3MtPTLxSzqs"
   },
   "intro": [
    {
@@ -3830,9 +3830,9 @@
   "minutes": 7,
   "pass": 6,
   "doc": {
-   "code": "01-EDU-01",
-   "title": "Баллы: за что платят и удерживают",
-   "url": ""
+   "code": "01-POL-02",
+   "title": "Баллы: надбавки и удержания",
+   "url": "https://docs.google.com/document/d/1SYIfJcYkuX1NB737otQFQlI3CY2yKWSwljv18TFjMqQ"
   },
   "intro": [
    {
