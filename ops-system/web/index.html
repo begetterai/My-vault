@@ -383,6 +383,37 @@
      padding-left:6px;padding-right:6px}
 .seg.mini{flex:0 0 auto}
 .seg.mini button{padding:5px 9px;font-size:12px}
+
+/* Блок проверки — второй по счёту и заметный: это ежедневная работа
+   руководителя, а не раздел, куда заходят по случаю. */
+.blk.ok{border-color:var(--ok);border-width:1.5px}
+.blk.ok>summary{color:var(--ok);background:var(--ok-soft)}
+.blk.ok[open]>summary{border-bottom-color:var(--ok)}
+.blk>summary .ic{display:inline-flex;align-items:center;justify-content:center;
+     width:24px;height:24px;border-radius:50%;background:var(--ok);
+     color:#fff;font-size:14px;font-weight:700;margin-right:9px;flex:0 0 auto}
+.blk>summary{align-items:center}
+
+/* Сообщения: были бледной заливкой на бледном фоне и терялись.
+   Теперь у каждого цветная полоса слева и свой цвет по смыслу. */
+.msg{border-left:4px solid var(--ink-2);font-weight:500;color:var(--ink)}
+.msg.good{border-left-color:var(--ok);background:var(--ok-soft);color:var(--ok)}
+.msg.warn{border-left-color:var(--brand-2);background:var(--wash)}
+.msg.err{border-left-color:var(--bad);background:var(--bad-soft);color:var(--bad)}
+
+/* Уведомления. Раньше это была бледная плашка внизу экрана — её просто
+   не замечали. Теперь всплывает сверху, поверх всего, с цветом по смыслу. */
+.toast{position:fixed;left:12px;right:12px;top:12px;z-index:99;
+     padding:14px 16px;border-radius:14px;font-size:15px;font-weight:600;
+     line-height:1.35;box-shadow:0 8px 28px rgba(0,0,0,.28);
+     display:flex;align-items:flex-start;gap:10px;
+     transform:translateY(-130%);transition:transform .22s ease;
+     background:var(--card);color:var(--ink);border:1.5px solid var(--line)}
+.toast.show{transform:translateY(0)}
+.toast .ic{flex:0 0 auto;font-size:17px;line-height:1.2}
+.toast.good{background:var(--ok-soft);border-color:var(--ok);color:var(--ok)}
+.toast.err{background:var(--bad-soft);border-color:var(--bad);color:var(--bad)}
+.toast.warn{background:var(--wash);border-color:var(--brand-2)}
 </style>
 </head>
 <body>
@@ -448,7 +479,14 @@
 
     <div id="rest">
 
-    <details class="blk" id="blkWork" open>
+    <details class="blk" id="blkEdu">
+      <summary>Обучение</summary>
+    <div id="qBox" class="hidden">
+      <div class="pick" id="qList"></div>
+    </div>
+    </details>
+
+<details class="blk" id="blkWork" open>
       <summary>Моя работа</summary>
     <h2><span class="steplabel" id="lb3">3</span>Чек-листы</h2>
     <div class="pick" id="pickList"></div>
@@ -464,33 +502,8 @@
     </div>
     </details>
 
-    <details class="blk" id="blkEdu">
-      <summary>Обучение</summary>
-    <div id="qBox" class="hidden">
-      <div class="pick" id="qList"></div>
-    </div>
-    </details>
-
-    <details class="blk" id="blkSite">
-      <summary>Точка и оборудование</summary>
-    <div id="siteBox" class="hidden">
-      <div class="card">
-        <div class="kv"><span>Координаты</span><b id="geoState">—</b></div>
-        <div class="hint" id="geoHint">Задаются с телефона, стоя на точке.
-          Без них отметка прихода не проверяется по месту.</div>
-        <button class="note" id="geoBtn" style="margin-top:10px">
-          📍 Задать координаты отсюда</button>
-      </div>
-      <div class="kv" style="margin:14px 0 8px">
-        <span style="color:var(--ink-2);font-size:14px">Оборудование</span>
-        <b id="equipN">0</b></div>
-      <div id="equipList"></div>
-      <button class="add" id="equipAdd">+ Добавить оборудование</button>
-    </div>
-    </details>
-
-    <details class="blk" id="blkCheck">
-      <summary>Проверка <span id="checkN" class="badge"></span></summary>
+<details class="blk ok" id="blkCheck" open>
+      <summary><span class="ic">✓</span>Проверка <span id="checkN" class="badge"></span></summary>
     <div id="pendBox" class="hidden">
       <h2>На проверке <span id="pendN" class="badge"></span></h2>
       <div class="hint">Пройди по пунктам ещё раз и отметь своё.
@@ -510,7 +523,7 @@
     </div>
     </details>
 
-    <details class="blk" id="blkTeam">
+<details class="blk" id="blkTeam">
       <summary>Люди и смена</summary>
     <div id="rosterBox" class="hidden">
       <h2>Смена завтра <span id="rosterDay" class="badge"></span></h2>
@@ -532,7 +545,15 @@
 
     </details>
 
-    <details class="blk" id="blkMoney">
+    <details class="blk" id="blkEquip">
+      <summary>Оборудование <span id="equipN" class="badge">0</span></summary>
+    <div id="equipBox" class="hidden">
+      <div id="equipList"></div>
+      <button class="add" id="equipAdd">+ Добавить оборудование</button>
+    </div>
+    </details>
+
+<details class="blk" id="blkMoney">
       <summary>Мои баллы</summary>
     <h2 id="balHead" class="hidden">Баллы за период</h2>
     <div id="scoreCard" class="card hidden">
@@ -546,6 +567,27 @@
       <div id="balLines" style="margin-top:12px"></div>
     </div>
     </details>
+
+    <details class="blk" id="blkSite">
+      <summary>Точка</summary>
+    <div id="siteBox" class="hidden">
+      <div class="card">
+        <div class="kv"><span>Координаты</span><b id="geoState">—</b></div>
+        <div class="hint" id="geoHint">Задаются с телефона, стоя на точке.
+          Без них отметка прихода не проверяется по месту.</div>
+        <button class="note" id="geoBtn" style="margin-top:10px">
+          📍 Задать координаты отсюда</button>
+      </div>
+    </div>
+    </details>
+
+    
+
+    
+
+    
+
+    
 
     <button class="note" onclick="showTour()" style="margin-top:20px">
       ❓ Как это работает</button>
@@ -565,8 +607,10 @@
     <button class="note" onclick="goHome()">Заполнить ещё</button>
   </div>
 
-  <div id="err" class="msg hidden"></div>
+  <div id="err" class="msg err hidden"></div>
 </main>
+
+<div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
 
 <div class="gate hidden" id="gate">
   <div class="big-ico">📍</div>
@@ -597,7 +641,29 @@ let DATA = null, kind = null, marks = {}, measures = {}, photos = {}, started = 
 let markTs = [];   // когда нажали каждый пункт — по ним считается темп
 let point = null;
 
-const fail = m => { $('#err').textContent = m; $('#err').classList.remove('hidden'); };
+
+/* Одно место для всех уведомлений: показать коротко и заметно.
+   Ошибка висит, пока не тронут — её нельзя пропустить. Успех уходит сам. */
+let toastT = null;
+function note(text, kind){
+  const t = $('#toast');
+  if(!t) return;
+  const ic = kind === 'good' ? '✓' : kind === 'err' ? '⚠' : 'ℹ';
+  t.className = 'toast ' + (kind || '');
+  t.innerHTML = '<span class="ic">' + ic + '</span><span>' + text + '</span>';
+  requestAnimationFrame(() => t.classList.add('show'));
+  tg?.HapticFeedback?.notificationOccurred?.(
+    kind === 'err' ? 'error' : kind === 'good' ? 'success' : 'warning');
+  clearTimeout(toastT);
+  if(kind !== 'err') toastT = setTimeout(hideNote, 3200);
+  t.onclick = hideNote;
+}
+function hideNote(){
+  const t = $('#toast');
+  if(t){ t.classList.remove('show'); clearTimeout(toastT); }
+}
+
+const fail = m => { note(m, 'err'); $('#err').textContent = m; $('#err').classList.remove('hidden'); };
 
 /* ── возврат на главный экран ────────────────────────────────────────────── */
 function goHome(){
@@ -609,6 +675,7 @@ function goHome(){
   jPhoto = null; bPhoto = null; bLines = []; qz = null;
   $('#pick').classList.remove('hidden');
   $('#err').classList.add('hidden');
+  hideNote();
   if(DATA) $('#sub').textContent = (DATA.point_label || DATA.point) + ' · ' + DATA.day;
   $('#btnBack').classList.add('hidden');
   tg?.BackButton?.hide?.();
@@ -891,12 +958,12 @@ async function mark2(direction){
   const j = await r.json();
   if(!j.ok){
     renderShift(); stages();
-    return alert(j.error || 'не записалось');
+    return note(j.error || 'Не записалось. Попробуй ещё раз.', 'err');
   }
   if(j.shift){ DATA.shift = j.shift; }
   selfie = null;
   renderShift(); stages();
-  alert((j.message || '').replace(/<[^>]+>/g, ''));
+  note((j.message || 'Готово').replace(/<[^>]+>/g, ''), 'good');
   tg?.HapticFeedback?.notificationOccurred?.('success');
 }
 const selfieInput = document.createElement('input');
@@ -916,7 +983,7 @@ selfieInput.onchange = async () => {
 $('#selfieBtn').onclick = () => selfieInput.click();
 
 $('#btnIn').onclick = () => {
-  if(!selfie) return alert('Сначала сфотографируй себя — это подтверждает, '
+  if(!selfie) return note('Сначала сфотографируй себя — это подтверждает, '
     + 'что на смену вышел именно ты.');
   mark2('in');
 };
@@ -1012,9 +1079,9 @@ async function sendJournal(j, btn){
                           lat: g.lat ?? null, lon: g.lon ?? null})});
   const res = await r.json();
   btn.disabled = false; btn.textContent = 'Записать';
-  if(!res.ok) return alert(res.error || 'не записалось');
+  if(!res.ok) return note(res.error || 'Не записалось. Попробуй ещё раз.', 'err');
   tg?.HapticFeedback?.notificationOccurred?.('success');
-  alert('Записал. Управляющему ушло сообщение.');
+  note('Записал. Управляющему ушло сообщение.', 'good');
   goHome();
 }
 
@@ -1032,7 +1099,7 @@ function renderForms(){
       b.style.opacity = '.55';
       b.innerHTML = '🔒 ' + x.title + '<div class="sub">сначала сдай тренинг «'
         + x.requires + '»</div>';
-      b.onclick = () => alert('Этот бланк откроется после тренинга «'
+      b.onclick = () => note('Этот бланк откроется после тренинга «'
         + x.requires + '». Он в разделе «Обучение», занимает несколько минут.');
       box.appendChild(b);
       return;
@@ -1111,7 +1178,7 @@ function openForm(cl){
 }
 
 async function sendForm(cl, btn){
-  if(cl.photo_required && !bPhoto) return alert('Нужно фото — без него запись не принимается.');
+  if(cl.photo_required && !bPhoto) return note('Нужно фото — без него запись не принимается.', 'warn');
   btn.disabled = true; btn.textContent='Отправляю…';
   const g = await geo();
   const r = await fetch('/api/form', {method:'POST',
@@ -1119,9 +1186,9 @@ async function sendForm(cl, btn){
     body: JSON.stringify({initData, key: cl.key, point, lines: bLines,
                           photo: bPhoto, lat: g.lat ?? null, lon: g.lon ?? null})});
   const res = await r.json();
-  if(!res.ok){ btn.disabled=false; collect(); return alert(res.error || 'не записалось'); }
+  if(!res.ok){ btn.disabled=false; collect(); return note(res.error || 'Не записалось.', 'err'); }
   tg?.HapticFeedback?.notificationOccurred?.('success');
-  alert('Записал ' + res.count + ' позиций.');
+  note('Записал ' + res.count + ' позиций.', 'good');
   goHome();
 }
 
@@ -1256,10 +1323,10 @@ async function sendQuiz(btn){
     res = await r.json();
   }catch(e){
     btn.disabled = false; btn.textContent = 'Проверить';
-    return alert('Не отправилось: ' + e.message + '. Нажми ещё раз.');
+    return note('Не отправилось: ' + e.message + '. Нажми ещё раз.', 'err');
   }
   btn.disabled = false; btn.textContent = 'Проверить';
-  if(!res.ok) return alert(res.error || 'не проверилось');
+  if(!res.ok) return note(res.error || 'Не проверилось.', 'err');
   tg?.HapticFeedback?.notificationOccurred?.(res.passed ? 'success' : 'warning');
   qResult(res);
 }
@@ -1405,6 +1472,7 @@ $('#tourBtn').onclick = closeTour;
 function renderSite(){
   if(!DATA.can_check) return;
   $('#siteBox').classList.remove('hidden');
+  $('#equipBox').classList.remove('hidden');
   const g = (DATA.geo || {})[point];
   if(g){
     $('#geoState').textContent = 'заданы · ' + g[2] + ' м';
@@ -1416,7 +1484,7 @@ function renderSite(){
     $('#geoState').style.color = 'var(--bad)';
   }
   const list = (DATA.equip || []).filter(e => e.point === point);
-  $('#equipN').textContent = list.length;
+  $('#equipN').textContent = list.length || '';
   const box = $('#equipList'); box.innerHTML = '';
   if(!list.length){
     box.innerHTML = '<div class="msg">Реестр пуст. Пройди по точке и добавь '
@@ -1468,7 +1536,7 @@ async function setEquip(e, status, card){
     body: JSON.stringify({initData, action:'status', line:e.line, status})});
   const j = await r.json();
   if(!j.ok){ card.querySelectorAll('button').forEach(b=>b.disabled=false);
-             return alert(j.error || 'не записалось'); }
+             return note(j.error || 'Не записалось. Попробуй ещё раз.', 'err'); }
   e.status = status;
   tg?.HapticFeedback?.notificationOccurred?.('success');
   renderSite();
@@ -1480,7 +1548,7 @@ $('#geoBtn').onclick = async () => {
   const g = await geo();
   if(g.lat == null){
     b.disabled = false; b.textContent = '📍 Задать координаты отсюда';
-    return alert('Не получилось определить место. Разреши геопозицию '
+    return note('Не получилось определить место. Разреши геопозицию '
       + 'в настройках телефона и попробуй ещё раз.');
   }
   const rad = prompt('Радиус точки в метрах.\n\nВ этом радиусе отметка '
@@ -1491,16 +1559,16 @@ $('#geoBtn').onclick = async () => {
     body: JSON.stringify({initData, point, lat:g.lat, lon:g.lon, radius:rad})});
   const j = await r.json();
   b.disabled = false; b.textContent = '📍 Задать координаты отсюда';
-  if(!j.ok) return alert(j.error || 'не записалось');
+  if(!j.ok) return note(j.error || 'Не записалось. Попробуй ещё раз.', 'err');
   DATA.geo = DATA.geo || {}; DATA.geo[point] = [j.lat, j.lon, j.radius];
   tg?.HapticFeedback?.notificationOccurred?.('success');
   renderSite();
-  alert('Координаты записаны. Теперь отметки прихода проверяются по месту.');
+  note('Координаты записаны. Отметки прихода проверяются по месту.', 'good');
 };
 
 $('#equipAdd').onclick = () => {
   const types = DATA.equip_types || [];
-  if(!types.length) return alert('Библиотека типов пуста');
+  if(!types.length) return note('Библиотека типов пуста', 'warn');
   const menu = types.map((t, i) => (i + 1) + '. ' + t.icon + ' ' + t.title).join('\n');
   const pick = prompt('Что добавляем? Номер из списка:\n\n' + menu);
   const i = parseInt(pick, 10) - 1;
@@ -1518,7 +1586,7 @@ async function addEquip(type, title, model){
     headers:{'Content-Type':'application/json'},
     body: JSON.stringify({initData, action:'add', point, type, title, model})});
   const j = await r.json();
-  if(!j.ok) return alert(j.error || 'не записалось');
+  if(!j.ok) return note(j.error || 'Не записалось. Попробуй ещё раз.', 'err');
   DATA.equip = DATA.equip || [];
   DATA.equip.push({line:0, code:j.code, point, type, title, model,
                    status:'Работает'});
@@ -1580,7 +1648,7 @@ async function sendTask(t, verdict, comment, card){
   const j = await r.json();
   if(!j.ok){
     card.querySelectorAll('button').forEach(b => b.disabled = false);
-    return alert(j.error || 'не записалось');
+    return note(j.error || 'Не записалось. Попробуй ещё раз.', 'err');
   }
   tg?.HapticFeedback?.notificationOccurred?.('success');
   card.style.opacity = '.45';
@@ -1749,7 +1817,7 @@ async function sendFail(x, what, btn){
                           why: x.title + ', заполнял ' + x.who})});
   const j = await r.json();
   btn.disabled = false;
-  if(!j.ok) return alert(j.error || 'не записалось');
+  if(!j.ok) return note(j.error || 'Не записалось. Попробуй ещё раз.', 'err');
   btn.textContent = '✓ Задача заведена';
   tg?.HapticFeedback?.notificationOccurred?.('success');
 }
@@ -1758,7 +1826,7 @@ async function sendCheck(x, verdict, note, card){
   const marked = x._guilty || {};
   const nums = String(x.fails || '').match(/\d+/g) || [];
   if(nums.length && nums.some(n => !marked[n])){
-    return alert('Отметь по каждому невыполненному пункту, чья это вина. '
+    return note('Отметь по каждому невыполненному пункту, чья это вина. '
                + 'Иначе система накажет за честную отметку.');
   }
   const guilty = nums.filter(n => marked[n] === 'guilty');
@@ -1771,7 +1839,7 @@ async function sendCheck(x, verdict, note, card){
   const j = await r.json();
   if(!j.ok){
     card.querySelectorAll('button').forEach(b => b.disabled = false);
-    return alert(j.error || 'не записалось');
+    return note(j.error || 'Не записалось. Попробуй ещё раз.', 'err');
   }
   tg?.HapticFeedback?.notificationOccurred?.('success');
   card.style.opacity = '.45';
@@ -1858,7 +1926,7 @@ async function confirmRoster(yes, card){
   const j = await r.json();
   if(!j.ok){
     card.querySelectorAll('button').forEach(b => b.disabled = false);
-    return alert(j.error || 'не записалось');
+    return note(j.error || 'Не записалось. Попробуй ещё раз.', 'err');
   }
   tg?.HapticFeedback?.notificationOccurred?.('success');
   ROSTER.mine.confirm = yes ? 'буду' : 'не смогу';
@@ -1879,7 +1947,7 @@ function renderRosterBoss(box){
     // в смену дважды и состав смены врёт.
     const busy = new Set(ROSTER.people.map(x => x.who));
     const free = (ROSTER.team || []).find(n => !busy.has(n));
-    if(!free) return alert('Все люди точки уже в составе.');
+    if(!free) return note('Все люди точки уже в составе.', 'warn');
     ROSTER.people.push({who: free, dept: 'кухня',
                         start: ROSTER.starts['кухня'] || '', instead: ''});
     renderRoster();
@@ -1942,16 +2010,16 @@ function rosterRow(p, i){
 async function sendRoster(btn){
   const names = ROSTER.people.map(x => x.who);
   const dup = names.find((n, i) => names.indexOf(n) !== i);
-  if(dup) return alert(dup + ' стоит в составе дважды. Убери лишнюю строку.');
+  if(dup) return note(dup + ' стоит в составе дважды. Убери лишнюю строку.', 'warn');
   btn.disabled = true; btn.textContent = 'Отправляю…';
   const r = await fetch('/api/roster_save', {method:'POST',
     headers:{'Content-Type':'application/json'},
     body: JSON.stringify({initData, point, people: ROSTER.people})});
   const j = await r.json();
   btn.disabled = false;
-  if(!j.ok){ btn.textContent = 'Отправить состав'; return alert(j.error || 'не ушло'); }
+  if(!j.ok){ btn.textContent = 'Отправить состав'; return note(j.error || 'Не ушло.', 'err'); }
   tg?.HapticFeedback?.notificationOccurred?.('success');
-  alert('Состав отправлен. Вопрос ушёл: ' + j.sent + ' из ' + j.total + '.');
+  note('Состав отправлен. Вопрос ушёл: ' + j.sent + ' из ' + j.total + '.', 'good');
   loadRoster();
 }
 
@@ -1992,7 +2060,7 @@ async function resolveDispute(d, verdict, card){
   const j = await r.json();
   if(!j.ok){
     card.querySelectorAll('button').forEach(b => b.disabled = false);
-    return alert(j.error || 'не записалось');
+    return note(j.error || 'Не записалось. Попробуй ещё раз.', 'err');
   }
   tg?.HapticFeedback?.notificationOccurred?.('success');
   card.style.opacity = '.45';
@@ -2021,9 +2089,9 @@ async function sendAward(){
                           event: $('#awEvent').value})});
   const j = await r.json();
   btn.disabled = false; btn.textContent = 'Начислить';
-  if(!j.ok) return alert(j.error || 'не начислилось');
+  if(!j.ok) return note(j.error || 'Не начислилось.', 'err');
   tg?.HapticFeedback?.notificationOccurred?.('success');
-  alert('Начислено +' + j.pts + '. Человеку ушло сообщение.');
+  note('Начислено +' + j.pts + '. Человеку ушло сообщение.', 'good');
 }
 
 function renderBalLines(lines){
@@ -2068,7 +2136,7 @@ async function sendDispute(x, btn){
     tg?.HapticFeedback?.notificationOccurred?.('success');
   }catch(e){
     btn.disabled = false; btn.textContent = '⚖️ Не согласен';
-    alert(e.message);
+    note(e.message, 'err');
   }
 }
 
@@ -2231,7 +2299,7 @@ async function sendFix(it, bl, btn){
       block: bl ? bl.name : '', n: it.n, text: it.text, comment: t,
       doc: bl && bl.doc ? bl.doc.code : ''})});
   const j = await r.json();
-  if(!j.ok) return alert(j.error || 'не записалось');
+  if(!j.ok) return note(j.error || 'Не записалось. Попробуй ещё раз.', 'err');
   btn.classList.add('done'); btn.textContent = '✓';
   tg?.HapticFeedback?.notificationOccurred?.('success');
 }
@@ -2412,7 +2480,8 @@ async function sendNote(){
     body: JSON.stringify({initData, text: t,
                           source: DATA.lists[kind].code + ' · Mini App'})});
   const j = await r.json();
-  alert(j.ok ? 'Записал в «Идеи и задачи»' : (j.error || 'не записалось'));
+  note(j.ok ? 'Записал в «Идеи и задачи»' : (j.error || 'Не записалось.'),
+       j.ok ? 'good' : 'err');
 }
 
 // Старт после разбора страницы: к этому моменту отложенный скрипт телеграма
