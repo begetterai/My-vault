@@ -434,10 +434,8 @@
       <circle cx="20" cy="20" r="6" fill="var(--ink)"/>
     </svg>
     <div class="titles">
-      <div class="who" id="who">Загрузка…</div>
-      <div class="sub" id="sub"></div>
+      <div class="who" id="who">Ромашка</div>
       <div class="sub" id="ver" style="opacity:.45;font-size:11px"></div>
-      <div class="sub"><span class="dist" id="distBadge"></span></div>
     </div>
   </div>
   <div class="bar hidden" id="bar"><i></i></div>
@@ -477,6 +475,13 @@
         и фиксирует, что пришёл именно ты.</div>
     </div>
 
+    <div id="stationBox" class="hidden">
+      <h2><span class="steplabel" id="lb25">3</span>Рабочее место</h2>
+      <div class="seg wrap" id="stationSeg"></div>
+      <div class="hint" id="stationHint">Выбери, где сегодня работаешь —
+        откроются чек-листы и документы этого места.</div>
+    </div>
+
     <div id="rest">
 
     <details class="blk" id="blkEdu">
@@ -488,7 +493,7 @@
 
 <details class="blk" id="blkWork" open>
       <summary>Моя работа</summary>
-    <h2><span class="steplabel" id="lb3">3</span>Чек-листы</h2>
+    <h2><span class="steplabel" id="lb3">4</span>Чек-листы</h2>
     <div class="pick" id="pickList"></div>
 
     <div id="jBox" class="hidden">
@@ -554,7 +559,16 @@
     </details>
 
 <details class="blk" id="blkMoney">
-      <summary>Мои баллы</summary>
+      <summary>Личный кабинет</summary>
+    <div class="card" id="meCard">
+      <div class="kv"><span>Кто</span><b id="meName">—</b></div>
+      <div class="kv"><span>Роль</span><b id="meRole">—</b></div>
+      <div class="kv"><span>Точка</span><b id="mePoint">—</b></div>
+      <div class="kv"><span>Позиция сегодня</span><b id="meDept">—</b></div>
+      <div class="kv"><span>Дата</span><b id="meDay">—</b></div>
+      <div class="kv"><span>Расстояние до точки</span>
+        <b><span class="dist" id="distBadge">—</span></b></div>
+    </div>
     <h2 id="balHead" class="hidden">Баллы за период</h2>
     <div id="scoreCard" class="card hidden">
       <div class="kv"><span id="balPeriod">—</span><b id="balPay">0</b></div>
@@ -676,7 +690,7 @@ function goHome(){
   $('#pick').classList.remove('hidden');
   $('#err').classList.add('hidden');
   hideNote();
-  if(DATA) $('#sub').textContent = (DATA.point_label || DATA.point) + ' · ' + DATA.day;
+  if(DATA) fillMe();
   $('#btnBack').classList.add('hidden');
   tg?.BackButton?.hide?.();
   window.scrollTo(0, 0);
@@ -792,8 +806,7 @@ async function boot(){
           seg.querySelectorAll('button').forEach((x, i) =>
             x.setAttribute('aria-pressed', j.points[i].code === point ? 'true' : 'false'));
           stages(); renderSite();
-          $('#sub').textContent = (j.points.find(q => q.code === point) || {}).label
-            + ' · ' + j.day;
+          fillMe();
           renderDistance();
           tg?.HapticFeedback?.selectionChanged?.();
         };
@@ -803,7 +816,7 @@ async function boot(){
     }
     document.title = (j.company || '') + ' — чек-лист';
     $('#ver').textContent = 'сборка ' + BUILD;
-    $('#sub').textContent = (j.point_label || j.point) + ' · ' + j.day;
+    fillMe();
     const box = $('#pickList'); box.innerHTML = '';
     // Новичок: сначала обучение, работа открывается после.
     if((j.training_left || []).length){
@@ -830,15 +843,7 @@ async function boot(){
             + 'Скажи ему об этом.') + '</div>';
       box.appendChild(d);
     }
-    for(const k of Object.keys(j.lists)){
-      const b = document.createElement('button');
-      b.className = 'big';
-      const dl = j.lists[k].deadline ? ' · до ' + j.lists[k].deadline : '';
-      b.innerHTML = j.lists[k].title +
-        '<div class="sub">' + j.lists[k].code + dl + '</div>';
-      b.onclick = () => start(k);
-      box.appendChild(b);
-    }
+    renderLists();
     renderDistance();
     renderShift(); renderSite(); renderTasks(); renderPending();
     if(DATA.waiting){
@@ -859,6 +864,7 @@ async function boot(){
     parts.forEach(([name, fn]) => {
       try { fn(); } catch(e){ broken.push(name + ': ' + e.message); }
     });
+    try { renderStations(); renderLists(); } catch(e){ broken.push('места: ' + e.message); }
     try { loadRoster(); } catch(e){ broken.push('состав: ' + e.message); }
     try { maybeTour(); } catch(e){}
     setTimeout(tidyBlocks, 60);
@@ -879,11 +885,12 @@ let pointOK = false, selfie = null;
 
 function stages(){
   const many = (DATA.points || []).length > 1;
-  const boss = ['manager', 'coo'].includes(DATA.role);
   // Одна точка — выбирать нечего, шаг считается пройденным сразу.
   // Руководителя выбор точки тоже не держит: он входит смотреть обе,
   // а точку выбирает потом, чтобы уточнить картину.
-  if(!many || boss) pointOK = true;
+  // Выбор точки — первый шаг для всех, кроме директора: он работает
+  // по обеим и уточняет точку потом, а не входит через неё.
+  if(!many || DATA.role === 'coo') pointOK = true;
   const sh = DATA.shift || {};
   const came = !!sh.in;
   // Руководитель работает по обеим точкам и проверяет смену из дома —
@@ -893,7 +900,10 @@ function stages(){
 
   mark('#lb1', pointOK ? 'done' : 'now');
   mark('#lb2', came ? 'done' : (pointOK ? 'now' : 'wait'));
+  mark('#lb25', openRest ? 'now' : 'wait');
   mark('#lb3', openRest ? 'now' : 'wait');
+  $('#stationBox').classList.toggle('hidden',
+    !openRest || Object.keys(DATA.lists || {}).length <= 1);
   $('#shiftCard').classList.toggle('locked', !pointOK);
   $('#shiftHead').classList.toggle('locked', !pointOK);
   $('#rest').classList.toggle('locked', !openRest);
@@ -1423,6 +1433,113 @@ function tourSteps(){
 
 /* Блок, внутри которого всё скрыто, сам прячется: пустой заголовок хуже,
    чем его отсутствие. */
+
+/* Личный кабинет: кто ты, где и в какой позиции. Раньше это висело
+   в шапке над каждым экраном и занимало место, хотя смотрят туда раз в день. */
+const ROLE_RU = {coo: 'Директор', manager: 'Управляющий',
+                 senior: 'Старший смены', staff: 'Сотрудник'};
+function fillMe(){
+  if(!DATA) return;
+  const pl = (DATA.points || []).find(q => q.code === point);
+  const set = (id, v) => { const el = $('#' + id); if(el) el.textContent = v || '—'; };
+  set('meName', DATA.name);
+  set('meRole', ROLE_RU[DATA.role] || DATA.role);
+  set('mePoint', pl ? pl.label : (DATA.point_label || DATA.point));
+  set('meDept', STATION || DATA.dept);
+  set('meDay', DATA.day);
+}
+
+
+/* Рабочее место на смену. Один человек сегодня на саладетте, завтра
+   на фритюре — и чек-листы должны открыться те, что нужны сегодня.
+   Выбор живёт до конца дня: перезаход в приложение его не сбрасывает. */
+let STATION = null;
+const STATION_KEY = 'romashka.station';
+
+function stationList(){
+  const all = DATA.lists || {};
+  return Object.entries(all).map(([k, v]) => ({key: k, title: v.title}));
+}
+
+function loadStation(){
+  try{
+    const raw = localStorage.getItem(STATION_KEY);
+    if(!raw) return null;
+    const o = JSON.parse(raw);
+    if(o.day !== DATA.day || o.point !== point) return null;
+    return o.key;
+  }catch(e){ return null; }
+}
+
+function saveStation(k){
+  try{
+    localStorage.setItem(STATION_KEY,
+      JSON.stringify({key: k, day: DATA.day, point: point}));
+  }catch(e){}
+}
+
+function renderStations(){
+  const box = $('#stationSeg');
+  if(!box) return;
+  const list = stationList();
+  box.innerHTML = '';
+  // Одно место — выбирать нечего, оно и есть рабочее.
+  if(list.length <= 1){
+    STATION = list.length ? list[0].title : null;
+    $('#stationBox').classList.add('hidden');
+    return;
+  }
+  $('#stationBox').classList.remove('hidden');
+  const saved = loadStation();
+  list.forEach(x => {
+    const b = document.createElement('button');
+    b.textContent = x.title.replace(/^Смена · /, '');
+    b.setAttribute('aria-pressed', String(x.key === saved));
+    b.onclick = () => {
+      saveStation(x.key);
+      STATION = x.title;
+      [...box.children].forEach(c =>
+        c.setAttribute('aria-pressed', String(c === b)));
+      renderLists();
+      fillMe();
+      tg?.HapticFeedback?.selectionChanged?.();
+    };
+    box.appendChild(b);
+  });
+  if(saved && list.some(x => x.key === saved)){
+    STATION = (list.find(x => x.key === saved) || {}).title;
+  }
+}
+
+
+/* Список чек-листов. Если выбрано рабочее место — показываем только его лист:
+   человек на фритюре не должен видеть четыре станции и гадать, какая его. */
+function renderLists(){
+  const box = $('#pickList');
+  if(!box || !DATA) return;
+  const all = DATA.lists || {};
+  const saved = loadStation();
+  const keys = Object.keys(all);
+  const show = (saved && all[saved]) ? [saved] : keys;
+  [...box.querySelectorAll('button.big')].forEach(x => x.remove());
+  show.forEach(k => {
+    const b = document.createElement('button');
+    b.className = 'big';
+    const dl = all[k].deadline ? ' · до ' + all[k].deadline : '';
+    b.innerHTML = all[k].title + '<div class="sub">' + all[k].code + dl + '</div>';
+    b.onclick = () => start(k);
+    box.appendChild(b);
+  });
+  if(saved && all[saved] && keys.length > 1){
+    const d = document.createElement('div');
+    d.className = 'hint';
+    d.style.marginTop = '8px';
+    d.textContent = 'Показан лист выбранного места. Сменить — в разделе '
+      + '«Рабочее место» выше.';
+    box.appendChild(d);
+  }
+}
+
 function tidyBlocks(){
   document.querySelectorAll('.blk').forEach(b => {
     const kids = [...b.children].filter(x => x.tagName !== 'SUMMARY');
@@ -1470,8 +1587,18 @@ $('#tourBtn').onclick = closeTour;
 
 /* ── точка: координаты и оборудование ────────────────────────────────────── */
 function renderSite(){
-  if(!DATA.can_check) return;
+  // Координаты видит каждый: по ним проверяется его же отметка прихода.
   $('#siteBox').classList.remove('hidden');
+  const g0 = (DATA.geo || {})[point];
+  $('#geoBtn').classList.toggle('hidden', !DATA.can_check);
+  if(!DATA.can_check){
+    $('#geoState').textContent = g0 ? 'заданы' : 'не заданы';
+    $('#geoState').style.color = g0 ? 'var(--ok)' : 'var(--bad)';
+    $('#geoHint').textContent = g0
+      ? 'Отметка прихода проверяется по месту.'
+      : 'Координаты задаёт управляющий. Пока их нет, место не проверяется.';
+    return;
+  }
   $('#equipBox').classList.remove('hidden');
   const g = (DATA.geo || {})[point];
   if(g){
@@ -2167,7 +2294,7 @@ function start(k){
   $('#bar').classList.remove('hidden');
   $('#foot').classList.remove('hidden');
   const pl = (DATA.points || []).find(q => q.code === point);
-  $('#sub').textContent = (pl ? pl.label : point) + ' · ' + L.title;
+  $('#who').textContent = L.title;
 
   const f = $('#form'); f.innerHTML = ''; f.classList.remove('hidden');
   enterScreen();
