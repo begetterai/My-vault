@@ -434,6 +434,14 @@
 .grouphead:first-child{margin-top:2px}
 .grouphead span{font-size:11.5px;font-weight:500;text-transform:none;
      letter-spacing:0;color:var(--ink-2);opacity:.75}
+
+/* Камера прямо в приложении: снимок нельзя подменить старым файлом
+   из галереи, а отметка прихода на этом и держится. */
+.cam{margin-top:10px;border-radius:14px;overflow:hidden;background:#000}
+.cam video{width:100%;display:block;max-height:52vh;object-fit:cover;
+     transform:scaleX(-1)}
+.camacts{display:flex;gap:8px;padding:10px;background:var(--card)}
+.camacts button{flex:1;margin:0}
 </style>
 </head>
 <body>
@@ -486,6 +494,13 @@
       <div class="shift">
         <button id="btnIn">Пришёл</button>
         <button id="btnOut" class="out">Ушёл</button>
+      </div>
+      <div class="cam hidden" id="camBox">
+        <video id="camVideo" playsinline autoplay muted></video>
+        <div class="camacts">
+          <button class="send" id="camShoot">Снять</button>
+          <button class="note" id="camCancel">Отмена</button>
+        </div>
       </div>
       <div class="selfie" id="selfieBox">
         <span class="shoot" id="selfieBtn">📷 Сфотографировать себя</span>
@@ -1017,7 +1032,53 @@ selfieInput.onchange = async () => {
   $('#selfieImg').classList.remove('hidden');
   $('#selfieBtn').textContent = '📷 Переснять';
 };
-$('#selfieBtn').onclick = () => selfieInput.click();
+/* Съёмка в самом приложении. На части Android атрибут capture игнорируется
+   и открывается галерея — то есть человек может подставить старое фото.
+   Поэтому сначала пробуем включить камеру прямо здесь; не вышло —
+   откатываемся на выбор файла, чтобы отметка вообще была возможна. */
+let camStream = null;
+
+async function openCamera(){
+  if(!navigator.mediaDevices?.getUserMedia) return false;
+  try{
+    camStream = await navigator.mediaDevices.getUserMedia({
+      video: {facingMode: 'user', width: {ideal: 720}}, audio: false});
+  }catch(e){ return false; }
+  const box = $('#camBox');
+  const v = $('#camVideo');
+  v.srcObject = camStream;
+  await v.play().catch(() => {});
+  box.classList.remove('hidden');
+  return true;
+}
+
+function closeCamera(){
+  if(camStream){ camStream.getTracks().forEach(t => t.stop()); camStream = null; }
+  const box = $('#camBox');
+  if(box) box.classList.add('hidden');
+}
+
+async function shootFromCamera(){
+  const v = $('#camVideo');
+  if(!v || !v.videoWidth) return;
+  const c = document.createElement('canvas');
+  const w = 720, h = Math.round(v.videoHeight * w / v.videoWidth);
+  c.width = w; c.height = h;
+  c.getContext('2d').drawImage(v, 0, 0, w, h);
+  selfie = c.toDataURL('image/jpeg', 0.72);
+  $('#selfieImg').src = selfie;
+  $('#selfieImg').classList.remove('hidden');
+  $('#selfieBtn').textContent = '📷 Переснять';
+  closeCamera();
+  tg?.HapticFeedback?.impactOccurred?.('light');
+}
+
+$('#selfieBtn').onclick = async () => {
+  const ok = await openCamera();
+  if(!ok) selfieInput.click();
+};
+$('#camShoot').onclick = shootFromCamera;
+$('#camCancel').onclick = closeCamera;
 
 $('#btnIn').onclick = () => {
   if(!selfie) return note('Сначала сфотографируй себя — это подтверждает, '
@@ -1253,11 +1314,12 @@ function renderQuizzes(){
     box.appendChild(b);
   });
   $('#qBox').classList.remove('hidden');
-  // Новичку обучение — первое дело, поэтому поднимаем блок наверх.
-  if((DATA.training_left || []).length){
-    const rest = $('#rest');
-    rest.insertBefore($('#qBox'), rest.firstChild);
-  }
+  // Новичку обучение — первое дело. Блок «Обучение» и так первый по порядку,
+  // поэтому просто раскрываем его, а не вытаскиваем содержимое наружу:
+  // вытащенное теряло заголовок и висело в воздухе.
+  const edu = $('#blkEdu');
+  if(edu) edu.open = (DATA.training_left || []).length > 0
+    || list.some(q => !q.passed);
 }
 
 function qScreen(){
