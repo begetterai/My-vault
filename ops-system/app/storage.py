@@ -168,7 +168,10 @@ def team(force=False):
     «не смогу» управляющий подбирает замену по памяти.
     """
     now = datetime.datetime.utcnow()
-    if not force and _TEAM['ts'] and (now - _TEAM['ts']).seconds < 600:
+    # Минута, а не десять: роли и отделы правятся руками в таблице, и человек
+    # ждёт, что приложение подхватит это сразу. Десятиминутный кэш выглядел
+    # как «не сработало» и заставлял править второй раз.
+    if not force and _TEAM['ts'] and (now - _TEAM['ts']).seconds < 60:
         return _TEAM['map']
     m = {}
     for r in get(C.TABS['team'], 'A2:H200'):
