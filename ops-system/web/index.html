@@ -908,9 +908,11 @@ function stages(){
   // Руководитель работает по обеим точкам и проверяет смену из дома —
   // для него отметка прихода не запирает остальное.
   const boss = ['manager', 'coo'].includes(DATA.role);
+  // Руководителю шаг «рабочее место» не показывается, но и не запирает
+  // работу: он идёт сразу от прихода к своим листам и проверке.
   const openStation = pointOK && came && !boss;
   const stationOK = boss || !!loadStation() || !(DATA.stations || []).length;
-  const openRest = openStation && stationOK;
+  const openRest = pointOK && came && stationOK;
 
   mark('#lb1', pointOK ? 'done' : 'now');
   mark('#lb2', came ? 'done' : (pointOK ? 'now' : 'wait'));
