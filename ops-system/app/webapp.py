@@ -474,13 +474,21 @@ def shift(who, body):
     msg, flag, line = F.mark_shift(d, C.day_str(), point, who[0], lat, lon,
                                    plan=plan, photo=link)
     if d == 'out':
-        # Ушёл — рабочее место освободилось, а отрезок закрылся с часами.
+        # Ушёл — рабочее место освободилось, а отрезок закрылся с минутами.
         # Без этого место числится занятым до конца суток, и следующая
         # смена не может на него встать.
         try:
-            S.close_segments(C.day_str(), point, who[0])
+            S.close_segments(C.day_str(), who[0])
         except Exception as e:
             print('закрытие отрезка:', e)
+    if d == 'in':
+        # Время пошло с прихода, а не с выбора места: иначе первые минуты
+        # дня не попадают ни в один отрезок и сумма часов меньше явки.
+        try:
+            S.start_day(C.day_str(), point, who[0],
+                        str(body.get('part') or ''))
+        except Exception as e:
+            print('начало дня:', e)
     if d == 'in':
         if lat is None:
             SC.add(point, who[0], 'geo_missing')
@@ -723,6 +731,13 @@ def submit(who, body):
         handover_notify(kind, day, point, who[0], to, ok, tot, fails, comment)
     except Exception as e:
         print('передача смены:', e)
+    # Сдал смену — работа на этом месте кончилась. Дальше он либо отмечает
+    # уход, либо встаёт на другое место, возможно на другой точке.
+    if C.checklists()[kind].get('stage') == 'give':
+        try:
+            S.close_segments(day, who[0])
+        except Exception as e:
+            print('закрытие отрезка при передаче:', e)
     st = {'kind': kind, 'day': day, 'point': point, 'who': who[0]}
     try:
         fast = sec < C.MIN_SECONDS or (tempo is not None and tempo < C.MIN_GAP)

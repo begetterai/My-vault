@@ -267,7 +267,7 @@ def close_stations():
         if not end:
             cl = C.checklists().get(f"{v['station']}_close") or {}
             end = C.deadline_for(cl, v['point']) or '00:00'
-        S.close_segments(day, v['point'], v['who'], end)
+        S.close_segments(day, v['who'], end)
         if not by_shift:
             told.append(f"· {v['who']} · {v['station']} · с {v['start']} — "
                         f"ухода нет, поставлен {end}")

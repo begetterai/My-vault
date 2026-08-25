@@ -533,11 +533,16 @@ def station_of(day, point, who):
     return ''
 
 
-def close_segments(day, point, who, at=None):
-    """Закрыть открытые отрезки человека. Возвращает, сколько закрыл."""
+def close_segments(day, who, at=None):
+    """Закрыть все открытые отрезки человека за день — на любой точке.
+
+    Точку не спрашиваем нарочно: человек мог открыть смену на одной точке,
+    передать её и поехать на другую. Оставить там открытый отрезок значит
+    начислить ему часы за место, где его уже нет.
+    """
     at = at or C.now().strftime('%H:%M')
     n = 0
-    for line, v in segments(day, point, who):
+    for line, v in segments(day, who=who):
         if v['end']:
             continue
         a, b = _mins(v['start']), _mins(at)
@@ -582,10 +587,25 @@ def take_station(day, point, part, station, who, how='выбрал сам', frm=
             return False, v['who']
         if v['station'] == station and not v['end'] and v['who'] == who:
             return True, who          # уже стоит здесь — второй раз не пишем
-    close_segments(day, point, who, now)
+    close_segments(day, who, now)
     append('Станции', [[day, point, who, station, part or '', now, '', '',
                         how, frm]])
     return True, who
+
+
+def start_day(day, point, who, part='', at=None):
+    """Отметился на точке — время пошло, место ещё не выбрано.
+
+    Иначе первые минуты дня не попадают ни в один отрезок, и сумма часов
+    по местам всегда меньше явки. Пустая станция закроется, как только
+    человек встанет на место.
+    """
+    if any(not v['end'] for _, v in segments(day, who=who)):
+        return False
+    append('Станции', [[day, point, who, '', part or '',
+                        at or C.now().strftime('%H:%M'), '', '',
+                        'отметил приход', '']])
+    return True
 
 
 def add_member(chat_id, name, point, role, dept=''):

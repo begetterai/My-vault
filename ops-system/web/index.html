@@ -711,7 +711,7 @@
   <button class="send" id="send" disabled>Отправить</button>
 </div>
 <script>
-const BUILD = 'v25.08 часы';
+const BUILD = 'v25.08 часы-2';
 // Заполняются на старте: скрипт телеграма грузится отложенно, и на момент
 // разбора этой строки window.Telegram может ещё не существовать.
 let tg = null, initData = '';
@@ -1058,6 +1058,7 @@ async function mark2(direction){
     headers:{'Content-Type':'application/json'},
     body: JSON.stringify({initData, direction, point,
                           lat: g.lat ?? null, lon: g.lon ?? null,
+                          part: PART || '',
                           photo: direction === 'in' ? selfie : null})});
   const j = await r.json();
   if(!j.ok){
