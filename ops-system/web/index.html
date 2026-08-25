@@ -711,7 +711,7 @@
   <button class="send" id="send" disabled>Отправить</button>
 </div>
 <script>
-const BUILD = 'v25.08 смены-2';
+const BUILD = 'v25.08 отрезки';
 // Заполняются на старте: скрипт телеграма грузится отложенно, и на момент
 // разбора этой строки window.Telegram может ещё не существовать.
 let tg = null, initData = '';
@@ -1882,7 +1882,7 @@ function renderStations(){
   if(!list.length){ $('#stationBox').classList.add('hidden'); return; }
   // Место, занятое другим в эту же смену, выбрать нельзя: иначе двое
   // встают на одну саладетту, а третья остаётся без хозяина.
-  const taken = (DATA.taken || {})[PART || 'one'] || {};
+  const taken = DATA.taken || {};
   const server = Object.keys(taken).find(k => taken[k] === DATA.name);
   if(server && server !== loadStation()) saveStation(server);
   const saved = loadStation();
@@ -1891,12 +1891,12 @@ function renderStations(){
     const b = document.createElement('button');
     b.className = 'st';
     b.innerHTML = x.title + '<span class="sub">'
-      + (busy ? 'занял ' + taken[x.key] : x.group) + '</span>';
+      + (busy ? 'сейчас работает ' + taken[x.key] : x.group) + '</span>';
     b.setAttribute('aria-pressed', String(x.key === saved));
     if(busy){
       b.style.opacity = '.45';
-      b.onclick = () => note('Это место сегодня занял ' + taken[x.key]
-        + '. Выбери другое или разберитесь с управляющим.');
+      b.onclick = () => note('На этом месте сейчас работает ' + taken[x.key]
+        + '. Оно освободится, когда он сдаст смену или отметит уход.');
       box.appendChild(b);
       return;
     }
@@ -1909,7 +1909,7 @@ function renderStations(){
                                 station: x.key})});
         const j = await r.json();
         if(!j.ok) throw new Error(j.error || 'не сохранилось');
-        (DATA.taken || {})[PART || 'one'] = j.taken || {};
+        DATA.taken = j.taken || {};
       }catch(e){
         b.disabled = false;
         return note(e.message, 'err');

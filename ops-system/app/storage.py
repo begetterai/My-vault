@@ -28,10 +28,15 @@ PART_RU = {'open': 'открывающая', 'close': 'закрывающая',
 # Бумажный лист ознакомления умирает в папке — здесь видно, кто и когда.
 READ_COLS = ['Дата', 'Время', 'Точка', 'Кто', 'Код', 'Документ', 'Ссылка']
 
-# Кто на какой станции сегодня. Раньше выбор жил только в телефоне человека,
-# и система не знала, что место занято: двое вставали на одну саладетту,
-# а третья оставалась без хозяина.
-STATION_COLS = ['Дата', 'Точка', 'Смена', 'Станция', 'Кто', 'Время']
+# Работа на местах — журнал отрезков, а не отметка «где стоит сейчас».
+# Человек за день бывает на двух местах: отработал саладетту в первую смену,
+# сдал её и принял бар во вторую. Для зарплаты нужны именно отрезки —
+# где, с какого по какое время и как он туда попал. Затирать прошлую запись
+# нельзя: вместе с ней стирается отработанный час.
+# Время в минутах, а не в часах: 0,72 часа таблица показывает как 0:43
+# и перестаёт считать это числом. Минуты — целое, делить на 60 умеет любой.
+STATION_COLS = ['Дата', 'Точка', 'Кто', 'Станция', 'Смена', 'Начало', 'Конец',
+                'Минут', 'Как встал', 'От кого']
 _S = {'v': None}
 
 
@@ -99,9 +104,14 @@ def append(tab, rows):
     return ''.join(c for c in rng.split('!')[-1].split(':')[0] if c.isdigit())
 
 
-def put(tab, a1, rows):
+def put(tab, a1, rows, raw=False):
+    """raw=True — записать как есть.
+
+    Иначе Google «умно» разбирает значение: 0.72 в колонке рядом с временем
+    он показал как 0:43, и число часов перестало быть числом.
+    """
     session().put(B + C.DATA_SHEET + '/values/' + _rng(tab, a1),
-                  params={'valueInputOption': 'USER_ENTERED'},
+                  params={'valueInputOption': 'RAW' if raw else 'USER_ENTERED'},
                   json={'values': rows}, timeout=60)
 
 
@@ -467,49 +477,105 @@ def save_read(point, who, code, title, url):
     return True
 
 
-def stations_taken(day, point, part):
-    """{ключ станции: имя} — кто уже занял место в эту смену на этой точке."""
-    out = {}
-    for r in get('Станции', 'A2:F'):
-        r = list(r) + [''] * 6
-        if (r[0].strip() == day and r[1].strip() == point
-                and r[2].strip() == (part or '')):
-            out[r[3].strip()] = r[4].strip()
+def _int(x):
+    try:
+        return int(float(str(x).replace(',', '.')))
+    except (ValueError, TypeError):
+        return 0
+
+
+def _mins(t):
+    try:
+        h, m = str(t).split(':')
+        return int(h) * 60 + int(m)
+    except (ValueError, AttributeError):
+        return None
+
+
+def segments(day, point=None, who=None):
+    """Отрезки работы на местах. [(номер строки, поля)]
+
+    Основа для будущего расчёта зарплаты: где человек стоял, с какого
+    по какое время и как туда попал — сам выбрал или принял смену.
+    """
+    out = []
+    for i, r in enumerate(get('Станции', 'A2:J')):
+        r = list(r) + [''] * 10
+        if r[0].strip() != day:
+            continue
+        if point and r[1].strip() != point:
+            continue
+        if who and r[2].strip() != who:
+            continue
+        out.append((i + 2, {'point': r[1].strip(), 'who': r[2].strip(),
+                            'station': r[3].strip(), 'part': r[4].strip(),
+                            'start': r[5].strip(), 'end': r[6].strip(),
+                            'minutes': _int(r[7]), 'how': r[8].strip(),
+                            'from': r[9].strip()}))
     return out
 
 
-def take_station(day, point, part, station, who):
-    """Занять станцию. → (получилось, кто её держит)
+def stations_taken(day, point):
+    """{станция: имя} — места, на которых прямо сейчас кто-то стоит.
 
-    Одна станция — один человек в смену. Смена своя у каждого: утренний
-    и вечерний на одном месте не мешают друг другу.
+    Занято, пока отрезок открыт. Ушёл — место освободилось: делить
+    занятость по «смене дня» неточно, человек мог уйти раньше.
     """
-    rows = get('Станции', 'A2:F')
-    mine = None
-    for i, r in enumerate(rows):
-        r = list(r) + [''] * 6
-        if (r[0].strip() == day and r[1].strip() == point
-                and r[2].strip() == (part or '')):
-            if r[3].strip() == station and r[4].strip() != who:
-                return False, r[4].strip()
-            if r[4].strip() == who:
-                mine = i + 2
-    row = [day, point, part or '', station, who, C.now().strftime('%H:%M')]
-    if mine:
-        put('Станции', f'A{mine}:F{mine}', [row])
-    else:
-        append('Станции', [row])
-    return True, who
+    return {v['station']: v['who'] for _, v in segments(day, point)
+            if not v['end']}
 
 
-def station_of(day, point, part, who):
-    """Какую станцию человек занял в эту смену."""
-    for r in get('Станции', 'A2:F'):
-        r = list(r) + [''] * 6
-        if (r[0].strip() == day and r[1].strip() == point
-                and r[2].strip() == (part or '') and r[4].strip() == who):
-            return r[3].strip()
+def station_of(day, point, who):
+    """Место, на котором человек стоит сейчас."""
+    for _, v in segments(day, point, who):
+        if not v['end']:
+            return v['station']
     return ''
+
+
+def close_segments(day, point, who, at=None):
+    """Закрыть открытые отрезки человека. Возвращает, сколько закрыл."""
+    at = at or C.now().strftime('%H:%M')
+    n = 0
+    for line, v in segments(day, point, who):
+        if v['end']:
+            continue
+        a, b = _mins(v['start']), _mins(at)
+        mins = ''
+        if a is not None and b is not None:
+            # За полночь смена переходит только если началась после полудня.
+            # Иначе «конец раньше начала» — это сбитое время, и наивный
+            # перенос на сутки записал бы человеку 23 часа работы.
+            if b < a and a >= 12 * 60:
+                b += 24 * 60
+            if b < a:
+                print(f'отрезок «{v["station"]}» у {who}: конец {at} раньше '
+                      f'начала {v["start"]} — часы не посчитаны')
+                mins = '0'
+            else:
+                mins = str(b - a)
+        put('Станции', f'G{line}:H{line}', [[at, mins]], raw=True)
+        n += 1
+    return n
+
+
+def take_station(day, point, part, station, who, how='выбрал сам', frm=''):
+    """Встать на место. → (получилось, кто его держит)
+
+    Одно место — один человек одновременно. Прошлый отрезок этого человека
+    закрывается: перешёл на другое место — предыдущее время посчитано,
+    а не потеряно.
+    """
+    now = C.now().strftime('%H:%M')
+    for _, v in segments(day, point):
+        if v['station'] == station and not v['end'] and v['who'] != who:
+            return False, v['who']
+        if v['station'] == station and not v['end'] and v['who'] == who:
+            return True, who          # уже стоит здесь — второй раз не пишем
+    close_segments(day, point, who, now)
+    append('Станции', [[day, point, who, station, part or '', now, '', '',
+                        how, frm]])
+    return True, who
 
 
 def add_member(chat_id, name, point, role, dept=''):

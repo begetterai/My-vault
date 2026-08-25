@@ -162,11 +162,11 @@ def init_payload(who):
     # Смену человек выбирает в приложении, серверу она на этом шаге ещё
     # не известна — отдаём все три, приложение возьмёт свою.
     try:
-        out['taken'] = {pt: S.stations_taken(C.day_str(), who[1], pt)
-                        for pt in ('open', 'close', 'one')}
+        out['taken'] = S.stations_taken(C.day_str(), who[1])
+        out['my_station'] = S.station_of(C.day_str(), who[1], who[0])
     except Exception as e:
         print('станции:', e)
-        out['taken'] = {}
+        out['taken'], out['my_station'] = {}, ''
     out['shift'] = shift_state(who)
     out['geo'] = {p: S.point_geo(p) for p in S.points()}
     # Кому можно сдать смену: любому сотруднику, включая другую точку.
@@ -347,11 +347,11 @@ def station(who, body):
         print('занять станцию:', e)
         return {'ok': False, 'error': 'не сохранилось, попробуй ещё раз'}
     if not ok:
-        return {'ok': False, 'error': f'Это место сегодня уже занял {holder}. '
-                                      f'Выбери другое или разберитесь '
-                                      f'с управляющим.'}
+        return {'ok': False, 'error': f'На этом месте сейчас работает '
+                                      f'{holder}. Он освободит его, когда '
+                                      f'сдаст смену или отметит уход.'}
     return {'ok': True, 'station': key,
-            'taken': S.stations_taken(C.day_str(), point, part)}
+            'taken': S.stations_taken(C.day_str(), point)}
 
 
 def read_doc(who, body):
@@ -414,20 +414,22 @@ def handover_notify(kind, day, point, who, to, ok, tot, fails, comment):
     # первую смену стоять на одной станции, вторую — на другой; станция
     # идёт за принятой работой, а не за утренним выбором.
     group = kind[:-len('_take')]
-    if group in C.stations():
-        try:
-            # Смена дня, в которую человек принял место. Приём бывает только
-            # у закрывающей: за день у него может быть две строки в «Станциях» —
-            # утренняя своя и вечерняя принятая. Это и есть его день.
-            ok, holder = S.take_station(day, point, 'close', group, who)
-            if not ok:
-                BOT.admin(f'⚠️ <b>Место занято при приёме</b> · {point} · '
-                          f'{place}\n{who} принял смену, но место держит '
-                          f'{holder}.')
-        except Exception as e:
-            print('станция при приёме:', e)
     give = f'{group}_give'
     src = S.filled_today(day, point, [give]).get(give) or {}
+    if group in C.stations():
+        try:
+            # Приём — это начало нового отрезка работы: прошлый у человека
+            # закрывается с посчитанными часами, новый открывается здесь.
+            # За день так набирается его настоящий маршрут по местам.
+            ok, holder = S.take_station(day, point, 'close', group, who,
+                                        how='принял смену',
+                                        frm=src.get('who', ''))
+            if not ok:
+                BOT.admin(f'⚠️ <b>Место занято при приёме</b> · {point} · '
+                          f'{place}\n{who} принял смену, но на месте '
+                          f'работает {holder}.')
+        except Exception as e:
+            print('станция при приёме:', e)
     cid = chat_of(src.get('who', ''))
     if not cid:
         return
@@ -471,6 +473,14 @@ def shift(who, body):
         print('состав:', e)
     msg, flag, line = F.mark_shift(d, C.day_str(), point, who[0], lat, lon,
                                    plan=plan, photo=link)
+    if d == 'out':
+        # Ушёл — рабочее место освободилось, а отрезок закрылся с часами.
+        # Без этого место числится занятым до конца суток, и следующая
+        # смена не может на него встать.
+        try:
+            S.close_segments(C.day_str(), point, who[0])
+        except Exception as e:
+            print('закрытие отрезка:', e)
     if d == 'in':
         if lat is None:
             SC.add(point, who[0], 'geo_missing')
