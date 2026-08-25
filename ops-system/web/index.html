@@ -556,7 +556,7 @@
     </div>
     </details>
 
-<details class="blk" id="blkWork" open>
+<details class="blk" id="blkWork">
       <summary>Моя работа</summary>
     <h2><span class="steplabel" id="lb3">5</span>Чек-листы</h2>
     <div class="pick" id="pickList"></div>
@@ -690,7 +690,7 @@
   <button class="send" id="send" disabled>Отправить</button>
 </div>
 <script>
-const BUILD = 'v25.08 проверка';
+const BUILD = 'v25.08 блоки';
 // Заполняются на старте: скрипт телеграма грузится отложенно, и на момент
 // разбора этой строки window.Telegram может ещё не существовать.
 let tg = null, initData = '';
@@ -1348,12 +1348,6 @@ function renderQuizzes(){
     box.appendChild(b);
   });
   $('#qBox').classList.remove('hidden');
-  // Новичку обучение — первое дело. Блок «Обучение» и так первый по порядку,
-  // поэтому просто раскрываем его, а не вытаскиваем содержимое наружу:
-  // вытащенное теряло заголовок и висело в воздухе.
-  const edu = $('#blkEdu');
-  if(edu) edu.open = (DATA.training_left || []).length > 0
-    || list.some(q => !q.passed);
 }
 
 function qScreen(){
