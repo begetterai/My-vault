@@ -690,7 +690,7 @@
   <button class="send" id="send" disabled>Отправить</button>
 </div>
 <script>
-const BUILD = 'v25.08 запуск';
+const BUILD = 'v25.08 упр';
 // Заполняются на старте: скрипт телеграма грузится отложенно, и на момент
 // разбора этой строки window.Telegram может ещё не существовать.
 let tg = null, initData = '';
@@ -956,7 +956,8 @@ function stages(){
   mark('#lb2', came ? 'done' : (partOK ? 'now' : 'wait'));
   mark('#lb25', stationOK ? 'done' : (openStation ? 'now' : 'wait'));
   mark('#lb3', openRest ? 'now' : 'wait');
-  $('#partBox').classList.toggle('hidden', !pointOK);
+  const boss2 = ['manager', 'coo'].includes(DATA.role);
+  $('#partBox').classList.toggle('hidden', !pointOK || boss2);
   $('#stationBox').classList.toggle('hidden', !openStation);
   $('#shiftCard').classList.toggle('locked', !partOK);
   $('#shiftHead').classList.toggle('locked', !partOK);
@@ -1790,6 +1791,14 @@ function renderParts(){
   const box = $('#partSeg');
   if(!box) return;
   box.innerHTML = '';
+  // Управляющий и директор смену дня не выбирают: на точке он один
+  // и отвечает за весь день. Ответ был бы один и тот же каждое утро.
+  if(['manager', 'coo'].includes(DATA.role)){
+    PART = 'one';
+    savePart('one');
+    $('#partBox').classList.add('hidden');
+    return;
+  }
   const saved = loadPart();
   Object.keys(PART_NAME).forEach(k => {
     const b = document.createElement('button');

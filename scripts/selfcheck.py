@@ -103,9 +103,15 @@ def check_forms():
         if cl.get('stage'):
             groups[k.rsplit('_', 1)[0]][cl['stage']] = cl
     for g, st in groups.items():
-        miss = set(C.STAGES) - set(st)
+        # У управляющего передачи и приёма нет: на точке он один и работает
+        # весь день — передавать некому. Остальным нужны все четыре этапа.
+        need = {'open', 'close'} if g == 'shift_upr' else set(C.STAGES)
+        miss = need - set(st)
         if miss:
             bad.append(f'{g}: нет этапов {miss}')
+        extra = set(st) - need
+        if extra:
+            bad.append(f'{g}: лишние этапы {extra}')
 
     WANT = {'open': ['open', 'one'], 'give': ['open'],
             'take': ['close'], 'close': ['close', 'one']}

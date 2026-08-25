@@ -77,6 +77,10 @@ def build(code, zone, who):
     key, dept, roles, title_who = PLACES[code]
     out = []
     for stage, name, letter, when, parts in STAGES:
+        # Управляющий на точке один и работает весь день: передавать смену
+        # ему некому, приём от кого-то — тоже. Остаются открытие и закрытие.
+        if key == 'shift_upr' and stage in ('give', 'take'):
+            continue
         blocks = []
         for gname, rows in groups_for(code, stage):
             items = [{'text': clean(text), 'norm': norm, 'photo': photo == 'фото'}
