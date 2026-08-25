@@ -10,9 +10,12 @@ import datetime, math
 from . import config as C
 from . import storage as S
 
+# Явка — не одна строка на день, а строка на смену. Человек может
+# отработать первую смену на одной точке, сдать её и заступить на второй
+# на другой: это два разных прихода и два ухода, а не один растянутый день.
 SHIFT_COLS = ['Дата', 'Точка', 'Кто', 'Приход', 'Уход', 'Часов',
               'Опоздание, мин', 'Место — приход', 'Место — уход', 'Отметки',
-              'Фото прихода']
+              'Фото прихода', 'Смена']
 JOURNAL_COLS = ['Дата', 'Время', 'Точка', 'Кто', 'Что', 'Где', 'Подробности',
                 'Что сделали', 'Важность', 'Фото', 'Место', 'Статус', 'Решение']
 FORM_COLS = ['Дата', 'Время', 'Точка', 'Кто', 'Документ', '№ строки',
@@ -55,37 +58,60 @@ def geo_check(point, lat, lon):
 
 
 # ── явка ─────────────────────────────────────────────────────────────────────
-def shift_row(day, point, who):
-    """Строка явки за день или None."""
-    rows = S.get(C.TABS['shift'], 'A2:K')
+def shift_row(day, point, who, only_open=False):
+    """Строка явки. Последняя за день — или последняя незакрытая.
+
+    Точку не спрашиваем при поиске открытой: человек мог прийти на одну,
+    а заступить на второй смене на другую. Открытая явка у него одна
+    в любом случае — иначе он числился бы на работе в двух местах сразу.
+    """
+    rows = S.get(C.TABS['shift'], 'A2:L')
+    found = None
     for i, r in enumerate(rows):
-        if len(r) >= 3 and r[0].strip() == day and r[1].strip() == point \
-                and r[2].strip() == who:
-            return i + 2, list(r) + [''] * (11 - len(r))
-    return None
+        r = list(r) + [''] * (12 - len(r))
+        if r[0].strip() != day or r[2].strip() != who:
+            continue
+        if only_open:
+            if r[3].strip() and not r[4].strip():
+                found = (i + 2, r)
+            continue
+        if r[1].strip() == point:
+            found = (i + 2, r)
+    return found
 
 
-def mark_shift(direction, day, point, who, lat, lon, plan=None, photo=''):
+def open_shift(day, who):
+    """Незакрытая явка человека за день, на любой точке."""
+    return shift_row(day, None, who, only_open=True)
+
+
+def mark_shift(direction, day, point, who, lat, lon, plan=None, photo='',
+               part='', at=None):
     """Приход или уход. → (сообщение, поздно ли, строка)
 
     Фото при приходе — вторая опора после геометки. Место подделывается
     чужим телефоном, лицо — нет.
+
+    Приход открывает НОВУЮ явку. Незакрытая уже есть — второй раз прийти
+    нельзя: сначала закрой смену. Так за день набирается по строке на смену,
+    и переход на другую точку виден как есть.
     """
     geo, far = geo_check(point, lat, lon)
-    now = C.now().strftime('%H:%M')
-    found = shift_row(day, point, who)
+    now = at or C.now().strftime('%H:%M')
+    live = open_shift(day, who)
     late = 0
     if direction == 'in':
-        if found and found[1][3]:
-            return f'Приход уже отмечен в {found[1][3]}.', False, found[0]
+        if live:
+            where = live[1][1].strip()
+            return (f'Смена уже открыта с {live[1][3]}'
+                    + (f' на точке {where}' if where != point else '')
+                    + '. Сначала закрой её — отметь уход или сдай смену.',
+                    False, live[0])
         if plan:
             late = max(0, mins(now) - mins(plan))
-        row = [day, point, who, now, '', '', late, geo, '', 1, photo]
-        line = found[0] if found else None
-        if line:
-            S.put(C.TABS['shift'], f'A{line}:K{line}', [row])
-        else:
-            line = S.append(C.TABS['shift'], [row])
+        line = S.append(C.TABS['shift'],
+                        [[day, point, who, now, '', '', late, geo, '', 1,
+                          photo, S.PART_RU.get(part, '')]])
         msg = f'✅ Приход отмечен: <b>{now}</b>'
         if late:
             msg += f'\n⚠️ Опоздание {late} мин'
@@ -93,11 +119,9 @@ def mark_shift(direction, day, point, who, lat, lon, plan=None, photo=''):
             msg += f'\n📍 {geo} — управляющий это увидит'
         return msg, bool(late or far), line
     # уход
-    if not found or not found[1][3]:
-        return 'Сначала отметь приход.', False, None
-    line, r = found
-    if r[4]:
-        return f'Уход уже отмечен в {r[4]}.', False, line
+    if not live:
+        return 'Открытой смены нет — сначала отметь приход.', False, None
+    line, r = live
     hours = round((mins(now) - mins(r[3])) / 60, 2)
     if hours < 0:
         hours = round(hours + 24, 2)

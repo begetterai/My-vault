@@ -259,7 +259,8 @@ def close_stations():
     for line, v in left:
         end = ''
         try:
-            row = F.shift_row(day, v['point'], v['who'])
+            row = F.shift_row(day, v['point'], v['who']) \
+                or F.open_shift(day, v['who'])
             end = (row[1][4] or '').strip() if row else ''
         except Exception as e:
             print('явка для отрезка:', e)
@@ -271,6 +272,22 @@ def close_stations():
         if not by_shift:
             told.append(f"· {v['who']} · {v['station']} · с {v['start']} — "
                         f"ухода нет, поставлен {end}")
+    # Пришёл, отметился — и ни одного места за смену. Так выглядит явка
+    # ради явки: человек посидел и ушёл. Считать это работой нельзя.
+    idle = []
+    for _, v in S.segments(day):
+        if v['station'] or v['minutes'] < 30:
+            continue
+        if any(x['who'] == v['who'] and x['station']
+               for _, x in S.segments(day, who=v['who'])):
+            continue
+        idle.append(f"· {v['who']} · {v['point']} · {v['start']}–{v['end']} "
+                    f"({v['minutes']} мин) — места не выбрал")
+    if idle:
+        BOT.admin('⚠️ <b>Явка без работы</b> · ' + day + '\n'
+                  + '\n'.join(idle)
+                  + '\n\nЧеловек отметил приход, но ни на одно место '
+                    'не встал. Разберись, был ли он на смене.')
     if told:
         BOT.admin('🕓 <b>Смена не закрыта</b> · ' + day + '\n'
                   + '\n'.join(told)

@@ -440,15 +440,21 @@ def handover_notify(kind, day, point, who, to, ok, tot, fails, comment):
 
 
 def shift_state(who):
-    """Что с явкой сегодня: отмечен приход, отмечен уход."""
+    """Что со сменой сейчас: открыта — показываем её, закрыта — последнюю.
+
+    Смен за день бывает две: отработал первую, сдал, заступил на вторую.
+    Приложение должно показывать текущую, а не первую попавшуюся.
+    """
     try:
-        found = F.shift_row(C.day_str(), who[1], who[0])
+        found = F.open_shift(C.day_str(), who[0]) \
+            or F.shift_row(C.day_str(), who[1], who[0])
     except Exception:
         return {'in': '', 'out': ''}
     if not found:
         return {'in': '', 'out': ''}
     r = found[1]
-    return {'in': r[3], 'out': r[4], 'hours': r[5], 'late': r[6]}
+    return {'in': r[3], 'out': r[4], 'hours': r[5], 'late': r[6],
+            'point': r[1], 'part': r[11] if len(r) > 11 else ''}
 
 
 def shift(who, body):
@@ -472,7 +478,8 @@ def shift(who, body):
     except Exception as e:
         print('состав:', e)
     msg, flag, line = F.mark_shift(d, C.day_str(), point, who[0], lat, lon,
-                                   plan=plan, photo=link)
+                                   plan=plan, photo=link,
+                                   part=str(body.get('part') or ''))
     if d == 'out':
         # Ушёл — рабочее место освободилось, а отрезок закрылся с минутами.
         # Без этого место числится занятым до конца суток, и следующая
@@ -495,7 +502,7 @@ def shift(who, body):
         # Опоздание — минус за каждую минуту (решение Азиза 21.08.2026).
         late = 0
         try:
-            found = F.shift_row(C.day_str(), point, who[0])
+            found = F.open_shift(C.day_str(), who[0])
             late = int(float(str(found[1][6] or 0).replace(',', '.'))) if found else 0
         except (ValueError, TypeError, IndexError):
             late = 0
@@ -731,13 +738,23 @@ def submit(who, body):
         handover_notify(kind, day, point, who[0], to, ok, tot, fails, comment)
     except Exception as e:
         print('передача смены:', e)
-    # Сдал смену — работа на этом месте кончилась. Дальше он либо отмечает
-    # уход, либо встаёт на другое место, возможно на другой точке.
-    if C.checklists()[kind].get('stage') == 'give':
+    # Сдал передачу — работа на этом месте кончилась, отрезок закрывается.
+    # Сдал закрытие — кончилась вся смена: закрывается и явка. Иначе человек
+    # числится на работе до полуночи, а часы считаются по воздуху.
+    stage_now = C.checklists()[kind].get('stage')
+    if stage_now in ('give', 'close'):
         try:
             S.close_segments(day, who[0])
         except Exception as e:
-            print('закрытие отрезка при передаче:', e)
+            print('закрытие отрезка:', e)
+    if stage_now == 'close':
+        try:
+            live = F.open_shift(day, who[0])
+            if live:
+                F.mark_shift('out', day, live[1][1].strip(), who[0],
+                             None, None)
+        except Exception as e:
+            print('закрытие явки:', e)
     st = {'kind': kind, 'day': day, 'point': point, 'who': who[0]}
     try:
         fast = sec < C.MIN_SECONDS or (tempo is not None and tempo < C.MIN_GAP)
