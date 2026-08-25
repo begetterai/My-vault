@@ -559,6 +559,16 @@ def close_segments(day, point, who, at=None):
     return n
 
 
+def hanging(day):
+    """Отрезки, оставшиеся открытыми: человек не отметил уход.
+
+    Без ночной уборки такой отрезок висит вечно, минуты не посчитаны,
+    и в зарплате появляется дыра ровно там, где человек работал.
+    → [(строка, поля)]
+    """
+    return [(line, v) for line, v in segments(day) if not v['end']]
+
+
 def take_station(day, point, part, station, who, how='выбрал сам', frm=''):
     """Встать на место. → (получилось, кто его держит)
 

@@ -242,6 +242,42 @@ def mark_show():
             BOT.say(cid, txt)
 
 
+def close_stations():
+    """Под утро: закрыть отрезки тех, кто не отметил уход.
+
+    Конец берём из явки — там записан уход, если он есть. Нет и там —
+    ставим срок закрытия точки: человек не мог работать дольше, чем
+    работает заведение. Такие отрезки помечаем, чтобы их разобрали руками:
+    в зарплату должно идти посчитанное, а не угаданное молча.
+    """
+    from . import forms as F
+    day = C.day_str()
+    left = S.hanging(day)
+    if not left:
+        return
+    told = []
+    for line, v in left:
+        end = ''
+        try:
+            row = F.shift_row(day, v['point'], v['who'])
+            end = (row[1][4] or '').strip() if row else ''
+        except Exception as e:
+            print('явка для отрезка:', e)
+        by_shift = bool(end)
+        if not end:
+            cl = C.checklists().get(f"{v['station']}_close") or {}
+            end = C.deadline_for(cl, v['point']) or '00:00'
+        S.close_segments(day, v['point'], v['who'], end)
+        if not by_shift:
+            told.append(f"· {v['who']} · {v['station']} · с {v['start']} — "
+                        f"ухода нет, поставлен {end}")
+    if told:
+        BOT.admin('🕓 <b>Смена не закрыта</b> · ' + day + '\n'
+                  + '\n'.join(told)
+                  + '\n\nЧасы посчитаны по времени закрытия точки. '
+                    'Если человек ушёл раньше — поправь в «Станциях».')
+
+
 def close_day():
     """Под утро: кому засчитать полностью закрытый день (+5 баллов).
 
@@ -434,6 +470,7 @@ def tick():
     # Закрытый день считаем после полуночи — за вчера, когда сутки закончились.
     if minute >= hhmm(C.CLOSE_DAY_AT) and once('closeday'):
         mark_show()
+        close_stations()
         close_day()
 
     # Суббота вечером — сводка к воскресному собранию.
