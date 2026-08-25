@@ -562,9 +562,16 @@
     </details>
 
 <details class="blk" id="blkWork">
-      <summary>Моя работа</summary>
-    <h2><span class="steplabel" id="lb3">5</span>Чек-листы</h2>
+      <summary>Моя работа <span id="workN" class="badge"></span></summary>
+    <h2><span class="steplabel" id="lb3">5</span>Сегодня</h2>
     <div class="pick" id="pickList"></div>
+    </details>
+
+    <details class="blk" id="blkRare">
+      <summary>По необходимости <span id="rareN" class="badge"></span></summary>
+      <div class="hint">Открывается, когда случилось: пришёл кандидат,
+        вышел новичок, приехал тайный гость, что-то сломалось.</div>
+      <div class="pick" id="rareList"></div>
 
     <div id="jBox" class="hidden">
       <h2>Записать событие</h2>
@@ -695,7 +702,7 @@
   <button class="send" id="send" disabled>Отправить</button>
 </div>
 <script>
-const BUILD = 'v25.08 передача-3';
+const BUILD = 'v25.08 блоки-2';
 // Заполняются на старте: скрипт телеграма грузится отложенно, и на момент
 // разбора этой строки window.Telegram может ещё не существовать.
 let tg = null, initData = '';
@@ -1719,7 +1726,7 @@ function lockedBy(k){
 /* Список чек-листов. Показываем только листы своей смены и своего места:
    отвечать за чужой этап человек не может, а видеть его — только путаться. */
 function renderLists(){
-  const box = $('#pickList');
+  const box = $('#pickList'), rareBox = $('#rareList');
   if(!box || !DATA) return;
   PART = loadPart();
   const all = DATA.lists || {};
@@ -1751,7 +1758,7 @@ function renderLists(){
     .sort((x, y) => (!!fl[x] - !!fl[y])           // сданные — вниз списка
                  || dmin(all[x].deadline) - dmin(all[y].deadline));
   const rare = show.filter(k => !all[k].deadline);
-  const add = (k) => {
+  const add = (k, into) => {
     const b = document.createElement('button');
     b.className = 'big';
     const done = (DATA.filled || {})[k];
@@ -1786,20 +1793,26 @@ function renderLists(){
       b.onclick = () => note('Этот лист уже сдан: ' + done.who + ' в '
         + done.at + '. Повторно его не заполняют.');
     } else b.onclick = () => start(k);
-    box.appendChild(b);
+    (into || box).appendChild(b);
   };
-  const head = (t, sub) => {
-    const d = document.createElement('div');
-    d.className = 'grouphead';
-    d.innerHTML = t + (sub ? '<span>' + sub + '</span>' : '');
-    box.appendChild(d);
-  };
-  if(live.length && rare.length) head('Сегодня', 'ждут каждый день');
-  live.forEach(add);
-  if(rare.length){
-    if(live.length) head('По необходимости', 'когда случилось');
-    rare.forEach(add);
+  // Ежедневное и событийное разведены по блокам: первое ждут сегодня,
+  // второе открывают, когда случилось. В одном списке они мешали друг другу.
+  live.forEach(k => add(k));
+  if(rareBox){
+    [...rareBox.querySelectorAll('button.big')].forEach(x => x.remove());
+    rare.forEach(k => add(k, rareBox));
   }
+  const left = live.filter(k => !fl[k]).length;
+  const wn = $('#workN');
+  if(wn){
+    wn.textContent = left || '';
+    wn.className = 'badge' + (left ? ' warn' : '');
+  }
+  const rn = $('#rareN');
+  if(rn) rn.textContent = rare.length || '';
+  const bd = $('#blkRare');
+  if(bd) bd.classList.toggle('hidden', !rare.length && !(DATA.forms || []).length
+                                       && !(DATA.journals || []).length);
   // Место не выбрано, а листы станции есть: молчать нельзя — человек
   // решит, что ему нечего заполнять.
   if(!saved && !boss && !live.length && !rare.length){
@@ -2163,7 +2176,9 @@ function renderPending(){
   if(!list.length){
     box.innerHTML = '<div class="msg">Всё проверено. Ни одно заполнение '
       + 'не ждёт подтверждения.</div>';
-    return;
+    // Раньше здесь был выход — и история проверок за день не показывалась
+    // именно тогда, когда всё разобрано, то есть чаще всего.
+    return renderChecked(box);
   }
   // Два уровня проверки. Директор проверяет и работу смены, и работу
   // управляющего — это разные вещи, и мешать их в один список нельзя.
