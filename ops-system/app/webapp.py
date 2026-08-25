@@ -135,6 +135,19 @@ def init_payload(who):
     out['training_left'] = left
     if left:
         out['journals'], out['forms'] = [], []
+    # Смену передали ему лично — значит место его, чей бы отдел там ни был.
+    # Если передали на другой точке, эта точка появляется в выборе.
+    try:
+        given, src = assigned(who[0])
+    except Exception as e:
+        print('назначения:', e)
+        given, src = {}, {}
+    out['assigned'] = {k: v[0] for k, v in src.items()}
+    have = {p['code'] for p in pts}
+    for p in given:
+        if p not in have:
+            pts.append({'code': p, 'label': S.point_label(p)})
+    out['points'] = pts
     # Рабочие места смены — только своего отдела. Чужое место выбрать нельзя:
     # его листы человеку всё равно не открыты, и он остался бы с пустым
     # экраном, решив, что заполнять нечего.
@@ -156,24 +169,12 @@ def init_payload(who):
         out['taken'] = {}
     out['shift'] = shift_state(who)
     out['geo'] = {p: S.point_geo(p) for p in S.points()}
-    # Кому можно сдать смену: не «все на точке», а только те, кому лист
-    # приёма этого места вообще открыт. Управляющий, например, чужие листы
-    # не заполняет — назвать его значило отправить смену в никуда.
-    out['mates'] = {}
-    try:
-        for k, cl in C.checklists().items():
-            if cl.get('stage') != 'give':
-                continue
-            take = C.checklists().get(f"{k[:-len('_give')]}_take")
-            if not take:
-                continue
-            out['mates'][k] = sorted(
-                v[0] for cid, v in S.team().items()
-                if v[1] == who[1] and v[0] != who[0]
-                and take['key'] in C.for_role(S.role_of(v), S.dept_of(v), who[1]))
-    except Exception as e:
-        print('кому сдать смену:', e)
-        out['mates'] = {}
+    # Кому можно сдать смену: любому сотруднику, включая другую точку.
+    # Люди меняют позицию среди дня, бариста встаёт на кухню, кто-то
+    # приезжает с соседней точки — ограничивать список отделом значит
+    # запрещать то, что происходит каждый день. Право принять даёт само
+    # назначение: названному открывается приём и закрытие этого места.
+    out['mates'] = sorted({v[0] for v in S.team().values() if v[0] != who[0]})
     if role in ('manager', 'coo'):
         try:
             from . import reports as RP
@@ -263,7 +264,11 @@ def init_payload(who):
                                if x.get('who') == who[0]]
         except Exception:
             out['disputes'] = []
-    for key, cl in (C.for_role(role, dept, who[1]).items() if not left else []):
+    mine = dict(C.for_role(role, dept, who[1])) if not left else {}
+    for p, keys in (given.items() if not left else []):
+        for k in keys:
+            mine[k] = C.checklists()[k]
+    for key, cl in mine.items():
         photos = C.photo_items(key)
         random.shuffle(photos)
         out['lists'][key] = {
@@ -298,6 +303,35 @@ def init_payload(who):
         if gap > 0:
             out['overdue'][k] = gap
     return out
+
+
+def assigned(name):
+    """Что открыто человеку по назначению: его назвали принимающим смену.
+
+    Право работать на месте даёт не отдел в «Команде», а то, что смену
+    передали именно ему. Иначе бариста, вставший на кухню, упирается
+    в закрытый лист, хотя работу ему уже отдали.
+
+    → ({точка: {ключи листов}}, {ключ листа: (кто сдал, точка)})
+    """
+    gives = [k for k, cl in C.checklists().items() if cl.get('stage') == 'give']
+    out, src = {}, {}
+    for point in S.points():
+        try:
+            filled = S.filled_today(C.day_str(), point, gives)
+        except Exception as e:
+            print('назначения:', e)
+            continue
+        for k, rec in filled.items():
+            if rec.get('to') != name:
+                continue
+            g = k[:-len('_give')]
+            for stage in ('take', 'close'):
+                key = f'{g}_{stage}'
+                if key in C.checklists():
+                    out.setdefault(point, set()).add(key)
+                    src[key] = (rec.get('who', ''), point)
+    return out, src
 
 
 def station(who, body):
@@ -657,18 +691,12 @@ def submit(who, body):
     part = str(body.get('part') or '') or None
     to = str(body.get('to') or '').strip()[:60]
     dup = S.already_filled(kind, day, point)
-    # Передавать смену тому, кто не может её принять, нельзя: лист приёма
-    # у него не откроется, и смена зависнет непринятой.
-    cl_now = C.checklists()[kind]
-    if cl_now.get('stage') == 'give' and to:
-        take = C.checklists().get(f"{kind[:-len('_give')]}_take")
-        v = next((x for x in S.team().values()
-                  if x[0] == to and x[1] == point), None)
-        if not v or not take or take['key'] not in C.for_role(
-                S.role_of(v), S.dept_of(v), point):
-            return {'ok': False, 'error': f'{to} не может принять это место — '
-                                          f'лист приёма ему не открыт. '
-                                          f'Выбери того, кто заступает сюда.'}
+    # Названный должен существовать. Отдел и роль не проверяем: право принять
+    # даёт назначение — так человек и переходит на другое место или точку.
+    if C.checklists()[kind].get('stage') == 'give' and to:
+        if not any(v[0] == to for v in S.team().values()):
+            return {'ok': False, 'error': f'«{to}» нет в системе. '
+                                          f'Выбери человека из списка.'}
     # Этап дня сдаётся один раз. Событийный лист — собеседование, тайный
     # гость — можно и дважды за день, там каждый раз новый случай.
     if dup and C.checklists()[kind].get('stage'):

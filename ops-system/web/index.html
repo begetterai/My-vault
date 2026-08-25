@@ -695,7 +695,7 @@
   <button class="send" id="send" disabled>Отправить</button>
 </div>
 <script>
-const BUILD = 'v25.08 передача-2';
+const BUILD = 'v25.08 передача-3';
 // Заполняются на старте: скрипт телеграма грузится отложенно, и на момент
 // разбора этой строки window.Telegram может ещё не существовать.
 let tg = null, initData = '';
@@ -1755,6 +1755,7 @@ function renderLists(){
     const b = document.createElement('button');
     b.className = 'big';
     const done = (DATA.filled || {})[k];
+    const gave = (DATA.assigned || {})[k];
     const wait = done ? null : lockedBy(k);
     const over = done ? 0 : ((DATA.overdue || {})[k] || 0);
     const dl = all[k].deadline ? ' · до ' + all[k].deadline : '';
@@ -1768,6 +1769,7 @@ function renderLists(){
     // не снимаются — снимается за факт сдачи позже срока, при отправке.
     else if(over) sub = '⏰ не сдан · просрочка ' + hhmmFrom(over)
                       + ' · срок был ' + all[k].deadline;
+    if(!done && gave) sub = 'смену передал ' + gave + ' · ' + sub;
     b.innerHTML = all[k].title + '<div class="sub">' + sub + '</div>';
     if(over) b.classList.add('late');
     if(wait){
@@ -2748,23 +2750,17 @@ function start(k){
     const hh = document.createElement('h2');
     hh.textContent = 'Кому сдаёшь смену'; f.appendChild(hh);
     const w = document.createElement('div');
-    // Список — не «все на точке», а те, кому лист приёма этого места открыт.
-    // Управляющий чужие листы не заполняет: назвать его значило отправить
-    // смену в никуда.
-    const who = ((DATA.mates || {})[kind]) || [];
-    if(!who.length){
-      w.innerHTML = '<div class="msg warn">Принять это место сегодня некому: '
-        + 'на точке нет никого, кому открыт его лист приёма. Если работаешь '
-        + 'один весь день — вернись в начало и выбери смену '
-        + '«Один на весь день», тогда передачи не будет.</div>';
-    } else {
-      const opts = who.map(n =>
-        '<option value="' + n + '">' + n + '</option>').join('');
-      w.innerHTML = '<select id="handTo"><option value="">— выбери человека —'
-        + '</option>' + opts + '</select>'
-        + '<div class="hint">Ему придёт сообщение, что смена ждёт приёмки.</div>';
-      w.querySelector('select').onchange = paint;
-    }
+    // Любой сотрудник, включая другую точку: люди меняют позицию среди дня,
+    // бариста встаёт на кухню, кто-то приезжает с соседней точки. Право
+    // принять даёт само назначение — названному откроется это место.
+    const who = DATA.mates || [];
+    const opts = who.map(n =>
+      '<option value="' + n + '">' + n + '</option>').join('');
+    w.innerHTML = '<select id="handTo"><option value="">— выбери человека —'
+      + '</option>' + opts + '</select>'
+      + '<div class="hint">Ему придёт сообщение, и это место откроется '
+      + 'у него — даже если обычно он работает на другом.</div>';
+    w.querySelector('select').onchange = paint;
     f.appendChild(w);
   }
 
