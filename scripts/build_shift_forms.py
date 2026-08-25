@@ -67,7 +67,8 @@ def groups_for(code, stage):
     приклеена к закрытию: три пункта отдельным листом никому не нужны.
     """
     if stage == 'open':
-        return ([M.OPEN.PERSONAL] + M.collect(M.OPEN, code)
+        personal = (M.OPEN.PERSONAL_UPR if code == 'У' else M.OPEN.PERSONAL)
+        return ([personal] + M.collect(M.OPEN, code)
                 + [M.equip_block(code, 'на открытии')])
     if stage == 'give':
         return [M.GIVE, M.equip_block(code, 'при передаче'), M.ROUTINE]

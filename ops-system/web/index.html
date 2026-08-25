@@ -690,7 +690,7 @@
   <button class="send" id="send" disabled>Отправить</button>
 </div>
 <script>
-const BUILD = 'v25.08 упр-3';
+const BUILD = 'v25.08 станции';
 // Заполняются на старте: скрипт телеграма грузится отложенно, и на момент
 // разбора этой строки window.Telegram может ещё не существовать.
 let tg = null, initData = '';
@@ -835,6 +835,22 @@ async function boot(){
       return fail((j.error || '') + (j.chat_id
         ? '\n\nТвой ID: ' + j.chat_id + '\nПередай его руководителю — он добавит тебя.'
         : ''));
+    }
+    // Телеграм держит мини-апп открытым и не перезапрашивает страницу:
+    // человек может полдня работать в старой версии. Сервер говорит, какая
+    // сборка лежит у него — не сходится, перезагружаемся сами. Один раз:
+    // если после перезагрузки всё равно не сходится, значит дело не в кэше,
+    // и цикл перезагрузок был бы хуже старой версии.
+    if(j.build && j.build !== BUILD){
+      let tried = '';
+      try{ tried = sessionStorage.getItem('romashka.reload') || ''; }catch(e){}
+      if(tried !== j.build){
+        try{ sessionStorage.setItem('romashka.reload', j.build); }catch(e){}
+        $('#who').textContent = 'Обновляю до ' + j.build + '…';
+        return location.reload();
+      }
+      note('Приложение обновилось до ' + j.build + ', а у тебя ' + BUILD
+         + '. Закрой окно приложения полностью и открой заново.', 'err');
     }
     DATA = j;
     point = j.point;
@@ -1832,18 +1848,46 @@ function renderStations(){
     ? [] : (DATA.stations || []);
   box.innerHTML = '';
   if(!list.length){ $('#stationBox').classList.add('hidden'); return; }
+  // Место, занятое другим в эту же смену, выбрать нельзя: иначе двое
+  // встают на одну саладетту, а третья остаётся без хозяина.
+  const taken = (DATA.taken || {})[PART || 'one'] || {};
+  const server = Object.keys(taken).find(k => taken[k] === DATA.name);
+  if(server && server !== loadStation()) saveStation(server);
   const saved = loadStation();
   list.forEach(x => {
+    const busy = taken[x.key] && taken[x.key] !== DATA.name;
     const b = document.createElement('button');
     b.className = 'st';
-    b.innerHTML = x.title + '<span class="sub">' + x.group + '</span>';
+    b.innerHTML = x.title + '<span class="sub">'
+      + (busy ? 'занял ' + taken[x.key] : x.group) + '</span>';
     b.setAttribute('aria-pressed', String(x.key === saved));
-    b.onclick = () => {
+    if(busy){
+      b.style.opacity = '.45';
+      b.onclick = () => note('Это место сегодня занял ' + taken[x.key]
+        + '. Выбери другое или разберитесь с управляющим.');
+      box.appendChild(b);
+      return;
+    }
+    b.onclick = async () => {
+      b.disabled = true;
+      try{
+        const r = await fetch('/api/station', {method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({initData, point, part: PART || 'one',
+                                station: x.key})});
+        const j = await r.json();
+        if(!j.ok) throw new Error(j.error || 'не сохранилось');
+        (DATA.taken || {})[PART || 'one'] = j.taken || {};
+      }catch(e){
+        b.disabled = false;
+        return note(e.message, 'err');
+      }
+      b.disabled = false;
       saveStation(x.key);
       STATION = x.title;
       [...box.children].forEach(c =>
         c.setAttribute('aria-pressed', String(c === b)));
-      renderLists(); fillMe(); stages();
+      renderStations(); renderLists(); fillMe(); stages();
       tg?.HapticFeedback?.selectionChanged?.();
     };
     box.appendChild(b);

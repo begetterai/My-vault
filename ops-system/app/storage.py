@@ -27,6 +27,11 @@ PART_RU = {'open': 'открывающая', 'close': 'закрывающая',
 # Ознакомление с регламентом: подпись человека, что документ прочитан.
 # Бумажный лист ознакомления умирает в папке — здесь видно, кто и когда.
 READ_COLS = ['Дата', 'Время', 'Точка', 'Кто', 'Код', 'Документ', 'Ссылка']
+
+# Кто на какой станции сегодня. Раньше выбор жил только в телефоне человека,
+# и система не знала, что место занято: двое вставали на одну саладетту,
+# а третья оставалась без хозяина.
+STATION_COLS = ['Дата', 'Точка', 'Смена', 'Станция', 'Кто', 'Время']
 _S = {'v': None}
 
 
@@ -125,7 +130,8 @@ def ensure_structure():
                               'Что поправить', 'Документ', 'Статус', 'Решение'],
             C.TABS['tasks']: TSK.TASK_COLS,
             C.TABS['equip']: EQ.EQUIP_COLS,
-            'Ознакомление': READ_COLS}
+            'Ознакомление': READ_COLS,
+            'Станции': STATION_COLS}
     for key, cl in C.forms().items():
         cols = F.cols_for(cl)
         if cols:
@@ -459,6 +465,51 @@ def save_read(point, who, code, title, url):
                              point, who, code, title, url]])
     _READ['ts'] = None
     return True
+
+
+def stations_taken(day, point, part):
+    """{ключ станции: имя} — кто уже занял место в эту смену на этой точке."""
+    out = {}
+    for r in get('Станции', 'A2:F'):
+        r = list(r) + [''] * 6
+        if (r[0].strip() == day and r[1].strip() == point
+                and r[2].strip() == (part or '')):
+            out[r[3].strip()] = r[4].strip()
+    return out
+
+
+def take_station(day, point, part, station, who):
+    """Занять станцию. → (получилось, кто её держит)
+
+    Одна станция — один человек в смену. Смена своя у каждого: утренний
+    и вечерний на одном месте не мешают друг другу.
+    """
+    rows = get('Станции', 'A2:F')
+    mine = None
+    for i, r in enumerate(rows):
+        r = list(r) + [''] * 6
+        if (r[0].strip() == day and r[1].strip() == point
+                and r[2].strip() == (part or '')):
+            if r[3].strip() == station and r[4].strip() != who:
+                return False, r[4].strip()
+            if r[4].strip() == who:
+                mine = i + 2
+    row = [day, point, part or '', station, who, C.now().strftime('%H:%M')]
+    if mine:
+        put('Станции', f'A{mine}:F{mine}', [row])
+    else:
+        append('Станции', [row])
+    return True, who
+
+
+def station_of(day, point, part, who):
+    """Какую станцию человек занял в эту смену."""
+    for r in get('Станции', 'A2:F'):
+        r = list(r) + [''] * 6
+        if (r[0].strip() == day and r[1].strip() == point
+                and r[2].strip() == (part or '') and r[4].strip() == who):
+            return r[3].strip()
+    return ''
 
 
 def add_member(chat_id, name, point, role, dept=''):

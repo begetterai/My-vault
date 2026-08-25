@@ -17,6 +17,28 @@ HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PAGE = os.path.join(HERE, 'web', 'index.html')
 
 
+def page_build():
+    """Номер сборки страницы, лежащей на сервере.
+
+    Телеграм не перезапрашивает мини-апп, пока тот открыт: человек может
+    сутки работать в старой версии и не знать об этом. Отдаём номер в ответе,
+    страница сверяет его со своим и перезагружается сама.
+    """
+    if _BUILD['v'] is None:
+        try:
+            import re as _re
+            head = open(PAGE, encoding='utf-8').read(40000)
+            m = _re.search(r"const BUILD = '([^']*)'", head)
+            _BUILD['v'] = m.group(1) if m else ''
+        except Exception as e:
+            print('номер сборки:', e)
+            _BUILD['v'] = ''
+    return _BUILD['v']
+
+
+_BUILD = {'v': None}
+
+
 def check_init_data(init_data, token):
     try:
         data = dict(urllib.parse.parse_qsl(init_data, keep_blank_values=True))
@@ -58,7 +80,8 @@ def init_payload(who):
            [{'code': who[1], 'label': S.point_label(who[1])}])
     out = {'company': C.COMPANY, 'name': who[0], 'point': who[1],
            'point_label': S.point_label(who[1]), 'points': pts,
-           'role': role, 'dept': dept, 'day': C.day_str(), 'lists': {}}
+           'role': role, 'dept': dept, 'day': C.day_str(), 'lists': {},
+           'build': page_build()}
     # Поэтапный запуск: пока роль не в ROLLOUT, человек видит одно сообщение
     # и ничего больше. Лучше честное «скоро», чем половина системы.
     if C.ROLLOUT and role not in C.ROLLOUT:
@@ -122,6 +145,15 @@ def init_payload(who):
          'group': GROUPS.get(st['dept'] or '', 'Прочее')}
         for st in C.stations().values()
         if not dept or not st['dept'] or st['dept'].lower() == (dept or '').lower()]
+    # Занятые станции: два человека не встают на одно место в одну смену.
+    # Смену человек выбирает в приложении, серверу она на этом шаге ещё
+    # не известна — отдаём все три, приложение возьмёт свою.
+    try:
+        out['taken'] = {pt: S.stations_taken(C.day_str(), who[1], pt)
+                        for pt in ('open', 'close', 'one')}
+    except Exception as e:
+        print('станции:', e)
+        out['taken'] = {}
     out['shift'] = shift_state(who)
     out['geo'] = {p: S.point_geo(p) for p in S.points()}
     # Кому можно сдать смену: свои же на точке. Список нужен всем, а не только
@@ -244,6 +276,26 @@ def init_payload(who):
     return out
 
 
+def station(who, body):
+    """Занять рабочее место на смену. Занятое другим — не отдаём."""
+    key = str(body.get('station', '')).strip()
+    part = str(body.get('part', '')).strip()
+    if key not in C.stations():
+        return {'ok': False, 'error': 'неизвестное рабочее место'}
+    point = pick_point(who, body)
+    try:
+        ok, holder = S.take_station(C.day_str(), point, part, key, who[0])
+    except Exception as e:
+        print('занять станцию:', e)
+        return {'ok': False, 'error': 'не сохранилось, попробуй ещё раз'}
+    if not ok:
+        return {'ok': False, 'error': f'Это место сегодня уже занял {holder}. '
+                                      f'Выбери другое или разберитесь '
+                                      f'с управляющим.'}
+    return {'ok': True, 'station': key,
+            'taken': S.stations_taken(C.day_str(), point, part)}
+
+
 def read_doc(who, body):
     """Подпись «прочитал и согласен» — первый шаг тренинга.
 
@@ -300,8 +352,20 @@ def handover_notify(kind, day, point, who, to, ok, tot, fails, comment):
                        'пока не принял, смена не сдана.')
         return
 
-    # Приём: ответ тому, кто сдавал.
-    give = f"{kind[:-len('_take')]}_give"
+    # Приём: принимающий встаёт на то место, которое принял. Человек может
+    # первую смену стоять на одной станции, вторую — на другой; станция
+    # идёт за принятой работой, а не за утренним выбором.
+    group = kind[:-len('_take')]
+    if group in C.stations():
+        try:
+            ok, holder = S.take_station(day, point, 'close', group, who)
+            if not ok:
+                BOT.admin(f'⚠️ <b>Место занято при приёме</b> · {point} · '
+                          f'{place}\n{who} принял смену, но место держит '
+                          f'{holder}.')
+        except Exception as e:
+            print('станция при приёме:', e)
+    give = f'{group}_give'
     src = S.filled_today(day, point, [give]).get(give) or {}
     cid = chat_of(src.get('who', ''))
     if not cid:
@@ -1049,6 +1113,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, journal(who, body))
             if p == '/api/form':
                 return self._send(200, blank(who, body))
+            if p == '/api/station':
+                return self._send(200, station(who, body))
             if p == '/api/read':
                 return self._send(200, read_doc(who, body))
             if p == '/api/quiz':
