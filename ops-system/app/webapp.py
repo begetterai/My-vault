@@ -1011,9 +1011,17 @@ class Handler(BaseHTTPRequestHandler):
             body = json.loads(self.rfile.read(n) or b'{}')
         except Exception:
             return self._send(400, {'error': 'плохой запрос'})
-        _, who = _who(body.get('initData', ''))
+        cid, who = _who(body.get('initData', ''))
         if not who:
-            return self._send(403, {'error': 'нет доступа'})
+            # Две разные беды под одним сообщением сбивали с толку: подпись
+            # телеграма протухла — или система на секунду не увидела состав.
+            return self._send(403, {'error': (
+                'Не удалось подтвердить, кто ты. Закрой приложение '
+                'и открой заново через бота. Если повторится — скажи '
+                'управляющему, ничего из сделанного не потерялось.')
+                if cid else
+                'Открой страницу через бота — иначе телеграм '
+                'не подтверждает, кто ты.'})
         try:
             if p == '/api/submit':
                 return self._send(200, submit(who, body))

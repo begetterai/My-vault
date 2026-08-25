@@ -55,9 +55,18 @@ def _a1(tab, a1):
 
 
 def get(tab, a1='', render='FORMATTED_VALUE'):
-    r = session().get(B + C.DATA_SHEET + '/values/' + _rng(tab, a1),
-                      params={'valueRenderOption': render}, timeout=60)
-    return r.json().get('values', []) if r.ok else []
+    """Строки диапазона. Сбой чтения не отличить от пустого листа —
+    поэтому о нём хотя бы слышно в логах, а вызывающий решает сам."""
+    try:
+        r = session().get(B + C.DATA_SHEET + '/values/' + _rng(tab, a1),
+                          params={'valueRenderOption': render}, timeout=60)
+    except Exception as e:
+        print(f'чтение «{tab}»: {e}')
+        return []
+    if not r.ok:
+        print(f'чтение «{tab}»: HTTP {r.status_code}')
+        return []
+    return r.json().get('values', [])
 
 
 def get_many(pairs):
@@ -185,6 +194,13 @@ def team(force=False):
                 m[str(r[0]).strip()] = (str(r[1]).strip(), str(r[2]).strip(),
                                         str(r[3]).strip(), str(r[5]).strip().lower(),
                                         can, senior)
+    # Пустой ответ — это почти всегда сбой чтения, а не пустая команда:
+    # get() глотает ошибку сети и квоты и возвращает []. Записать такую
+    # пустоту в кэш значит выкинуть из системы всех до конца его жизни —
+    # человек посреди работы получает «нет доступа». Держим прошлый состав.
+    if not m and _TEAM['map']:
+        print('команда: пустой ответ таблицы, оставляю прошлый состав')
+        return _TEAM['map']
     _TEAM['ts'], _TEAM['map'] = now, m
     return m
 
@@ -247,7 +263,9 @@ def points_map(force=False):
     Название и адрес — только для показа человеку.
     """
     now = datetime.datetime.utcnow()
-    if not force and _PTS['ts'] and (now - _PTS['ts']).seconds < 600:
+    # Минута, как и у команды: координаты правятся руками, ждать десять
+    # минут после правки человек не станет.
+    if not force and _PTS['ts'] and (now - _PTS['ts']).seconds < 60:
         return _PTS['map']
     m, geo = {}, {}
     for r in get(C.TABS['points'], 'A2:G50'):
@@ -265,6 +283,10 @@ def points_map(force=False):
             geo[code] = (lat, lon, rad)
         except (ValueError, TypeError):
             pass
+    # Как и с командой: пустой ответ — это сбой чтения, а не «точек нет».
+    if not m and _PTS['map']:
+        print('точки: пустой ответ таблицы, оставляю прошлые')
+        return _PTS['map']
     _PTS['ts'], _PTS['map'], _PTS['geo'] = now, m, geo
     return m
 

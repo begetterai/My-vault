@@ -45,8 +45,13 @@ STAGES = [
 # дорабатывает до конца.
 DEADLINE = {'open': '09:30', 'give': '17:30', 'take': '17:30',
             'close': '00:30'}
-DEADLINE_UPR = {'open': '09:50'}
 BY_POINT = {'close': {'ОВИР': '03:30'}}
+
+# У управляющего свой день, короче дня точки: он приходит после открытия
+# и уходит до закрытия. ЗБ — 10:00–21:00, ОВИР — 12:00–21:00. Сроки его
+# листов считаются от этого, иначе оба просрочены каждый день.
+DEADLINE_UPR = {'open': '10:30', 'close': '21:00'}
+BY_POINT_UPR = {'open': {'ОВИР': '12:30'}}
 
 
 def clean(t):
@@ -68,6 +73,10 @@ def groups_for(code, stage):
         return [M.GIVE, M.equip_block(code, 'при передаче'), M.ROUTINE]
     if stage == 'take':
         return [M.TAKE, M.equip_block(code, 'при приёме'), M.VERDICT]
+    if code == 'У':
+        # Управляющий уходит в 21:00: свет, вентиляция и кондиционеры в это
+        # время ещё работают, а помещение сдаёт тот, кто гасит его в 00:30.
+        return M.collect(M.CLOSE, code) + [M.ROUTINE]
     return (M.collect(M.CLOSE, code) + [M.equip_block(code, 'на закрытии')]
             + [M.ROOM, M.ROUTINE])
 
@@ -95,8 +104,9 @@ def build(code, zone, who):
                 'type': 'checklist', 'ask_time': 'Во сколько закрыли этап?',
                 'stage': stage, 'part': parts, 'when': when,
                 'deadline': dead, 'blocks': blocks}
-        if stage in BY_POINT:
-            form['deadline_point'] = dict(BY_POINT[stage])
+        by = (BY_POINT_UPR if key == 'shift_upr' else BY_POINT).get(stage)
+        if by:
+            form['deadline_point'] = dict(by)
         if key not in ('shift_ssk', 'shift_upr'):
             form['station'] = key
         if dept:
