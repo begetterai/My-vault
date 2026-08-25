@@ -86,8 +86,11 @@
   .seg button[aria-pressed="true"]{border-color:var(--brand);background:var(--brand);
               color:var(--on-brand);font-weight:700}
   .card{border:1px solid var(--line);border-radius:18px;background:var(--card);
-        padding:16px;box-shadow:var(--shadow);margin:16px 0 12px}
-  .shift{display:flex;gap:10px;margin-top:12px}
+        padding:16px;box-shadow:var(--shadow);margin:16px 0}
+  .card>*:first-child{margin-top:0}
+  .card>*:last-child{margin-bottom:0}
+  .shift{display:flex;gap:10px;margin-top:16px}
+  .shift+.hint{margin-top:10px}
   .shift button{flex:1;padding:16px 10px;border-radius:14px;border:0;
         font-family:Manrope,"Golos Text",sans-serif;font-weight:800;font-size:15px;
         background:var(--brand);color:var(--on-brand);cursor:pointer}
@@ -275,7 +278,7 @@
         color:var(--bad);font-size:13.5px;font-weight:600}
   .rowline{display:grid;grid-template-columns:1fr 84px 80px;gap:8px;
            background:var(--wash);border:1px solid var(--line);border-radius:14px;
-           padding:10px;margin-bottom:10px}
+           padding:12px;margin-bottom:12px}
   .rowline input,.rowline select{padding:12px;font-size:15px;background:var(--card)}
   .rowline .x{grid-column:1/-1;display:flex;gap:8px}
   .rowline .x select{flex:1}
@@ -284,7 +287,8 @@
   select{width:100%;padding:15px;border:1.5px solid var(--line);border-radius:14px;
          background:var(--wash);color:var(--ink);font:inherit}
   .add{width:100%;padding:14px;border:1.5px dashed var(--line);border-radius:14px;
-       background:transparent;font-weight:600;cursor:pointer;color:var(--ink-2)}
+       background:transparent;font-weight:600;cursor:pointer;color:var(--ink-2);
+       margin-top:4px}
   .big{display:block;width:100%;padding:20px 18px;border:1px solid var(--line);
        background:var(--card);border-radius:18px;text-align:left;
        font-family:Manrope,"Golos Text",sans-serif;font-size:19px;font-weight:700;
@@ -339,7 +343,9 @@
   .foot{position:fixed;left:0;right:0;bottom:0;
         padding:12px 16px calc(12px + env(safe-area-inset-bottom));
         background:var(--bg);border-top:1px solid var(--line)}
-  .send{display:block;width:100%;max-width:608px;margin:0 auto;padding:18px;
+  /* В подвале кнопка прижата к краю — там отступ даёт сам подвал. */
+  .foot .send{margin:0 auto}
+  .send{display:block;width:100%;max-width:608px;margin:16px auto 0;padding:18px;
         border-radius:16px;border:0;background:var(--brand);color:var(--on-brand);
         font-family:Manrope,"Golos Text",sans-serif;font-size:17px;font-weight:800;
         cursor:pointer}
@@ -370,8 +376,11 @@
 .blk[open]>summary::after{transform:rotate(180deg)}
 .blk[open]>summary{border-bottom:1px solid var(--line)}
 .blk>*:not(summary){padding:0 16px}
-.blk>*:not(summary):last-child{padding-bottom:16px}
-.blk h2{font-size:15px;margin:14px 0 8px}
+.blk>*:not(summary):last-child{padding-bottom:18px}
+.blk h2{font-size:15px;margin:24px 0 10px}
+/* Первый раздел блока не отбивается от шапки: там уже есть разделитель. */
+.blk>*:not(summary):first-of-type h2:first-child,
+.blk>summary+*  h2:first-child{margin-top:16px}
 .blk.empty{display:none}
 
 .walk{margin-top:10px;border-top:1px solid var(--line);padding-top:8px}
@@ -598,7 +607,7 @@
         <select id="awTo"></select>
         <label>За что</label>
         <select id="awEvent"></select>
-        <button class="send" id="awGo" style="margin-top:12px">Начислить</button>
+        <button class="send" id="awGo">Начислить</button>
         <div class="hint">Начисляется только с твоего подтверждения. Один раз
           в день по каждому основанию.</div>
       </div>
@@ -702,7 +711,7 @@
   <button class="send" id="send" disabled>Отправить</button>
 </div>
 <script>
-const BUILD = 'v25.08 блоки-2';
+const BUILD = 'v25.08 смены-2';
 // Заполняются на старте: скрипт телеграма грузится отложенно, и на момент
 // разбора этой строки window.Telegram может ещё не существовать.
 let tg = null, initData = '';
@@ -1205,7 +1214,7 @@ function openJournal(j){
   ph.append(lab, inp, img); f.appendChild(ph);
 
   const send = document.createElement('button');
-  send.className='send'; send.style.marginTop='16px'; send.textContent='Записать';
+  send.className='send'; send.textContent='Записать';
   send.onclick = () => sendJournal(j, send);
   f.appendChild(send);
   const back = document.createElement('button');
@@ -1317,7 +1326,7 @@ function openForm(cl){
   ph.append(lab, inp, img); f.appendChild(ph);
 
   const send = document.createElement('button');
-  send.className='send'; send.id='bSend'; send.style.marginTop='16px';
+  send.className='send'; send.id='bSend';
   send.onclick = () => sendForm(cl, send);
   f.appendChild(send);
   const back = document.createElement('button');
@@ -1508,7 +1517,7 @@ function qQuestion(i){
     f.appendChild(b);
   });
   const next = document.createElement('button');
-  next.className = 'send'; next.style.marginTop = '8px';
+  next.className = 'send';
   next.textContent = i + 1 < qz.total ? 'Дальше' : 'Проверить';
   next.disabled = qAns[i] < 0;
   next.onclick = () => {
@@ -1582,14 +1591,14 @@ function qResult(res){
 
   if(!res.passed){
     const again = document.createElement('button');
-    again.className = 'send'; again.style.marginTop = '16px';
+    again.className = 'send';
     again.textContent = 'Пройти ещё раз';
     again.onclick = () => { qAns = new Array(qz.total).fill(-1);
                             qStarted = Date.now(); qTheory(0); };
     f.appendChild(again);
   } else {
     const done = document.createElement('button');
-    done.className = 'send'; done.style.marginTop = '16px';
+    done.className = 'send';
     done.textContent = 'Готово';
     // После сдачи перечитываем данные с сервера: допуск к чек-листам
     // считается там, а не в браузере. Без этого человек сдал последний
@@ -1734,6 +1743,15 @@ function renderLists(){
   const boss = ['manager', 'coo'].includes(DATA.role);
   const show = Object.keys(all).filter(k => {
     const L = all[k];
+    // Работа за день не сводится к одному месту и одной смене: человек
+    // отработал саладетту в первую, сдал её и принял бар во вторую.
+    // Поэтому лист виден, если верно хотя бы одно:
+    //   · его передали лично — назначение сильнее любого фильтра;
+    //   · он уже заполнен этим человеком — своя работа за день не исчезает;
+    //   · это его место и его смена — обычный случай.
+    if((DATA.assigned || {})[k]) return true;
+    const f = (DATA.filled || {})[k];
+    if(f && f.who === DATA.name) return true;
     if(L.station && L.station !== saved) return false;
     if((L.part || []).length && PART && !L.part.includes(PART)) return false;
     return true;
@@ -2187,10 +2205,7 @@ function renderPending(){
   const group = (title, rows) => {
     if(!rows.length) return;
     const h = document.createElement('div');
-    h.className = 'walkhead';
-    h.style.cursor = 'default';
-    h.style.color = 'var(--ink-2)';
-    h.style.margin = '10px 0 4px';
+    h.className = 'grouphead';
     h.textContent = title + ' · ' + rows.length;
     box.appendChild(h);
     rows.forEach(x => box.appendChild(pendCard(x)));
@@ -2210,10 +2225,7 @@ function renderChecked(box){
   const done = DATA.checked || [];
   if(!done.length) return;
   const h = document.createElement('div');
-  h.className = 'walkhead';
-  h.style.cursor = 'default';
-  h.style.color = 'var(--ink-2)';
-  h.style.margin = '14px 0 4px';
+  h.className = 'grouphead';
   h.textContent = 'Проверено сегодня · ' + done.length;
   box.appendChild(h);
   done.forEach(x => {
@@ -2490,7 +2502,7 @@ function renderRosterBoss(box){
   box.appendChild(add);
 
   const send = document.createElement('button');
-  send.className = 'send'; send.style.marginTop = '12px';
+  send.className = 'send';
   send.textContent = ROSTER.sent ? 'Отправить изменения' : 'Отправить состав';
   send.onclick = () => sendRoster(send);
   box.appendChild(send);

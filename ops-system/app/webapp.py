@@ -416,6 +416,9 @@ def handover_notify(kind, day, point, who, to, ok, tot, fails, comment):
     group = kind[:-len('_take')]
     if group in C.stations():
         try:
+            # Смена дня, в которую человек принял место. Приём бывает только
+            # у закрывающей: за день у него может быть две строки в «Станциях» —
+            # утренняя своя и вечерняя принятая. Это и есть его день.
             ok, holder = S.take_station(day, point, 'close', group, who)
             if not ok:
                 BOT.admin(f'⚠️ <b>Место занято при приёме</b> · {point} · '
