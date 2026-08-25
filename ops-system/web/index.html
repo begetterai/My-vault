@@ -136,6 +136,11 @@
          font-weight:700;background:var(--wash);color:var(--ink-2);margin-left:6px}
   .badge.warn{background:var(--bad-soft);color:var(--bad)}
   .big.late{border-color:var(--bad);background:var(--bad-soft)}
+  .docrow{border:1px solid var(--line);border-radius:12px;padding:10px 12px;
+    margin:6px 0;background:var(--card)}
+  .docrow .t{font-weight:600}
+  .docrow .sub{font-weight:400;font-size:12px;color:var(--ink-2);
+    margin-top:3px}
   .gate{position:fixed;inset:0;z-index:30;background:var(--bg);
         display:flex;flex-direction:column;align-items:center;
         justify-content:center;text-align:center;padding:28px 24px}
@@ -690,7 +695,7 @@
   <button class="send" id="send" disabled>Отправить</button>
 </div>
 <script>
-const BUILD = 'v25.08 баллы-тест';
+const BUILD = 'v25.08 передача-2';
 // Заполняются на старте: скрипт телеграма грузится отложенно, и на момент
 // разбора этой строки window.Telegram может ещё не существовать.
 let tg = null, initData = '';
@@ -2179,6 +2184,37 @@ function renderPending(){
   } else {
     list.forEach(x => box.appendChild(pendCard(x)));
   }
+  renderChecked(box);
+}
+
+/* Проверенное сегодня. Без этого список пустеет по мере работы, и к вечеру
+   выглядит так, будто за день ничего не было. */
+function renderChecked(box){
+  const done = DATA.checked || [];
+  if(!done.length) return;
+  const h = document.createElement('div');
+  h.className = 'walkhead';
+  h.style.cursor = 'default';
+  h.style.color = 'var(--ink-2)';
+  h.style.margin = '14px 0 4px';
+  h.textContent = 'Проверено сегодня · ' + done.length;
+  box.appendChild(h);
+  done.forEach(x => {
+    const d = document.createElement('div');
+    d.className = 'docrow';
+    d.style.opacity = '.75';
+    const diff = x.diff
+      ? '<div class="sub" style="color:var(--bad)">расхождение: ' + x.diff + '</div>'
+      : '';
+    d.innerHTML = '<div class="t">✅ ' + x.title
+      + '<div class="sub">' + x.who + ' в ' + x.at + ' · ' + x.ok + ' из ' + x.tot
+      + (x.fails && x.fails !== '—' ? ' · не выполнены: ' + x.fails : '')
+      + '</div>'
+      + '<div class="sub">проверил ' + x.checked
+      + (x.checked_at ? ' в ' + x.checked_at : '') + '</div>'
+      + diff + '</div>';
+    box.appendChild(d);
+  });
 }
 
 
@@ -2712,12 +2748,23 @@ function start(k){
     const hh = document.createElement('h2');
     hh.textContent = 'Кому сдаёшь смену'; f.appendChild(hh);
     const w = document.createElement('div');
-    const opts = (DATA.mates || []).map(n =>
-      '<option value="' + n + '">' + n + '</option>').join('');
-    w.innerHTML = '<select id="handTo"><option value="">— выбери человека —'
-      + '</option>' + opts + '</select>'
-      + '<div class="hint">Ему придёт сообщение, что смена ждёт приёмки.</div>';
-    w.querySelector('select').onchange = paint;
+    // Список — не «все на точке», а те, кому лист приёма этого места открыт.
+    // Управляющий чужие листы не заполняет: назвать его значило отправить
+    // смену в никуда.
+    const who = ((DATA.mates || {})[kind]) || [];
+    if(!who.length){
+      w.innerHTML = '<div class="msg warn">Принять это место сегодня некому: '
+        + 'на точке нет никого, кому открыт его лист приёма. Если работаешь '
+        + 'один весь день — вернись в начало и выбери смену '
+        + '«Один на весь день», тогда передачи не будет.</div>';
+    } else {
+      const opts = who.map(n =>
+        '<option value="' + n + '">' + n + '</option>').join('');
+      w.innerHTML = '<select id="handTo"><option value="">— выбери человека —'
+        + '</option>' + opts + '</select>'
+        + '<div class="hint">Ему придёт сообщение, что смена ждёт приёмки.</div>';
+      w.querySelector('select').onchange = paint;
+    }
     f.appendChild(w);
   }
 

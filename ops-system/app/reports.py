@@ -77,13 +77,17 @@ def day_block(day, point=None):
     return '\n'.join(L)
 
 
-def pending(point=None, days=14):
+def pending(point=None, days=14, done=False):
     """Заполнения, которые ждут подтверждения управляющего.
 
     Раньше проверка жила одним сообщением в чате: пропустил — забыл.
     Здесь список, который висит, пока его не разберут.
+
+    done=True — наоборот, уже проверенные за сегодня. Без них руководитель
+    не видит, что сделал за день: список пустеет по мере работы, и к вечеру
+    выглядит так, будто ничего не было.
     """
-    since = C.today() - datetime.timedelta(days=days)
+    since = C.today() if done else C.today() - datetime.timedelta(days=days)
     cls = list(C.checklists().values())
     out = []
     for cl, rows in zip(cls, S.get_many([(cl['tab'], 'A2:Q') for cl in cls])):
@@ -94,11 +98,14 @@ def pending(point=None, days=14):
                 continue
             if point and r[1].strip() != point:
                 continue
-            if str(r[13]).strip():          # колонка «Проверил» заполнена
+            checked = str(r[13]).strip()    # колонка «Проверил»
+            if bool(checked) != done:
                 continue
             if not str(r[2]).strip():
                 continue
             out.append({
+                'checked': checked, 'checked_at': str(r[14]).strip(),
+                'diff': str(r[15]).strip(),
                 'key': cl['key'], 'tab': cl['tab'], 'title': cl['title'],
                 'line': i + 2, 'date': d, 'day': r[0].strip(),
                 'point': r[1].strip(), 'who': r[2].strip(),

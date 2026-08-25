@@ -156,10 +156,24 @@ def init_payload(who):
         out['taken'] = {}
     out['shift'] = shift_state(who)
     out['geo'] = {p: S.point_geo(p) for p in S.points()}
-    # Кому можно сдать смену: свои же на точке. Список нужен всем, а не только
-    # руководителю — передаёт смену тот, кто на ней стоял.
-    out['mates'] = sorted({v[0] for v in S.team().values()
-                           if v[1] == who[1] and v[0] != who[0]})
+    # Кому можно сдать смену: не «все на точке», а только те, кому лист
+    # приёма этого места вообще открыт. Управляющий, например, чужие листы
+    # не заполняет — назвать его значило отправить смену в никуда.
+    out['mates'] = {}
+    try:
+        for k, cl in C.checklists().items():
+            if cl.get('stage') != 'give':
+                continue
+            take = C.checklists().get(f"{k[:-len('_give')]}_take")
+            if not take:
+                continue
+            out['mates'][k] = sorted(
+                v[0] for cid, v in S.team().items()
+                if v[1] == who[1] and v[0] != who[0]
+                and take['key'] in C.for_role(S.role_of(v), S.dept_of(v), who[1]))
+    except Exception as e:
+        print('кому сдать смену:', e)
+        out['mates'] = {}
     if role in ('manager', 'coo'):
         try:
             from . import reports as RP
@@ -171,8 +185,18 @@ def init_payload(who):
                  'minutes': x['minutes'], 'fast': x['fast'],
                  'age': (C.today() - x['date']).days}
                 for x in RP.pending(None if role == 'coo' else who[1])]
-        except Exception:
-            out['pending'] = []
+            # Проверенное сегодня — рядом, с отметкой. Иначе к вечеру список
+            # пуст, и не видно, что за день вообще было.
+            out['checked'] = [
+                {'key': x['key'], 'line': x['line'], 'title': x['title'],
+                 'point': x['point'], 'who': x['who'], 'at': x['at'],
+                 'ok': int(x['ok']), 'tot': int(x['tot']), 'fails': x['fails'],
+                 'checked': x['checked'], 'checked_at': x['checked_at'],
+                 'diff': x['diff']}
+                for x in RP.pending(None if role == 'coo' else who[1], done=True)]
+        except Exception as e:
+            print('проверка:', e)
+            out['pending'], out['checked'] = [], []
         # Пункты всех чек-листов — руководителю, чтобы он мог пройти по ним
         # ещё раз при проверке, а не верить сводке «12 из 14».
         try:
@@ -633,6 +657,18 @@ def submit(who, body):
     part = str(body.get('part') or '') or None
     to = str(body.get('to') or '').strip()[:60]
     dup = S.already_filled(kind, day, point)
+    # Передавать смену тому, кто не может её принять, нельзя: лист приёма
+    # у него не откроется, и смена зависнет непринятой.
+    cl_now = C.checklists()[kind]
+    if cl_now.get('stage') == 'give' and to:
+        take = C.checklists().get(f"{kind[:-len('_give')]}_take")
+        v = next((x for x in S.team().values()
+                  if x[0] == to and x[1] == point), None)
+        if not v or not take or take['key'] not in C.for_role(
+                S.role_of(v), S.dept_of(v), point):
+            return {'ok': False, 'error': f'{to} не может принять это место — '
+                                          f'лист приёма ему не открыт. '
+                                          f'Выбери того, кто заступает сюда.'}
     # Этап дня сдаётся один раз. Событийный лист — собеседование, тайный
     # гость — можно и дважды за день, там каждый раз новый случай.
     if dup and C.checklists()[kind].get('stage'):
