@@ -569,6 +569,12 @@ def submit(who, body):
     part = str(body.get('part') or '') or None
     to = str(body.get('to') or '').strip()[:60]
     dup = S.already_filled(kind, day, point)
+    # Этап дня сдаётся один раз. Событийный лист — собеседование, тайный
+    # гость — можно и дважды за день, там каждый раз новый случай.
+    if dup and C.checklists()[kind].get('stage'):
+        return {'ok': False, 'error': f'Этот лист уже сдан сегодня: {dup}. '
+                                      f'Повторно его не заполняют — если '
+                                      f'что-то не так, скажи управляющему.'}
     ok, tot, fails, line = S.save_fill(
         kind, day, point, who[0], marks, measured, photos, hhmm, comment, sec,
         part, to)
