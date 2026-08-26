@@ -520,9 +520,16 @@ def stations_taken(day, point):
 
     Занято, пока отрезок открыт. Ушёл — место освободилось: делить
     занятость по «смене дня» неточно, человек мог уйти раньше.
+
+    Один человек — одно место: если у него почему-то осталось несколько
+    открытых отрезков, считаем текущим последний. Иначе он «занимает»
+    полкухни, и приложение показывает ему чужой выбор вместо своего.
     """
-    return {v['station']: v['who'] for _, v in segments(day, point)
-            if not v['end']}
+    live = {}
+    for line, v in segments(day, point):
+        if not v['end']:
+            live[v['who']] = (line, v['station'])
+    return {st: who for who, (_, st) in live.items()}
 
 
 def station_of(day, point, who):
@@ -545,23 +552,28 @@ def close_segments(day, who, at=None):
     for line, v in segments(day, who=who):
         if v['end']:
             continue
-        a, b = _mins(v['start']), _mins(at)
-        mins = ''
-        if a is not None and b is not None:
-            # За полночь смена переходит только если началась после полудня.
-            # Иначе «конец раньше начала» — это сбитое время, и наивный
-            # перенос на сутки записал бы человеку 23 часа работы.
-            if b < a and a >= 12 * 60:
-                b += 24 * 60
-            if b < a:
-                print(f'отрезок «{v["station"]}» у {who}: конец {at} раньше '
-                      f'начала {v["start"]} — часы не посчитаны')
-                mins = '0'
-            else:
-                mins = str(b - a)
-        put('Станции', f'G{line}:H{line}', [[at, mins]], raw=True)
+        close_line(line, v, at)
         n += 1
     return n
+
+
+def close_line(line, v, at):
+    """Поставить конец отрезку и посчитать минуты."""
+    a, b = _mins(v['start']), _mins(at)
+    mins = ''
+    if a is not None and b is not None:
+        # За полночь смена переходит только если началась после полудня.
+        # Иначе «конец раньше начала» — это сбитое время, и наивный
+        # перенос на сутки записал бы человеку 23 часа работы.
+        if b < a and a >= 12 * 60:
+            b += 24 * 60
+        if b < a:
+            print(f'отрезок «{v["station"]}» у {v["who"]}: конец {at} раньше '
+                  f'начала {v["start"]} — часы не посчитаны')
+            mins = '0'
+        else:
+            mins = str(b - a)
+    put('Станции', f'G{line}:H{line}', [[at, mins]], raw=True)
 
 
 def hanging(day):
@@ -582,14 +594,21 @@ def take_station(day, point, part, station, who, how='выбрал сам', frm=
     а не потеряно.
     """
     now = C.now().strftime('%H:%M')
-    for _, v in segments(day, point):
-        if v['station'] == station and not v['end'] and v['who'] != who:
-            return False, v['who']
-        if v['station'] == station and not v['end'] and v['who'] == who:
-            return True, who          # уже стоит здесь — второй раз не пишем
+    holder = stations_taken(day, point).get(station)
+    if holder and holder != who:
+        return False, holder
+    if holder == who:
+        return True, who              # уже стоит здесь — второй раз не пишем
     close_segments(day, who, now)
-    append('Станции', [[day, point, who, station, part or '', now, '', '',
-                        how, frm]])
+    line = append('Станции', [[day, point, who, station, part or '', now, '', '',
+                               how, frm]])
+    # Таблица отдаёт запись не мгновенно: два быстрых нажатия подряд читают
+    # ещё старый список, и предыдущее место остаётся открытым. Тогда человек
+    # числится сразу на трёх станциях. Подчищаем сразу — всё, кроме только
+    # что записанной строки, закрываем.
+    for l, v in segments(day, who=who):
+        if not v['end'] and str(l) != str(line):
+            close_line(l, v, now)
     return True, who
 
 
