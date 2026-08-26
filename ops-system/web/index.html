@@ -502,16 +502,8 @@
         Выбор нужен, чтобы посмотреть подробности и работать с точкой.</div>
     </div>
 
-    <div id="partBox" class="hidden">
-      <h2><span class="steplabel" id="lb15">2</span>Смена дня</h2>
-      <div class="stgrid" id="partSeg"></div>
-      <div class="hint" id="partHint">Открывающая ставит точку на ноги
-        и передаёт, закрывающая принимает и закрывает. Выбор живёт до конца
-        дня и решает, какие листы тебе откроются.</div>
-    </div>
-
     <h2 id="shiftHead" class="hidden">
-      <span class="steplabel" id="lb2">3</span>Приход и уход</h2>
+      <span class="steplabel" id="lb2">2</span>Приход и уход</h2>
     <div id="shiftCard" class="card hidden">
       <div class="kv"><span>Смена сегодня</span><b id="shiftInfo">—</b></div>
       <div class="shift">
@@ -531,6 +523,14 @@
       </div>
       <div class="hint" id="shiftHint">Отметка ставит время, подтверждает место
         и фиксирует, что пришёл именно ты.</div>
+    </div>
+
+    <div id="partBox" class="hidden">
+      <h2><span class="steplabel" id="lb15">3</span>Выбор смены</h2>
+      <div class="stgrid" id="partSeg"></div>
+      <div class="hint" id="partHint">Открывающая ставит точку на ноги
+        и передаёт, закрывающая принимает и закрывает. Выбор живёт до конца
+        дня и решает, какие листы тебе откроются.</div>
     </div>
 
     <div id="stationBox" class="hidden">
@@ -711,7 +711,7 @@
   <button class="send" id="send" disabled>Отправить</button>
 </div>
 <script>
-const BUILD = 'v25.08 явка';
+const BUILD = 'v25.08 порядок';
 // Заполняются на старте: скрипт телеграма грузится отложенно, и на момент
 // разбора этой строки window.Telegram может ещё не существовать.
 let tg = null, initData = '';
@@ -786,14 +786,41 @@ function showGate(title, text){
 
 function hideGate(){ $('#gate').classList.add('hidden'); }
 
-function askGeo(){
+/* Место из памяти телефона. Телеграм спрашивает разрешение при каждом
+   открытии мини-аппа — даже когда доступ уже выдан навсегда. Поэтому свежую
+   точку берём только там, где она нужна по существу: при приходе и уходе.
+   Для входа в приложение хватает недавней — человек за пятнадцать минут
+   никуда не уехал. */
+const GEO_KEY = 'romashka.geo';
+const GEO_LIFE = 15 * 60 * 1000;
+
+function savedGeo(){
+  try{
+    const o = JSON.parse(localStorage.getItem(GEO_KEY) || 'null');
+    if(o && Date.now() - o.at < GEO_LIFE) return {lat: o.lat, lon: o.lon,
+                                                  acc: o.acc, cached: true};
+  }catch(e){}
+  return null;
+}
+
+function askGeo(fresh){
+  if(!fresh){
+    const o = savedGeo();
+    if(o) return Promise.resolve(o);
+  }
   return new Promise(res => {
     if(!navigator.geolocation) return res({error: 'no-api'});
     navigator.geolocation.getCurrentPosition(
-      p => res({lat: p.coords.latitude, lon: p.coords.longitude,
-                acc: Math.round(p.coords.accuracy || 0)}),
+      p => {
+        const g = {lat: p.coords.latitude, lon: p.coords.longitude,
+                   acc: Math.round(p.coords.accuracy || 0)};
+        try{
+          localStorage.setItem(GEO_KEY, JSON.stringify({...g, at: Date.now()}));
+        }catch(e){}
+        res(g);
+      },
       e => res({error: e.code === 1 ? 'denied' : 'unavailable'}),
-      {enableHighAccuracy: true, timeout: 15000, maximumAge: 0});
+      {enableHighAccuracy: true, timeout: 15000, maximumAge: 5 * 60 * 1000});
   });
 }
 
@@ -983,28 +1010,30 @@ function stages(){
   // работу: он идёт сразу от прихода к своим листам и проверке.
   // Смена дня идёт сразу за точкой: от неё зависит, какие этапы твои
   // и до какого часа их ждут. Без неё приход отмечать рано.
+  // Порядок: точка → приход → смена → место. Сначала человек отмечается,
+  // что он здесь, и только потом говорит, какая у него смена: отметка
+  // прихода — факт, выбор смены — уже про работу.
   const partOK = !!loadPart();
-  const openStation = pointOK && partOK && came && !boss;
+  const boss2 = ['manager', 'coo'].includes(DATA.role);
+  const openPart = pointOK && came && !boss2;
+  const openStation = pointOK && came && (partOK || boss2) && !boss;
   const stationOK = boss || !!loadStation() || !(DATA.stations || []).length;
-  const openRest = pointOK && partOK && came && stationOK;
+  const openRest = pointOK && came && (partOK || boss2) && stationOK;
 
   mark('#lb1', pointOK ? 'done' : 'now');
-  mark('#lb15', partOK ? 'done' : (pointOK ? 'now' : 'wait'));
-  mark('#lb2', came ? 'done' : (partOK ? 'now' : 'wait'));
+  mark('#lb2', came ? 'done' : (pointOK ? 'now' : 'wait'));
+  mark('#lb15', partOK ? 'done' : (openPart ? 'now' : 'wait'));
   mark('#lb25', stationOK ? 'done' : (openStation ? 'now' : 'wait'));
   mark('#lb3', openRest ? 'now' : 'wait');
-  const boss2 = ['manager', 'coo'].includes(DATA.role);
-  $('#partBox').classList.toggle('hidden', !pointOK || boss2);
+  $('#partBox').classList.toggle('hidden', !openPart);
   $('#stationBox').classList.toggle('hidden', !openStation);
-  $('#shiftCard').classList.toggle('locked', !partOK);
-  $('#shiftHead').classList.toggle('locked', !partOK);
+  $('#shiftCard').classList.toggle('locked', !pointOK);
+  $('#shiftHead').classList.toggle('locked', !pointOK);
   $('#rest').classList.toggle('locked', !openRest);
   $('#rest').classList.toggle('hidden', !openRest);
 
   if(!pointOK){
     $('#shiftHint').textContent = 'Сначала выбери заведение.';
-  } else if(!partOK){
-    $('#shiftHint').textContent = 'Сначала выбери смену дня.';
   } else if(!came){
     $('#shiftHint').textContent =
       'Отметь приход — после этого выберешь рабочее место.';
@@ -1028,9 +1057,9 @@ function mark(sel, state){
 
 /* ── явка ────────────────────────────────────────────────────────────────── */
 function geo(){
-  // на входе место уже определено — второй раз телефон не дёргаем
-  if(MYGEO) return Promise.resolve({lat: MYGEO.lat, lon: MYGEO.lon});
-  return askGeo().then(g => g.error ? {} : g);
+  // Приход и уход — единственное место, где нужна именно свежая точка:
+  // по ней решается, был человек на точке или отметился из дома.
+  return askGeo(true).then(g => g.error ? {} : g);
 }
 
 function renderShift(){

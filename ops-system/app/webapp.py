@@ -350,6 +350,16 @@ def station(who, body):
         return {'ok': False, 'error': f'На этом месте сейчас работает '
                                       f'{holder}. Он освободит его, когда '
                                       f'сдаст смену или отметит уход.'}
+    # Смену человек выбирает после прихода, поэтому в явке её ещё нет.
+    # Дописываем, когда он встал на место: иначе строка явки не знает,
+    # какая это была смена, и разбирать день придётся по памяти.
+    try:
+        live = F.open_shift(C.day_str(), who[0])
+        if live and not str(live[1][11] if len(live[1]) > 11 else '').strip():
+            S.put(C.TABS['shift'], f'L{live[0]}',
+                  [[S.PART_RU.get(part, '')]])
+    except Exception as e:
+        print('смена в явке:', e)
     return {'ok': True, 'station': key,
             'taken': S.stations_taken(C.day_str(), point)}
 
