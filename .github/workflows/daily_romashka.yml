@@ -1,4 +1,4 @@
-name: Ромашка — Ежедневный дайджест
+name: Ромашка — синхронизация Poster
 
 on:
   schedule:
@@ -7,8 +7,12 @@ on:
   workflow_dispatch:
     # Ручной запуск из GitHub Actions
 
+# Дайджест в телеграм убран 26.08.2026: он приходил через бота личного
+# бюджета и смешивал рабочее с личным. Сводки по точкам живут в рабочем
+# приложении. Синхронизация Poster остаётся — она наполняет финансовую
+# таблицу, из неё считается P&L.
 jobs:
-  digest:
+  sync:
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -30,9 +34,3 @@ jobs:
         env:
           ROMASHKA_SA_JSON: ${{ secrets.ROMASHKA_SA_JSON }}
 
-      - name: Отправить дайджест в Telegram
-        run: python scripts/romashka_daily_digest.py
-        env:
-          ROMASHKA_SA_JSON: ${{ secrets.ROMASHKA_SA_JSON }}
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
