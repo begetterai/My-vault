@@ -116,7 +116,7 @@ def mark_shift(direction, day, point, who, lat, lon, plan=None, photo='',
         if late:
             msg += f'\n⚠️ Опоздание {late} мин'
         if far:
-            msg += f'\n📍 {geo} — управляющий это увидит'
+            msg += f'\n📍 {geo}'
         return msg, bool(late or far), line
     # уход
     if not live:
@@ -129,7 +129,7 @@ def mark_shift(direction, day, point, who, lat, lon, plan=None, photo='',
           [[now, hours, r[6], r[7], geo, 2]])
     msg = f'✅ Уход отмечен: <b>{now}</b>\nСмена: <b>{hours} ч</b>'
     if far:
-        msg += f'\n📍 {geo} — управляющий это увидит'
+        msg += f'\n📍 {geo}'
     return msg, far, line
 
 

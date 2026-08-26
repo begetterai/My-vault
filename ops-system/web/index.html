@@ -299,7 +299,8 @@
             font-variant-numeric:tabular-nums;margin-top:4px}
 
   /* ── пункт чек-листа ────────────────────────────────────────────────── */
-  .item{display:flex;gap:10px;align-items:center;padding:12px 12px 12px 12px;
+  .item{display:flex;flex-wrap:wrap;gap:10px;align-items:center;
+        padding:12px 12px 12px 12px;
         border:1px solid var(--line);border-left:4px solid transparent;
         border-radius:16px;background:var(--card);
         margin-bottom:8px;transition:border-color .15s,background .15s}
@@ -330,8 +331,11 @@
   textarea{min-height:92px;resize:vertical}
   .hint{color:var(--ink-2);font-size:13px;margin-top:6px}
   .hint.bad{color:var(--bad);font-weight:600}
-  .why-in{margin:8px 0 2px}
-  .why-in textarea{min-height:64px;border-color:var(--bad)}
+  /* Пояснение к «✕» встаёт под пунктом целой строкой: рядом с текстом
+     оно сжимало его в столбик по одному слову. */
+  .why-in{flex:0 0 100%;margin:4px 0 0;order:9}
+  .why-in textarea{min-height:64px;border-color:var(--bad);margin:0}
+  .why-in .hint{margin-top:4px}
 
   /* ── фото ───────────────────────────────────────────────────────────── */
   .shots{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0}
@@ -713,7 +717,7 @@
   <button class="send" id="send" disabled>Отправить</button>
 </div>
 <script>
-const BUILD = 'v25.08 листы';
+const BUILD = 'v26.08 пояснения';
 // Заполняются на старте: скрипт телеграма грузится отложенно, и на момент
 // разбора этой строки window.Telegram может ещё не существовать.
 let tg = null, initData = '';
@@ -2890,11 +2894,15 @@ function itemRow(it, bl){
   const why = document.createElement('div');
   why.className = 'why-in hidden';
   why.innerHTML = '<textarea placeholder="Что именно не так и что с этим '
-    + 'делаешь"></textarea>';
-  why.querySelector('textarea').oninput = e => {
-    fails_note[it.n] = e.target.value;
-    paint();
+    + 'делаешь"></textarea><div class="hint"></div>';
+  const wta = why.querySelector('textarea'), wh = why.querySelector('.hint');
+  const wpaint = () => {
+    const ok = (fails_note[it.n] || '').trim().length >= 2;
+    wh.textContent = ok ? '' : 'Без пояснения лист не отправится';
+    wh.classList.toggle('bad', !ok);
   };
+  wta.oninput = e => { fails_note[it.n] = e.target.value; wpaint(); paint(); };
+  wpaint();
   d.appendChild(why);
   if(DATA.can_fix){
     const fx = document.createElement('button');
@@ -3061,7 +3069,7 @@ function paint(){
   const okT = true;                       // время пишется само при отправке
   const bare = Object.entries(marks)
     .filter(([n, v]) => !v && mine.has(+n))
-    .filter(([n]) => (fails_note[n] || '').trim().length < 3)
+    .filter(([n]) => (fails_note[n] || '').trim().length < 2)
     .map(([n]) => n);
   const okC = !bare.length;
   const okTo = L.stage !== 'give' || !!($('#handTo')?.value || '');
@@ -3115,7 +3123,7 @@ async function submit(){
     goHome();
     note('✅ ' + name + ' сдан · ' + j.done + ' из ' + j.total
        + ' · ' + j.minutes + ' мин'
-       + (j.fast ? '\nСлишком быстро — управляющий это увидит' : ''), 'good');
+       + (j.fast ? '\nЗаполнено быстрее норматива' : ''), 'good');
     boot();
   }catch(e){
     // Черновик уже в памяти телефона: говорим это прямо, иначе человек

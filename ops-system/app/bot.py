@@ -367,10 +367,10 @@ def finish(chat_id, st):
     fast = sec < C.MIN_SECONDS
     say(chat_id, f'✅ Записал. <b>{ok} из {tot}</b> ({round(ok / tot * 100)}%), '
                  f'заняло {round(sec / 60)} мин.'
-        + ('\n\n⚠️ Слишком быстро — управляющий это увидит.' if fast else ''))
+        + ('\n\n⚠️ Заполнено быстрее норматива.' if fast else ''))
     if dup:
         say(chat_id, f'♻️ Сегодня этот чек-лист уже заполнял {dup}. '
-                     'Записал обе версии, управляющий увидит.')
+                     'Записал обе версии.')
     try:
         award_fill(st, ok, tot, fails, fast, is_late(st['kind']))
     except Exception as e:
