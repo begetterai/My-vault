@@ -330,8 +330,17 @@
   textarea{min-height:92px;resize:vertical}
   .hint{color:var(--ink-2);font-size:13px;margin-top:6px}
   .hint.bad{color:var(--bad);font-weight:600}
+  .why-in{margin:8px 0 2px}
+  .why-in textarea{min-height:64px;border-color:var(--bad)}
 
   /* ── фото ───────────────────────────────────────────────────────────── */
+  .shots{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0}
+  .shot{position:relative;width:88px;height:88px}
+  .shot img{width:100%;height:100%;object-fit:cover;border-radius:12px;
+    display:block}
+  .shotx{position:absolute;top:-6px;right:-6px;width:24px;height:24px;
+    border-radius:50%;border:0;background:var(--bad);color:#fff;
+    font-size:13px;line-height:1;cursor:pointer}
   .photo{border:1.5px dashed var(--line);border-radius:16px;padding:16px;
          background:var(--wash);margin-bottom:10px}
   .photo img{width:100%;border-radius:12px;margin-top:12px;display:block}
@@ -679,13 +688,6 @@
 
   <div id="form" class="hidden"></div>
 
-  <div id="done" class="done hidden">
-    <div style="font-size:46px">✅</div>
-    <div class="k" id="doneK"></div>
-    <div id="doneT" class="sub"></div>
-    <button class="note" onclick="goHome()">Заполнить ещё</button>
-  </div>
-
   <div id="err" class="msg err hidden"></div>
 </main>
 
@@ -711,12 +713,13 @@
   <button class="send" id="send" disabled>Отправить</button>
 </div>
 <script>
-const BUILD = 'v25.08 порядок';
+const BUILD = 'v25.08 листы';
 // Заполняются на старте: скрипт телеграма грузится отложенно, и на момент
 // разбора этой строки window.Telegram может ещё не существовать.
 let tg = null, initData = '';
 const $ = s => document.querySelector(s);
 let DATA = null, kind = null, marks = {}, measures = {}, photos = {}, started = 0;
+let fails_note = {};   // пояснение к каждому «✕», по номеру пункта
 let markTs = [];   // когда нажали каждый пункт — по ним считается темп
 let point = null;
 
@@ -746,11 +749,12 @@ const fail = m => { note(m, 'err'); $('#err').textContent = m; $('#err').classLi
 
 /* ── возврат на главный экран ────────────────────────────────────────────── */
 function goHome(){
-  ['#form', '#jform', '#bform', '#qform', '#done', '#foot', '#bar'].forEach(x =>
-    $(x).classList.add('hidden'));
+  ['#form', '#jform', '#bform', '#qform', '#foot', '#bar'].forEach(x =>
+    $(x)?.classList.add('hidden'));
   $('#form').innerHTML = ''; $('#jform').innerHTML = ''; $('#bform').innerHTML = '';
   $('#qform').innerHTML = '';
   kind = null; marks = {}; measures = {}; photos = {}; markTs = [];
+  fails_note = {};
   jPhoto = null; bPhoto = null; bLines = []; qz = null;
   $('#pick').classList.remove('hidden');
   $('#err').classList.add('hidden');
@@ -1734,6 +1738,12 @@ const loadPart = () => loadKey(PART_KEY);
 const savePart = (k) => saveKey(PART_KEY, k);
 
 function groupOf(k){ return k.replace(/_(open|give|take|close)$/, ''); }
+
+function nowHHMM(){
+  const d = new Date();
+  return String(d.getHours()).padStart(2, '0') + ':'
+       + String(d.getMinutes()).padStart(2, '0');
+}
 
 function hhmmFrom(min){
   const h = Math.floor(min / 60), m = min % 60;
@@ -2738,7 +2748,8 @@ function renderScore(){
 }
 
 function start(k){
-  kind = k; started = Date.now(); marks = {}; measures = {}; photos = {}; markTs = [];
+  kind = k; started = Date.now(); marks = {}; measures = {}; photos = {};
+  markTs = []; fails_note = {};
   const L = DATA.lists[k];
   $('#pick').classList.add('hidden');
   $('#bar').classList.remove('hidden');
@@ -2821,16 +2832,12 @@ function start(k){
     f.appendChild(w);
   }
 
-  const h = document.createElement('h2'); h.textContent = 'Итог'; f.appendChild(h);
+  // Времени не спрашиваем: оно и так пишется в момент отправки. Комментарий
+  // не общим полем в конце, а у того пункта, где стоит «✕» — иначе человек
+  // пишет «всё нормально» одной строкой на весь лист.
   const t = document.createElement('div');
-  t.innerHTML = '<label>' + L.ask_time + '</label>' +
-    '<input type="time" id="time" step="60">' +
-    '<label>Комментарий по невыполненным</label>' +
-    '<textarea id="comment" placeholder="Что не так и что с этим делаешь"></textarea>' +
-    '<div class="hint" id="chint"></div>';
+  t.innerHTML = '<div class="hint" id="chint"></div>';
   f.appendChild(t);
-  t.querySelector('#time').oninput = paint;
-  t.querySelector('#comment').oninput = paint;
 
   const nb = document.createElement('button');
   nb.className = 'note'; nb.textContent = '💬 Заметка / задача';
@@ -2869,12 +2876,26 @@ function itemRow(it, bl){
       tog.querySelectorAll('button').forEach(x =>
         x.setAttribute('aria-pressed', x.dataset.v === v ? 'true' : 'false'));
       d.classList.remove('unset');
+      // «✕» — сразу вопрос по этому пункту. Спрашивать в конце обо всём
+      // разом значит получить одну строку «сделаем завтра» на весь лист.
+      const box = d.querySelector('.why-in');
+      if(box) box.classList.toggle('hidden', v === '1');
+      if(v === '0') setTimeout(() => box?.querySelector('textarea')?.focus(), 60);
       tg?.HapticFeedback?.selectionChanged?.();
       paint();
     };
     tog.appendChild(b);
   });
   d.appendChild(tog);
+  const why = document.createElement('div');
+  why.className = 'why-in hidden';
+  why.innerHTML = '<textarea placeholder="Что именно не так и что с этим '
+    + 'делаешь"></textarea>';
+  why.querySelector('textarea').oninput = e => {
+    fails_note[it.n] = e.target.value;
+    paint();
+  };
+  d.appendChild(why);
   if(DATA.can_fix){
     const fx = document.createElement('button');
     fx.className = 'fix'; fx.type = 'button'; fx.textContent = '✎';
@@ -2901,26 +2922,48 @@ async function sendFix(it, bl, btn){
   tg?.HapticFeedback?.notificationOccurred?.('success');
 }
 
+/* Снимков на пункт может быть сколько нужно: одна зона редко влезает
+   в один кадр, и человек не должен выбирать, что показать. */
 function photoRow(p){
   const d = document.createElement('div');
   d.className = 'photo';
   d.innerHTML = '<div><b>' + p.text + '</b></div>' +
-    '<div class="hint">Снимок должен быть сделан сейчас</div>';
+    '<div class="hint">Снимки должны быть сделаны сейчас. '
+    + 'Можно добавить несколько.</div>';
   const inp = document.createElement('input');
   inp.type = 'file'; inp.accept = 'image/*'; inp.capture = 'environment';
-  inp.style.display = 'none';
+  inp.multiple = true; inp.style.display = 'none';
+  const strip = document.createElement('div'); strip.className = 'shots';
   const lab = document.createElement('span');
-  lab.className = 'shoot'; lab.textContent = '📷 Сфотографировать';
+  lab.className = 'shoot';
   lab.onclick = () => inp.click();
-  const img = document.createElement('img'); img.className = 'hidden';
-  inp.onchange = async () => {
-    const f = inp.files[0]; if(!f) return;
-    lab.textContent = 'Обрабатываю…';
-    const url = await shrink(f);
-    photos[p.n] = url; img.src = url; img.classList.remove('hidden');
-    lab.textContent = '📷 Переснять'; paint();
+  photos[p.n] = photos[p.n] || [];
+
+  const draw = () => {
+    strip.innerHTML = '';
+    (photos[p.n] || []).forEach((url, i) => {
+      const w = document.createElement('div'); w.className = 'shot';
+      const im = document.createElement('img'); im.src = url;
+      const x = document.createElement('button');
+      x.className = 'shotx'; x.textContent = '✕';
+      x.title = 'Убрать снимок';
+      x.onclick = () => { photos[p.n].splice(i, 1); draw(); paint(); };
+      w.append(im, x); strip.appendChild(w);
+    });
+    const n = (photos[p.n] || []).length;
+    lab.textContent = n ? '📷 Добавить ещё' : '📷 Сфотографировать';
   };
-  d.append(lab, inp, img);
+
+  inp.onchange = async () => {
+    const files = [...inp.files];
+    if(!files.length) return;
+    lab.textContent = 'Обрабатываю…';
+    for(const f of files) photos[p.n].push(await shrink(f));
+    inp.value = '';
+    draw(); paint();
+  };
+  draw();
+  d.append(strip, lab, inp);
   return d;
 }
 
@@ -2966,7 +3009,7 @@ function draftSave(){
   try{
     localStorage.setItem(draftKey(kind), JSON.stringify({
       marks, measures, markTs,
-      time: $('#time')?.value || '', comment: $('#comment')?.value || '',
+      fails_note,
       started, saved: Date.now()
     }));
   }catch(e){ /* память кончилась или запрещена — работаем без черновика */ }
@@ -2986,12 +3029,17 @@ function draftLoad(k){
 function draftApply(d){
   marks = d.marks || {}; measures = d.measures || {}; markTs = d.markTs || [];
   started = d.started || Date.now();
-  if($('#time')) $('#time').value = d.time || '';
-  if($('#comment')) $('#comment').value = d.comment || '';
+  fails_note = d.fails_note || {};
   Object.entries(marks).forEach(([n, v]) => {
     const row = $('#i' + n);
     if(!row) return;
     row.classList.remove('unset');
+    const box = row.querySelector('.why-in');
+    if(box){
+      box.classList.toggle('hidden', !!v);
+      const ta = box.querySelector('textarea');
+      if(ta) ta.value = fails_note[n] || '';
+    }
     row.querySelectorAll('.tog button').forEach(b =>
       b.setAttribute('aria-pressed', b.dataset.v === (v ? '1' : '0') ? 'true' : 'false'));
   });
@@ -3008,17 +3056,20 @@ function paint(){
   const done = Object.keys(marks).length;
   $('#bar').firstElementChild.style.width = (done/total*100) + '%';
   const fails = Object.entries(marks).filter(([,v]) => !v).length;
-  const needC = fails > 0;
   const okM = L.measures.every(m => (measures[m.n] ?? '') !== '');
-  const okP = L.photos.every(p => photos[p.n]);
-  const okT = /^\d{1,2}:\d{2}$/.test(($('#time')?.value || '').trim());
-  const okC = !needC || ($('#comment')?.value || '').trim().length > 2;
+  const okP = L.photos.every(p => (photos[p.n] || []).length);
+  const okT = true;                       // время пишется само при отправке
+  const bare = Object.entries(marks)
+    .filter(([n, v]) => !v && mine.has(+n))
+    .filter(([n]) => (fails_note[n] || '').trim().length < 3)
+    .map(([n]) => n);
+  const okC = !bare.length;
   const okTo = L.stage !== 'give' || !!($('#handTo')?.value || '');
   if($('#chint')){
-    $('#chint').textContent = needC
-      ? 'Не выполнено пунктов: ' + fails + ' — комментарий обязателен'
-      : '';
-    $('#chint').classList.toggle('bad', needC && !okC);
+    $('#chint').textContent = bare.length
+      ? 'Допиши, что не так по пунктам: ' + bare.join(', ')
+      : (fails ? 'Не выполнено пунктов: ' + fails + ' — пояснения записаны' : '');
+    $('#chint').classList.toggle('bad', !!bare.length);
   }
   const ready = done === total && okM && okP && okT && okC && okTo;
   $('#send').disabled = !ready;
@@ -3028,8 +3079,7 @@ function paint(){
     if(done < total) left.push('пунктов: ' + (total - done));
     if(!okM) left.push('замеры');
     if(!okP) left.push('фото');
-    if(!okT) left.push('время');
-    if(!okC) left.push('комментарий');
+    if(!okC) left.push('пояснения к «✕»');
     if(!okTo) left.push('кому сдаёшь');
     $('#send').innerHTML = 'Отмечено ' + done + ' из ' + total
       + '<small>осталось: ' + left.join(' · ') + '</small>';
@@ -3041,9 +3091,12 @@ async function submit(){
   const body = {
     initData, kind, point, marks, measures, part: PART,
     to: $('#handTo')?.value || '',
-    photos: Object.entries(photos).map(([n,data]) => ({n:+n, data})),
-    time: $('#time').value.trim(),
-    comment: $('#comment').value.trim(),
+    photos: Object.entries(photos).flatMap(([n, arr]) =>
+      (Array.isArray(arr) ? arr : [arr]).map(data => ({n: +n, data}))),
+    time: nowHHMM(),
+    comment: Object.entries(fails_note)
+      .filter(([n, v]) => (v || '').trim() && marks[n] === false)
+      .map(([n, v]) => n + ': ' + v.trim()).join(' · '),
     seconds: Math.round((Date.now() - started) / 1000),
     marks_ts: markTs
   };
@@ -3054,12 +3107,16 @@ async function submit(){
     if(!j.ok) throw new Error(j.error || 'не сохранилось');
     draftDrop(kind);
     $('#form').classList.add('hidden'); $('#foot').classList.add('hidden');
-    $('#bar').classList.add('hidden');
-    $('#doneK').textContent = j.done + ' из ' + j.total;
-    $('#doneT').textContent = 'Заняло ' + j.minutes + ' мин'
-      + (j.fast ? ' — слишком быстро, управляющий это увидит' : '');
-    $('#done').classList.remove('hidden');
+    // Экран с двумя кнопками сбивал: вторая просто выкидывала в меню,
+    // а список оставался старым — сданный лист выглядел несданным.
+    // Теперь баннер и возврат с перезагрузкой данных.
+    const name = (DATA.lists[kind] || {}).title || 'Чек-лист';
     tg?.HapticFeedback?.notificationOccurred?.('success');
+    goHome();
+    note('✅ ' + name + ' сдан · ' + j.done + ' из ' + j.total
+       + ' · ' + j.minutes + ' мин'
+       + (j.fast ? '\nСлишком быстро — управляющий это увидит' : ''), 'good');
+    boot();
   }catch(e){
     // Черновик уже в памяти телефона: говорим это прямо, иначе человек
     // решит, что всё пропало, и начнёт отмечать заново не глядя.
