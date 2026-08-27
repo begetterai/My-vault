@@ -736,7 +736,7 @@
   <button class="send" id="send" disabled>Отправить</button>
 </div>
 <script>
-const BUILD = 'v26.08 кэш чтений';
+const BUILD = 'v26.08 место после сдачи';
 // Заполняются на старте: скрипт телеграма грузится отложенно, и на момент
 // разбора этой строки window.Telegram может ещё не существовать.
 let tg = null, initData = '';
@@ -2053,9 +2053,13 @@ function renderStations(){
   // За кем место числится на сервере — то и показываем нажатым. Свой выбор
   // держим в приоритете: иначе телефон подсвечивает одно, а система знает
   // другое, и человек думает, что выбор не сохранился.
-  const mineSt = Object.keys(taken).filter(k => taken[k] === DATA.name);
+  const mineSt = Object.keys(taken).filter(k => k && taken[k] === DATA.name);
   const server = mineSt.includes(loadStation()) ? loadStation() : mineSt[0];
   if(server && server !== loadStation()) saveStation(server);
+  // Сдал смену — место больше не твоё. Держать его нажатым нельзя: человек
+  // думает, что всё ещё стоит там, а система место уже отдала. Ровно это
+  // и выглядело как «смена у него до сих пор висит».
+  if(!server && loadStation()) saveStation('');
   const saved = loadStation();
   list.forEach(x => {
     const busy = taken[x.key] && taken[x.key] !== DATA.name;
@@ -2100,10 +2104,18 @@ function renderStations(){
   });
   const cur = list.find(x => x.key === saved);
   STATION = cur ? cur.title : null;
+  // Сдал смену и нового места не занял — так и говорим. Молчаливый пустой
+  // выбор человек читает как поломку.
+  const gaveAway = !cur && Object.keys(DATA.filled || {}).some(k =>
+    (DATA.lists[k] || {}).stage === 'give'
+    && (DATA.filled[k] || {}).who === DATA.name);
   $('#stationHint').textContent = cur
     ? 'Сейчас ты на месте «' + cur.title + '». Перешёл на другое — нажми его.'
-    : 'Выбери, где сегодня работаешь — откроются чек-листы и документы '
-      + 'этого места.';
+    : gaveAway
+      ? 'Смену ты сдал — место освободилось. Работаешь дальше на другом '
+        + 'месте — выбери его. Закончил — отметь уход.'
+      : 'Выбери, где сегодня работаешь — откроются чек-листы и документы '
+        + 'этого места.';
 }
 
 function tidyBlocks(){
