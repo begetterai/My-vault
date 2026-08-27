@@ -463,6 +463,58 @@ def handover_notify(kind, day, point, who, to, ok, tot, fails, comment,
                  + (f'\nЧто не так: {comment}' if comment else ''))
 
 
+def part_of(day, who, said=''):
+    """Смена дня человека: сначала из явки, потом со слов приложения.
+
+    В явке она стоит с того момента, как человек встал на место, — это его
+    же выбор, но записанный. Телефону верим только когда в явке пусто.
+    """
+    back = {v: k for k, v in S.PART_RU.items()}
+    try:
+        live = F.open_shift(day, who)
+        if live and len(live[1]) > 11:
+            got = back.get(str(live[1][11]).strip())
+            if got:
+                return got
+    except Exception as e:
+        print('смена дня:', e)
+    return said or ''
+
+
+def close_blocked(kind, day, point, who, said=''):
+    """Почему закрытие сдавать рано. Пусто — можно.
+
+    Блокируем только очевидное нарушение порядка. Точку могли открыть
+    не через приложение, человек мог выйти среди дня — ломать ему день
+    из-за этого нельзя, поэтому там, где цепочки не было вовсе, пропускаем.
+    """
+    grp = kind[:-len('_close')]
+    part = part_of(day, who[0], said)
+    try:
+        if part == 'close':
+            # Заступил второй сменой. Если смену на этом месте передавали,
+            # он обязан был её принять — иначе принимать её теперь некому,
+            # а он закрывает работу, которую не брал.
+            gk, tk = f'{grp}_give', f'{grp}_take'
+            have = S.filled_today(day, point, [gk, tk])
+            if gk in have and tk not in have:
+                return ('Сначала прими смену — лист «Приём» ждёт. '
+                        'Закрывать можно только то, что принял.')
+            return ''
+        # Работает один день целиком: перед закрытием должно быть открытие.
+        ok_key = f'{grp}_open'
+        if ok_key in C.checklists() \
+                and ok_key not in S.filled_today(day, point, [ok_key]):
+            return ('Сначала сдай открытие этого места — закрытие идёт '
+                    'после него. Если открывал не ты, попроси сдать лист '
+                    'открытия.')
+    except IOError:
+        raise
+    except Exception as e:
+        print('проверка закрытия:', e)
+    return ''
+
+
 def shift_state(who):
     """Что со сменой сейчас: открыта — показываем её, закрыта — последнюю.
 
@@ -773,6 +825,14 @@ def submit(who, body):
                 and S.role_of(who) not in ('manager', 'coo'):
             return {'ok': False, 'error': f'Эту смену передали не тебе, '
                                           f'а {src["to"]}. Принять может он.'}
+    # Закрытие — последний этап, и порядок до него тоже держит сервер.
+    # Чем закрытие сложнее приёма: закрывают по-разному. Кто работает один,
+    # идёт открытие → закрытие; кто заступил второй сменой — приём →
+    # закрытие. Смену дня система знает из явки, а не со слов телефона.
+    if stage_now == 'close':
+        need = close_blocked(kind, day, point, who, part)
+        if need:
+            return {'ok': False, 'error': need}
     # Этап дня сдаётся один раз. Событийный лист — собеседование, тайный
     # гость — можно и дважды за день, там каждый раз новый случай.
     if dup and C.checklists()[kind].get('stage'):
