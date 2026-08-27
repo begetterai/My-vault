@@ -351,9 +351,6 @@
   .shoot{display:inline-block;padding:13px 18px;border-radius:13px;
          background:var(--brand);color:var(--on-brand);
          margin-top:12px;cursor:pointer;font-weight:700}
-  /* Второй способ снять — запасной, поэтому тише основного. */
-  .shoot.alt{background:transparent;color:var(--ink);
-             border:1.5px solid var(--line);font-weight:600;margin-left:8px}
 
   /* ── низ ────────────────────────────────────────────────────────────── */
   .foot{position:fixed;left:0;right:0;bottom:0;
@@ -739,7 +736,7 @@
   <button class="send" id="send" disabled>Отправить</button>
 </div>
 <script>
-const BUILD = 'v26.08 камера-3';
+const BUILD = 'v26.08 устойчивость';
 // Заполняются на старте: скрипт телеграма грузится отложенно, и на момент
 // разбора этой строки window.Telegram может ещё не существовать.
 let tg = null, initData = '';
@@ -919,9 +916,16 @@ function renderDistance(){
 }
 
 async function boot(){
+  // Два перечитывания разом рисовали бы один экран вдвоём и путались
+  // в порядке: событий возврата в приложение несколько, они приходят
+  // пачкой.
+  if(BOOTING) return;
+  BOOTING = true;
   lastBoot = Date.now();
   const quiet = QUIET; QUIET = false;   // тихое обновление или открытие руками
-  if(!MYGEO && !(await gate())) return;
+  // Не пустили к геопозиции — снимаем замок, иначе повторная попытка
+  // человека уже никогда не сработает.
+  if(!MYGEO && !(await gate())){ BOOTING = false; return; }
   try{
     const r = await fetch('/api/init?initData=' + encodeURIComponent(initData));
     const j = await r.json();
@@ -951,13 +955,19 @@ async function boot(){
     point = j.point;
     $('#who').textContent = j.name;
     if((j.points || []).length > 1){
+      // Выбор заведения переживает обновление: без этого каждое тихое
+      // перечитывание сбрасывало человека на первый шаг.
+      const want = loadPoint();
+      if(want && j.points.some(p => p.code === want)){
+        point = want; pointOK = true;
+      }
       const seg = $('#pointSeg'); seg.innerHTML = '';
       j.points.forEach(p => {
         const b = document.createElement('button');
         b.textContent = p.label;
-        b.setAttribute('aria-pressed', 'false');
+        b.setAttribute('aria-pressed', String(pointOK && p.code === point));
         b.onclick = () => {
-          point = p.code; pointOK = true;
+          point = p.code; pointOK = true; savePoint(p.code);
           seg.querySelectorAll('button').forEach((x, i) =>
             x.setAttribute('aria-pressed', j.points[i].code === point ? 'true' : 'false'));
           stages(); renderSite();
@@ -1037,10 +1047,11 @@ async function boot(){
       console.error('broken sections', broken);
     }
   }catch(e){ fail('Не открылось: ' + e.message); }
+  finally{ BOOTING = false; }
 }
 
 /* ── шаги: точка → приход → работа ───────────────────────────────────────── */
-let pointOK = false, selfie = null;
+let pointOK = false, selfie = null, BOOTING = false;
 
 function stages(){
   const many = (DATA.points || []).length > 1;
@@ -1230,9 +1241,18 @@ function takeSelfie(data){
   $('#selfieBtn').textContent = '📷 Переснять';
 }
 
+// Тот же порядок, что и для фото в чек-листе: сначала камера внутри
+// приложения, а запасной выбор файла — по отдельному нажатию. После
+// неудачной попытки открыть его уже нельзя: право сгорает, пока ждём.
+let selfieByFile = false;
 $('#selfieBtn').onclick = async () => {
+  if(selfieByFile) return selfieInput.click();
   const ok = await openCamera('user', takeSelfie);
-  if(!ok) selfieInput.click();
+  if(ok) return;
+  selfieByFile = true;
+  $('#selfieBtn').textContent = '📷 Сфотографировать себя';
+  note('Телефон не дал доступ к камере из приложения. Нажми ещё раз — '
+     + 'откроется камера телефона.', 'err');
 };
 $('#camShoot').onclick = shootFromCamera;
 $('#camCancel').onclick = closeCamera;
@@ -1774,6 +1794,23 @@ function fillMe(){
    место — на какой станции ты их отмечаешь. */
 let STATION = null, PART = null;
 const STATION_KEY = 'romashka.station', PART_KEY = 'romashka.part';
+// Выбранное заведение живёт не только в памяти страницы: приложение теперь
+// перечитывает данные само, и после каждого обновления выбор терялся —
+// шаги схлопывались обратно к «выбери заведение», а смена и рабочее место
+// (они привязаны к точке) переставали находиться. Именно это выбрасывало
+// на приход посреди работы.
+const POINT_KEY = 'romashka.point';
+function loadPoint(){
+  try{
+    const o = JSON.parse(localStorage.getItem(POINT_KEY) || 'null');
+    return o && o.day === DATA.day ? o.code : null;
+  }catch(e){ return null; }
+}
+function savePoint(code){
+  try{
+    localStorage.setItem(POINT_KEY, JSON.stringify({code, day: DATA.day}));
+  }catch(e){}
+}
 
 const PART_NAME = {open: 'Открывающая', close: 'Закрывающая',
                    one: 'Один на весь день'};
@@ -2638,6 +2675,7 @@ function renderRosterBoss(box){
     if(!free) return note('Все люди точки уже в составе.', 'warn');
     ROSTER.people.push({who: free, dept: 'кухня',
                         start: ROSTER.starts['кухня'] || '', instead: ''});
+    ROSTER.dirty = true;
     renderRoster();
   };
   box.appendChild(add);
@@ -2667,7 +2705,7 @@ function rosterRow(p, i){
   const who = document.createElement('select');
   who.innerHTML = (ROSTER.team || []).map(n =>
     '<option' + (n === p.who ? ' selected' : '') + '>' + n + '</option>').join('');
-  who.onchange = () => { p.who = who.value; };
+  who.onchange = () => { p.who = who.value; ROSTER.dirty = true; };
 
   const dept = document.createElement('select');
   dept.innerHTML = (ROSTER.depts || []).map(n =>
@@ -2676,20 +2714,21 @@ function rosterRow(p, i){
     p.dept = dept.value;
     p.start = ROSTER.starts[p.dept] || p.start;
     time.value = p.start;
+    ROSTER.dirty = true;
   };
 
   const time = document.createElement('input');
   time.type = 'time'; time.step = 60; time.value = p.start || '';
-  time.oninput = () => { p.start = time.value; };
+  time.oninput = () => { p.start = time.value; ROSTER.dirty = true; };
 
   const instead = document.createElement('input');
   instead.type = 'text'; instead.placeholder = 'замена вместо кого (если замена)';
   instead.value = p.instead || '';
-  instead.oninput = () => { p.instead = instead.value.trim(); };
+  instead.oninput = () => { p.instead = instead.value.trim(); ROSTER.dirty = true; };
 
   const rm = document.createElement('button');
   rm.className = 'note'; rm.textContent = '✕ Убрать из смены';
-  rm.onclick = () => { ROSTER.people.splice(i, 1); renderRoster(); };
+  rm.onclick = () => { ROSTER.people.splice(i, 1); ROSTER.dirty = true; renderRoster(); };
 
   d.append(who, dept, time, instead, rm);
   return d;
@@ -2708,6 +2747,7 @@ async function sendRoster(btn){
   if(!j.ok){ btn.textContent = 'Отправить состав'; return note(j.error || 'Не ушло.', 'err'); }
   tg?.HapticFeedback?.notificationOccurred?.('success');
   note('Состав отправлен. Вопрос ушёл: ' + j.sent + ' из ' + j.total + '.', 'good');
+  ROSTER.dirty = false;
   loadRoster();
 }
 
@@ -3034,41 +3074,38 @@ function photoRow(p){
   d.className = 'photo';
   d.innerHTML = '<div><b>' + p.text + ' — обязательно</b></div>' +
     '<div class="hint">Снимай сейчас. Нужен хотя бы один снимок, можно '
-    + 'добавить ещё — по кадру на нажатие. Если вместо камеры открылась '
-    + 'галерея, жми «Снять камерой здесь».</div>';
+    + 'добавить ещё — по кадру на нажатие.</div>';
   const inp = document.createElement('input');
   inp.type = 'file';
-  // capture работает только как HTML-атрибут: заданный свойством, он молча
-  // игнорируется, и вместо камеры открывается галерея. Ровно это и было.
+  // Запасное поле. capture задаём атрибутом и без multiple — только так
+  // телефон вообще может открыть камеру вместо галереи. Гарантии нет,
+  // поэтому снимок ещё проверяется на свежесть.
   inp.setAttribute('accept', 'image/*');
-  inp.setAttribute('capture', 'environment');   // основная камера
-  // Без multiple: на Android хром слушает capture только у поля на один
-  // файл. С multiple он молча открывает галерею — ровно это и было видно
-  // у Владимира. Снимков по-прежнему сколько нужно, просто по одному
-  // за нажатие: «Добавить ещё».
+  inp.setAttribute('capture', 'environment');
   inp.style.display = 'none';
   const strip = document.createElement('div'); strip.className = 'shots';
   const lab = document.createElement('span');
   lab.className = 'shoot';
-  // Открываем поле сразу, без всякого «сначала попробуем камеру внутри».
-  // Разрешение на файл телефон даёт только по живому нажатию, и оно живёт
-  // секунды: пока мы ждали ответа от встроенной камеры, оно сгорало —
-  // и по нажатию не открывалось вообще ничего.
-  lab.onclick = () => inp.click();
-  // Второй путь — камера прямо в приложении. Нужен там, где телефон
-  // не слушает capture и всё равно открывает галерею. Отдельной кнопкой,
-  // а не «сначала попробуем»: своё нажатие у каждого пути, и ни один
-  // не ломает другой.
-  const own = document.createElement('span');
-  own.className = 'shoot alt';
-  own.textContent = '🎥 Снять камерой здесь';
-  own.onclick = async () => {
+  // Снимаем камерой внутри приложения. Атрибуту capture у файлового поля
+  // верить нельзя: часть телефонов его не слушает и открывает галерею,
+  // а туда можно подставить вчерашний снимок.
+  //
+  // Запасной путь — то же файловое поле, но по ОТДЕЛЬНОМУ нажатию. Право
+  // открыть его телефон даёт только по живому касанию и всего на несколько
+  // секунд: открыть после неудачной попытки камеры уже нельзя — право
+  // сгорело, пока ждали. Поэтому кнопка просто меняет надпись, и следующее
+  // нажатие открывает выбор файла.
+  let byFile = false;
+  lab.onclick = async () => {
+    if(byFile) return inp.click();
     const ok = await openCamera('environment', data => {
       photos[p.n].push(data); draw(); paint();
     });
-    if(!ok) note('Телефон не дал доступ к камере из приложения. '
-      + 'Разреши доступ в настройках телеграма или сними обычной кнопкой.',
-      'err');
+    if(ok) return;
+    byFile = true;
+    lab.textContent = '📷 Выбрать снимок';
+    note('Телефон не дал доступ к камере из приложения. Нажми ещё раз — '
+       + 'откроется камера телефона. Старый снимок система не примет.', 'err');
   };
   photos[p.n] = photos[p.n] || [];
 
@@ -3084,7 +3121,7 @@ function photoRow(p){
       w.append(im, x); strip.appendChild(w);
     });
     const n = (photos[p.n] || []).length;
-    lab.textContent = n ? '📷 Добавить ещё' : '📷 Сфотографировать';
+    if(!byFile) lab.textContent = n ? '📷 Добавить ещё' : '📷 Сфотографировать';
   };
 
   inp.onchange = async () => {
@@ -3106,7 +3143,7 @@ function photoRow(p){
     draw(); paint();
   };
   draw();
-  d.append(strip, lab, own, inp);
+  d.append(strip, lab, inp);
   return d;
 }
 
@@ -3392,6 +3429,13 @@ function refresh(force){
   // И под рукой не трогаем: идёт отметка, открыта камера или снимок уже
   // сделан, но человек ещё не нажал «Пришёл».
   if(BUSY || camStream || selfie) return;
+  // Человек что-то печатает или выбирает — перерисовка стёрла бы набранное
+  // (состав смены на завтра, поле выбора).
+  const a = document.activeElement;
+  if(a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName)) return;
+  // Состав на завтра правится в памяти и уходит одной кнопкой. Пока он
+  // не отправлен, перечитывание стёрло бы всю правку.
+  if(typeof ROSTER === 'object' && ROSTER && ROSTER.dirty) return;
   if(Date.now() - lastBoot < (force ? 3000 : 115000)) return;
   lastBoot = Date.now();
   QUIET = true;
