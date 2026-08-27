@@ -531,13 +531,6 @@
         <button id="btnIn">Пришёл</button>
         <button id="btnOut" class="out">Ушёл</button>
       </div>
-      <div class="cam hidden" id="camBox">
-        <video id="camVideo" playsinline autoplay muted></video>
-        <div class="camacts">
-          <button class="send" id="camShoot">Снять</button>
-          <button class="note" id="camCancel">Отмена</button>
-        </div>
-      </div>
       <div class="selfie" id="selfieBox">
         <span class="shoot" id="selfieBtn">📷 Сфотографировать себя</span>
         <img id="selfieImg" class="hidden" alt="">
@@ -710,6 +703,17 @@
   <div id="err" class="msg err hidden"></div>
 </main>
 
+<!-- Камера — отдельно от всего: она нужна и с главной, и из чек-листа.
+     Лежала внутри карточки смены, а карточка вместе с главным экраном
+     прячется — и камеру было не показать. -->
+<div class="cam hidden" id="camBox">
+  <video id="camVideo" playsinline autoplay muted></video>
+  <div class="camacts">
+    <button class="send" id="camShoot">Снять</button>
+    <button class="note" id="camCancel">Отмена</button>
+  </div>
+</div>
+
 <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
 
 <div class="gate hidden" id="gate">
@@ -732,7 +736,7 @@
   <button class="send" id="send" disabled>Отправить</button>
 </div>
 <script>
-const BUILD = 'v26.08 камера';
+const BUILD = 'v26.08 камера-2';
 // Заполняются на старте: скрипт телеграма грузится отложенно, и на момент
 // разбора этой строки window.Telegram может ещё не существовать.
 let tg = null, initData = '';
@@ -3042,15 +3046,13 @@ function photoRow(p){
   const strip = document.createElement('div'); strip.className = 'shots';
   const lab = document.createElement('span');
   lab.className = 'shoot';
-  // Сначала камера внутри приложения — она работает там, где телефон
-  // игнорирует capture и подсовывает галерею. Не включилась — откат
-  // на выбор файла, иначе лист вообще не сдать.
-  lab.onclick = async () => {
-    const ok = await openCamera('environment', data => {
-      photos[p.n].push(data); draw(); paint();
-    });
-    if(!ok) inp.click();
-  };
+  // Открываем поле сразу, без всякого «сначала попробуем камеру внутри».
+  // Разрешение на файл телефон даёт только по живому нажатию, и оно живёт
+  // секунды: пока мы ждали ответа от встроенной камеры, оно сгорало —
+  // и по нажатию не открывалось вообще ничего. Ровно это и было.
+  // Камеру включает атрибут capture у поля на один файл — тем же способом
+  // снимается селфи прихода, и на телефоне Владимира он работает.
+  lab.onclick = () => inp.click();
   photos[p.n] = photos[p.n] || [];
 
   const draw = () => {
