@@ -468,10 +468,15 @@
 
 /* Камера прямо в приложении: снимок нельзя подменить старым файлом
    из галереи, а отметка прихода на этом и держится. */
-.cam{margin-top:10px;border-radius:14px;overflow:hidden;background:#000}
-.cam video{width:100%;display:block;max-height:52vh;object-fit:cover;
-     transform:scaleX(-1)}
-.camacts{display:flex;gap:8px;padding:10px;background:var(--card)}
+/* Камера — поверх всего экрана: снимают и с главной (селфи прихода),
+   и изнутри чек-листа, где главная спрятана. Была внутри карточки смены
+   и в чек-листе просто не показывалась. */
+.cam{position:fixed;inset:0;z-index:60;background:#000;display:flex;
+     flex-direction:column;justify-content:center}
+.cam video{width:100%;display:block;max-height:76vh;object-fit:contain}
+.cam.front video{transform:scaleX(-1)}   /* себя видно как в зеркале */
+.camacts{display:flex;gap:8px;padding:10px;background:var(--card);
+     padding-bottom:calc(10px + env(safe-area-inset-bottom))}
 .camacts button{flex:1;margin:0}
 </style>
 </head>
@@ -727,7 +732,7 @@
   <button class="send" id="send" disabled>Отправить</button>
 </div>
 <script>
-const BUILD = 'v26.08 живое обновление';
+const BUILD = 'v26.08 камера';
 // Заполняются на старте: скрипт телеграма грузится отложенно, и на момент
 // разбора этой строки window.Telegram может ещё не существовать.
 let tg = null, initData = '';
@@ -760,6 +765,17 @@ function hideNote(){
 }
 
 const fail = m => { note(m, 'err'); $('#err').textContent = m; $('#err').classList.remove('hidden'); };
+
+/* Сбой внутри обработчика ничего не показывает: кнопка просто перестаёт
+   отвечать, и человек думает, что «не нажимается». Показываем — но не
+   намертво: сообщение уходит само, чтобы не перекрывать работу. Пустые
+   «Script error.» браузер шлёт из чужих скриптов, их не показываем. */
+function oops(msg){
+  msg = String(msg || '').trim();
+  if(!msg || /^Script error/i.test(msg)) return;
+  note('Сбой: ' + msg + '. Покажи управляющему.', 'err');
+  setTimeout(hideNote, 9000);
+}
 
 /* ── возврат на главный экран ────────────────────────────────────────────── */
 function goHome(){
@@ -1109,23 +1125,36 @@ function renderShift(){
 async function mark2(direction){
   const btn = direction === 'in' ? $('#btnIn') : $('#btnOut');
   btn.disabled = true; btn.textContent = 'Определяю место…';
-  const g = await geo();
-  const r = await fetch('/api/shift', {method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({initData, direction, point,
-                          lat: g.lat ?? null, lon: g.lon ?? null,
-                          part: PART || '',
-                          photo: direction === 'in' ? selfie : null})});
-  const j = await r.json();
-  if(!j.ok){
+  // Пока отметка идёт, тихое обновление не трогает экран: оно перерисовало
+  // бы карточку смены прямо под рукой — кнопка меняет надпись сама собой,
+  // и это выглядит как сбой.
+  BUSY++;
+  try{
+    const g = await geo();
+    const r = await fetch('/api/shift', {method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({initData, direction, point,
+                            lat: g.lat ?? null, lon: g.lon ?? null,
+                            part: PART || '',
+                            photo: direction === 'in' ? selfie : null})});
+    const j = await r.json();
+    if(!j.ok){
+      renderShift(); stages();
+      return note(j.error || 'Не записалось. Попробуй ещё раз.', 'err');
+    }
+    if(j.shift){ DATA.shift = j.shift; }
+    selfie = null;
     renderShift(); stages();
-    return note(j.error || 'Не записалось. Попробуй ещё раз.', 'err');
+    note((j.message || 'Готово').replace(/<[^>]+>/g, ''), 'good');
+    tg?.HapticFeedback?.notificationOccurred?.('success');
+  }catch(e){
+    renderShift(); stages();
+    note(navigator.onLine === false
+      ? 'Связь пропала. Отметка не записалась — нажми ещё раз, когда появится сеть.'
+      : 'Не записалось: ' + (e.message || 'ошибка') + '. Попробуй ещё раз.', 'err');
+  }finally{
+    BUSY--;
   }
-  if(j.shift){ DATA.shift = j.shift; }
-  selfie = null;
-  renderShift(); stages();
-  note((j.message || 'Готово').replace(/<[^>]+>/g, ''), 'good');
-  tg?.HapticFeedback?.notificationOccurred?.('success');
 }
 const selfieInput = document.createElement('input');
 selfieInput.type = 'file';
@@ -1148,23 +1177,26 @@ selfieInput.onchange = async () => {
    и открывается галерея — то есть человек может подставить старое фото.
    Поэтому сначала пробуем включить камеру прямо здесь; не вышло —
    откатываемся на выбор файла, чтобы отметка вообще была возможна. */
-let camStream = null;
+let camStream = null, camDone = null;
 
-async function openCamera(){
+async function openCamera(facing, done){
   if(!navigator.mediaDevices?.getUserMedia) return false;
   try{
     camStream = await navigator.mediaDevices.getUserMedia({
-      video: {facingMode: 'user', width: {ideal: 720}}, audio: false});
+      video: {facingMode: facing || 'user', width: {ideal: 720}}, audio: false});
   }catch(e){ return false; }
+  camDone = done;
   const box = $('#camBox');
   const v = $('#camVideo');
   v.srcObject = camStream;
   await v.play().catch(() => {});
+  box.classList.toggle('front', (facing || 'user') === 'user');
   box.classList.remove('hidden');
   return true;
 }
 
 function closeCamera(){
+  camDone = null;
   if(camStream){ camStream.getTracks().forEach(t => t.stop()); camStream = null; }
   const box = $('#camBox');
   if(box) box.classList.add('hidden');
@@ -1177,16 +1209,22 @@ async function shootFromCamera(){
   const w = 720, h = Math.round(v.videoHeight * w / v.videoWidth);
   c.width = w; c.height = h;
   c.getContext('2d').drawImage(v, 0, 0, w, h);
-  selfie = c.toDataURL('image/jpeg', 0.72);
-  $('#selfieImg').src = selfie;
-  $('#selfieImg').classList.remove('hidden');
-  $('#selfieBtn').textContent = '📷 Переснять';
+  const data = c.toDataURL('image/jpeg', 0.72);
+  const done = camDone;
   closeCamera();
   tg?.HapticFeedback?.impactOccurred?.('light');
+  if(done) done(data);
+}
+
+function takeSelfie(data){
+  selfie = data;
+  $('#selfieImg').src = data;
+  $('#selfieImg').classList.remove('hidden');
+  $('#selfieBtn').textContent = '📷 Переснять';
 }
 
 $('#selfieBtn').onclick = async () => {
-  const ok = await openCamera();
+  const ok = await openCamera('user', takeSelfie);
   if(!ok) selfieInput.click();
 };
 $('#camShoot').onclick = shootFromCamera;
@@ -2996,12 +3034,23 @@ function photoRow(p){
   // игнорируется, и вместо камеры открывается галерея. Ровно это и было.
   inp.setAttribute('accept', 'image/*');
   inp.setAttribute('capture', 'environment');   // основная камера
-  inp.setAttribute('multiple', '');
+  // Без multiple: на Android хром слушает capture только у поля на один
+  // файл. С multiple он молча открывает галерею — ровно это и было видно
+  // у Владимира. Снимков по-прежнему сколько нужно, просто по одному
+  // за нажатие: «Добавить ещё».
   inp.style.display = 'none';
   const strip = document.createElement('div'); strip.className = 'shots';
   const lab = document.createElement('span');
   lab.className = 'shoot';
-  lab.onclick = () => inp.click();
+  // Сначала камера внутри приложения — она работает там, где телефон
+  // игнорирует capture и подсовывает галерею. Не включилась — откат
+  // на выбор файла, иначе лист вообще не сдать.
+  lab.onclick = async () => {
+    const ok = await openCamera('environment', data => {
+      photos[p.n].push(data); draw(); paint();
+    });
+    if(!ok) inp.click();
+  };
   photos[p.n] = photos[p.n] || [];
 
   const draw = () => {
@@ -3249,12 +3298,9 @@ function bootstrap(){
   // Сбой внутри обработчика ничего не показывает: кнопка просто перестаёт
   // отвечать, и человек думает, что «не нажимается». Один такой сбой стоил
   // целого тестового вечера — теперь он виден сразу.
-  window.addEventListener('error', e =>
-    note('Сбой в приложении: ' + (e.message || 'ошибка')
-       + '. Покажи это управляющему.', 'err'));
+  window.addEventListener('error', e => oops(e.message));
   window.addEventListener('unhandledrejection', e =>
-    note('Сбой в приложении: ' + (e.reason?.message || e.reason || 'ошибка')
-       + '. Покажи это управляющему.', 'err'));
+    oops(e.reason?.message || e.reason));
   tg = window.Telegram?.WebApp || null;
   initData = tg?.initData || '';
   try{ tg?.ready(); tg?.expand(); }catch(e){}
@@ -3309,11 +3355,14 @@ async function watchLoop(){
   }
 }
 
-let lastBoot = 0, QUIET = false;
+let lastBoot = 0, QUIET = false, BUSY = 0;
 function refresh(force){
   // Внутри заполнения не трогаем: перерисовка стёрла бы отметки.
   if(document.hidden || !DATA || kind) return;
   if($('#pick').classList.contains('hidden')) return;
+  // И под рукой не трогаем: идёт отметка, открыта камера или снимок уже
+  // сделан, но человек ещё не нажал «Пришёл».
+  if(BUSY || camStream || selfie) return;
   if(Date.now() - lastBoot < (force ? 3000 : 115000)) return;
   lastBoot = Date.now();
   QUIET = true;
