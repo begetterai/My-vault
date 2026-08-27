@@ -559,9 +559,16 @@
     <div id="rest">
 
 <details class="blk ok" id="blkCheck" open>
-      <summary><span class="ic">✓</span>Проверка <span id="checkN" class="badge"></span></summary>
+      <summary><span class="ic">✓</span>Входящие <span id="checkN" class="badge"></span></summary>
+    <div id="handBox" class="hidden">
+      <h2>Приём смены <span id="handN" class="badge"></span></h2>
+      <div class="hint">Смену передали тебе. Прими её — место перейдёт
+        к тебе вместе с листами.</div>
+      <div class="pick" id="handList"></div>
+    </div>
+
     <div id="pendBox" class="hidden">
-      <h2>На проверке <span id="pendN" class="badge"></span></h2>
+      <h2 id="pendHead">На проверке <span id="pendN" class="badge"></span></h2>
       <div class="hint">Пройди по пунктам ещё раз и отметь своё.
         Расхождение важнее честного «✗»: оно значит, что отметка
         не совпала с тем, что видно на месте.</div>
@@ -720,7 +727,7 @@
   <button class="send" id="send" disabled>Отправить</button>
 </div>
 <script>
-const BUILD = 'v26.08 фото и место';
+const BUILD = 'v26.08 входящие';
 // Заполняются на старте: скрипт телеграма грузится отложенно, и на момент
 // разбора этой строки window.Telegram может ещё не существовать.
 let tg = null, initData = '';
@@ -775,6 +782,10 @@ function goHome(){
 function enterScreen(){
   $('#btnBack').classList.remove('hidden');
   tg?.BackButton?.show?.();
+  // Список на главной длинный, и человек открывает лист, прокрутив до него.
+  // Без этого чек-лист открывался с середины — с того места, где на главной
+  // осталась прокрутка.
+  window.scrollTo(0, 0);
 }
 
 /* кнопка «назад» подключается в start(), когда телеграм уже загружен */
@@ -886,6 +897,7 @@ function renderDistance(){
 
 async function boot(){
   lastBoot = Date.now();
+  const quiet = QUIET; QUIET = false;   // тихое обновление или открытие руками
   if(!MYGEO && !(await gate())) return;
   try{
     const r = await fetch('/api/init?initData=' + encodeURIComponent(initData));
@@ -974,7 +986,8 @@ async function boot(){
     const parts = [
       ['списки', renderLists], ['расстояние', renderDistance],
       ['смена', renderShift], ['точка', renderSite],
-      ['задачи', renderTasks], ['проверка', renderPending],
+      ['задачи', renderTasks], ['приём смены', renderHandovers],
+      ['проверка', renderPending],
       ['журналы', renderJournals], ['бланки', renderForms],
       ['обучение', renderQuizzes], ['баллы', renderScore],
       ['споры', renderDisputes], ['начисления', renderAwards],
@@ -987,7 +1000,9 @@ async function boot(){
     try { renderParts(); renderStations(); renderLists(); }
     catch(e){ broken.push('места: ' + e.message); }
     try { loadRoster(); } catch(e){ broken.push('состав: ' + e.message); }
-    try { maybeTour(); } catch(e){}
+    // На тихом обновлении экскурсию не показываем: она бы всплывала
+    // каждую минуту у того, кто её ещё не закрыл.
+    try { if(!quiet) maybeTour(); } catch(e){}
     setTimeout(tidyBlocks, 60);
     $('#pick').classList.remove('hidden');
     if(broken.length){
@@ -1997,7 +2012,8 @@ function tidyBlocks(){
   const p = document.querySelector('#blkCheck #pendN');
   const t = document.querySelector('#blkCheck #taskN');
   const d = document.querySelector('#blkCheck #dispN');
-  const n = [p, t, d].reduce((a, x) => a + (parseInt(x && x.textContent) || 0), 0);
+  const hd = document.querySelector('#blkCheck #handN');
+  const n = [p, t, d, hd].reduce((a, x) => a + (parseInt(x && x.textContent) || 0), 0);
   const badge = document.querySelector('#checkN');
   if(badge) badge.textContent = n || '';
 }
@@ -2233,20 +2249,41 @@ async function sendTask(t, verdict, comment, card){
 }
 
 /* ── на проверке ─────────────────────────────────────────────────────────── */
+/* Приём смены — входящее событие, а не строчка в списке работы.
+   Смену передают лично: пока человек не заглянет в «Мою работу», он не знает,
+   что его назвали. Здесь он видит это первым делом. */
+function renderHandovers(){
+  const box = $('#handList');
+  if(!box) return;
+  const asg = DATA.assigned || {}, all = DATA.lists || {}, fl = DATA.filled || {};
+  const keys = Object.keys(asg).filter(k =>
+    all[k] && all[k].stage === 'take' && !fl[k]);
+  $('#handBox').classList.toggle('hidden', !keys.length);
+  $('#handN').textContent = keys.length || '';
+  $('#handN').className = 'badge' + (keys.length ? ' warn' : '');
+  box.innerHTML = '';
+  keys.forEach(k => {
+    const b = document.createElement('button');
+    b.className = 'big';
+    b.innerHTML = '🔔 ' + all[k].title + '<div class="sub">смену передал '
+      + asg[k] + ' · прими, и место станет твоим</div>';
+    b.onclick = () => start(k);
+    box.appendChild(b);
+  });
+}
+
 function renderPending(){
   const list = DATA.pending || [];
   const box = $('#pendList');
   const boss = !!DATA.can_check;
   if(!boss && !list.length) return;
   $('#pendBox').classList.remove('hidden');
-  // Сотруднику блок называется иначе: он не проверяет, а видит, что его
-  // работа ушла на проверку и чем закончилась.
-  if(!boss){
-    const h = $('#blkCheck');
-    if(h) h.querySelector('summary').innerHTML =
-      '<span class="ic">✓</span>Моя работа на проверке'
-      + ' <span id="checkN" class="badge"></span>';
-  }
+  // Сотрудник ничего не проверяет: он видит, что его работа ушла на проверку
+  // и чем закончилась. Название блока при этом общее — «Входящие»: туда же
+  // приходит приём смены.
+  if(!boss && $('#pendHead'))
+    $('#pendHead').innerHTML = 'Моя работа на проверке '
+      + '<span id="pendN" class="badge"></span>';
   $('#pendN').textContent = list.length || '';
   $('#pendN').className = 'badge' + (list.length > 3 ? ' warn' : '');
   box.innerHTML = '';
@@ -3231,19 +3268,26 @@ function bootstrap(){
   // в приложении, весь день видит утренние данные. Сданный чек-лист не
   // появлялся у проверяющего, пока тот не закроет окно. Обновляемся сами —
   // когда экран снова стал виден и раз в минуту на главной.
+  // Возврат в приложение ловим тремя способами: телеграм на разных
+  // телефонах присылает не одно и то же событие, а одного из них
+  // не хватает — человек смотрит на вчерашний экран.
   document.addEventListener('visibilitychange', () => refresh(true));
-  // Раз в три минуты, а не каждую: каждое обновление — это чтение таблицы,
-  // а квота Google одна на всех.
-  setInterval(() => refresh(false), 180000);
+  window.addEventListener('focus', () => refresh(true));
+  window.addEventListener('pageshow', () => refresh(true));
+  try{ tg?.onEvent?.('activated', () => refresh(true)); }catch(e){}
+  // И раз в минуту, пока приложение открыто: передачу смены ждут сразу,
+  // а не «когда-нибудь».
+  setInterval(() => refresh(false), 60000);
 }
 
-let lastBoot = 0;
+let lastBoot = 0, QUIET = false;
 function refresh(force){
   // Внутри заполнения не трогаем: перерисовка стёрла бы отметки.
   if(document.hidden || !DATA || kind) return;
   if($('#pick').classList.contains('hidden')) return;
-  if(Date.now() - lastBoot < (force ? 15000 : 170000)) return;
+  if(Date.now() - lastBoot < (force ? 8000 : 55000)) return;
   lastBoot = Date.now();
+  QUIET = true;
   boot();
 }
 
