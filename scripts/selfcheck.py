@@ -64,7 +64,9 @@ def check_js_functions():
 def check_api():
     """Ручки, которые дёргает клиент, против маршрутов сервера."""
     code, _ = js()
-    used = set(re.findall(r"fetch\('(/api/[a-z_]+)'", code))
+    # Адрес бывает с вопросом: fetch('/api/ver?since=' + n). Кавычка после
+    # имени ручки не обязательна — иначе такой вызов считается ненайденным.
+    used = set(re.findall(r"fetch\('(/api/[a-z_]+)[?']", code))
     src = open(os.path.join(APP, 'webapp.py'), encoding='utf-8').read()
     have = set(re.findall(r"p(?:\.path)? == '(/api/[a-z_]+)'", src))
     for u in sorted(used - have):
