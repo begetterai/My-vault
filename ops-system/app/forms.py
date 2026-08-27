@@ -65,7 +65,9 @@ def shift_row(day, point, who, only_open=False):
     а заступить на второй смене на другую. Открытая явка у него одна
     в любом случае — иначе он числился бы на работе в двух местах сразу.
     """
-    rows = S.get(C.TABS['shift'], 'A2:L')
+    # strict: по этому чтению решается, открыта ли уже смена. Сбой чтения
+    # раньше выглядел как «смены нет» — и приход отмечался второй раз.
+    rows = S.get(C.TABS['shift'], 'A2:L', strict=True)
     found = None
     for i, r in enumerate(rows):
         r = list(r) + [''] * (12 - len(r))

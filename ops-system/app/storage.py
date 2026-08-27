@@ -4,7 +4,7 @@
 Структура таблицы создаётся автоматически при первом запуске — клиенту
 не нужно ничего готовить руками, только дать доступ сервисному аккаунту.
 """
-import os, json, base64, datetime, urllib.parse
+import os, json, time, base64, datetime, urllib.parse
 os.environ.setdefault('REQUESTS_CA_BUNDLE', '/etc/ssl/certs/ca-certificates.crt')
 from google.oauth2 import service_account
 from google.auth.transport.requests import AuthorizedSession
@@ -64,19 +64,60 @@ def _a1(tab, a1):
     return f"'{tab}'!{a1}"
 
 
-def get(tab, a1='', render='FORMATTED_VALUE'):
-    """Строки диапазона. Сбой чтения не отличить от пустого листа —
-    поэтому о нём хотя бы слышно в логах, а вызывающий решает сам."""
-    try:
-        r = session().get(B + C.DATA_SHEET + '/values/' + _rng(tab, a1),
-                          params={'valueRenderOption': render}, timeout=60)
-    except Exception as e:
-        print(f'чтение «{tab}»: {e}')
-        return []
-    if not r.ok:
-        print(f'чтение «{tab}»: HTTP {r.status_code}')
-        return []
-    return r.json().get('values', [])
+# Кэш чтений. У Google жёсткий предел: 60 чтений в минуту на один сервисный
+# аккаунт — а аккаунт у нас один на всех. Приложение теперь обновляется живо,
+# и несколько человек, читающих картину одновременно, этот предел выбирали.
+# Сбитое чтение возвращалось как «пусто», и на пустоте система решала, что
+# смена не открыта, а место свободно, — отсюда двойные приходы и «сброс».
+#
+# Ключ кэша — номер изменения: любая запись его двигает, и кэш становится
+# недействительным сам. Тридцать секунд сверху — на случай правки в таблице
+# руками, мимо системы.
+_CACHE = {}
+CACHE_TTL = 30
+# Сколько раз читали сеть, сколько взяли из кэша, сколько раз не смогли.
+# Видно в /health — по нему считается, упираемся ли мы в предел Google.
+_STAT = {'reads': 0, 'hits': 0, 'fails': 0}
+
+
+def stats():
+    return dict(_STAT, cached=len(_CACHE), version=_VER['n'])
+
+
+def get(tab, a1='', render='FORMATTED_VALUE', strict=False):
+    """Строки диапазона.
+
+    strict=True — «этому чтению нельзя ошибиться»: не удалось прочитать,
+    поднимаем ошибку вместо пустого списка. Так решают те, кто по чтению
+    что-то запрещает или разрешает: пустота вместо данных снимает запрет.
+    """
+    key = (tab, a1, render)
+    hit = _CACHE.get(key)
+    if hit and hit[0] == _VER['n'] and time.time() - hit[1] < CACHE_TTL:
+        _STAT['hits'] += 1
+        return hit[2]
+    last = ''
+    for n in range(3):
+        try:
+            r = session().get(B + C.DATA_SHEET + '/values/' + _rng(tab, a1),
+                              params={'valueRenderOption': render}, timeout=60)
+            _STAT['reads'] += 1
+            if r.ok:
+                rows = r.json().get('values', [])
+                _CACHE[key] = (_VER['n'], time.time(), rows)
+                return rows
+            last = f'HTTP {r.status_code}'
+            # Не наша ошибка — повторять бессмысленно (нет доступа, нет листа).
+            if r.status_code not in (429, 500, 502, 503, 504):
+                break
+        except Exception as e:
+            last = str(e)
+        time.sleep(0.6 * (n + 1))
+    _STAT['fails'] += 1
+    print(f'чтение «{tab}»: {last}')
+    if strict:
+        raise IOError(f'таблица не отвечает ({last})')
+    return []
 
 
 def get_many(pairs):
@@ -88,11 +129,25 @@ def get_many(pairs):
     if not pairs:
         return []
     q = '&'.join('ranges=' + urllib.parse.quote(f"'{t}'!{a}") for t, a in pairs)
-    r = session().get(B + C.DATA_SHEET + '/values:batchGet?' + q +
-                      '&valueRenderOption=FORMATTED_VALUE', timeout=60)
-    if not r.ok:
-        return [[] for _ in pairs]
-    return [v.get('values', []) for v in r.json().get('valueRanges', [])]
+    url = B + C.DATA_SHEET + '/values:batchGet?' + q + \
+        '&valueRenderOption=FORMATTED_VALUE'
+    last = ''
+    for n in range(3):
+        try:
+            _STAT['reads'] += 1
+            r = session().get(url, timeout=60)
+            if r.ok:
+                return [v.get('values', [])
+                        for v in r.json().get('valueRanges', [])]
+            last = f'HTTP {r.status_code}'
+            if r.status_code not in (429, 500, 502, 503, 504):
+                break
+        except Exception as e:
+            last = str(e)
+        time.sleep(0.6 * (n + 1))
+    _STAT['fails'] += 1
+    print(f'групповое чтение: {last}')
+    return [[] for _ in pairs]
 
 
 # Счётчик изменений. Приложение не умеет узнавать «что-то произошло» иначе,
@@ -517,7 +572,10 @@ def segments(day, point=None, who=None):
     по какое время и как туда попал — сам выбрал или принял смену.
     """
     out = []
-    for i, r in enumerate(get('Станции', 'A2:J')):
+    # strict: по этому чтению решается, занято ли место и открыт ли отрезок.
+    # Пустота вместо данных означала бы «всё свободно» — и человек вставал
+    # бы вторым на ту же станцию.
+    for i, r in enumerate(get('Станции', 'A2:J', strict=True)):
         r = list(r) + [''] * 10
         if r[0].strip() != day:
             continue

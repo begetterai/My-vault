@@ -1170,7 +1170,11 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         p = urllib.parse.urlparse(self.path)
         if p.path == '/health':
-            return self._send(200, {'ok': True, 'company': C.COMPANY})
+            # Со счётчиками чтений: по ним видно, упираемся ли мы в предел
+            # Google (60 чтений в минуту на аккаунт) — а именно это ломало
+            # проверки «смена уже открыта» и «место занято».
+            return self._send(200, {'ok': True, 'company': C.COMPANY,
+                                    'sheets': S.stats()})
         if p.path in ('/', '/index.html', '/app'):
             try:
                 return self._send(200, open(PAGE, 'rb').read(), 'text/html; charset=utf-8')
@@ -1272,7 +1276,16 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, dispute(who, body))
             if p == '/api/dispute_resolve':
                 return self._send(200, dispute_resolve(who, body))
+        except IOError as e:
+            # Таблица не ответила. Говорим прямо: ничего не записалось,
+            # надо повторить. Раньше такой сбой проходил тихо, и система
+            # решала за человека на пустых данных.
+            print(f'{p}: {e}')
+            return self._send(503, {'ok': False, 'error':
+                'Таблица сейчас не отвечает — ничего не записалось. '
+                'Подожди несколько секунд и нажми ещё раз.'})
         except Exception as e:
+            print(f'{p}: {type(e).__name__}: {e}')
             return self._send(500, {'ok': False, 'error': str(e)})
         self._send(404, {'error': 'not found'})
 
