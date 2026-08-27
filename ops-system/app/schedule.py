@@ -92,6 +92,54 @@ def overdue(key, cl, point):
         BOT.admin(txt)
 
 
+def handover_waiting(dstr):
+    """Смену сдали поимённо, а названный её не принял.
+
+    Пересменка держится на одном действии принимающего: пока он не прошёл
+    приём, смена не сдана, место числится ничьим, а сдавший уже ушёл.
+    Через четверть часа напоминаем обоим — решено Азизом 27.08.2026.
+    """
+    cls = C.checklists()
+    gives = [k for k, cl in cls.items() if cl.get('stage') == 'give']
+    if not gives:
+        return
+    for point in S.points():
+        try:
+            filled = S.filled_today(dstr, point, gives)
+        except Exception as e:
+            print('непринятые передачи:', e)
+            continue
+        if not filled:
+            continue
+        takes = {f'{k[:-len("_give")]}_take' for k in filled}
+        try:
+            done = S.filled_today(dstr, point, sorted(takes))
+        except Exception as e:
+            print('непринятые передачи:', e)
+            continue
+        for key, rec in filled.items():
+            to = (rec.get('to') or '').strip()
+            take = f'{key[:-len("_give")]}_take'
+            if not to or take in done:
+                continue
+            gap = C.now_minute() - C.op_minute(rec.get('at', ''))
+            if gap < 15 or not once(f'hand:{key}:{point}'):
+                continue
+            place = cls[key]['title'].split(' · ')[0]
+            for name, text in (
+                (to, f'🔔 <b>Смену ждут от тебя</b> · {place}\n'
+                     f'{rec.get("who", "")} сдал её в {rec.get("at", "")} '
+                     f'и назвал тебя. Пройди «Приём» — пока не принял, '
+                     f'место ничьё.'),
+                (rec.get('who', ''),
+                 f'⏳ <b>Твою передачу ещё не приняли</b> · {place}\n'
+                     f'{to} не прошёл приём. Напомни ему — пока он не принял, '
+                     f'смена числится за тобой.')):
+                cid = next((c for c, v in S.team().items() if v[0] == name), None)
+                if cid:
+                    BOT.say(cid, text)
+
+
 def unconfirmed(day):
     """Заполнено, но управляющий не подтвердил дольше нормы — это второй контур
     не работает, и знать об этом должен COO."""
@@ -444,6 +492,14 @@ def tick():
                     remind(key, cl, point, dead - minute)
                 if minute >= dead and once(f'over:{key}:{point}'):
                     overdue(key, cl, point)
+
+    # Непринятая передача — раз в пять минут. Чаще незачем: порог всё равно
+    # четверть часа, а каждый проход — четыре чтения таблицы.
+    if now.minute % 5 == 0:
+        try:
+            handover_waiting(dstr)
+        except Exception as e:
+            print('непринятые передачи:', e)
 
     # Дашборд — раз в час: таблицу открывают в любой момент, она должна
     # показывать сегодняшнее, а не вчерашнее.
