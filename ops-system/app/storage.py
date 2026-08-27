@@ -95,11 +95,28 @@ def get_many(pairs):
     return [v.get('values', []) for v in r.json().get('valueRanges', [])]
 
 
+# Счётчик изменений. Приложение не умеет узнавать «что-то произошло» иначе,
+# как спросив. Спрашивать про всю картину дорого — это чтение таблицы; спросить
+# номер изменения дёшево, он лежит в памяти. Номер меняется на любой записи,
+# и телефон перечитывает данные только тогда, когда есть что перечитывать.
+# Процесс один — бот и приложение живут вместе, поэтому счётчик общий.
+_VER = {'n': 0}
+
+
+def version():
+    return _VER['n']
+
+
+def _touch():
+    _VER['n'] += 1
+
+
 def append(tab, rows):
     r = session().post(B + C.DATA_SHEET + '/values/' + _rng(tab, 'A2') + ':append',
                        params={'valueInputOption': 'USER_ENTERED'},
                        json={'values': rows}, timeout=60)
     r.raise_for_status()
+    _touch()
     rng = (r.json().get('updates', {}) or {}).get('updatedRange', '')
     return ''.join(c for c in rng.split('!')[-1].split(':')[0] if c.isdigit())
 
@@ -113,6 +130,7 @@ def put(tab, a1, rows, raw=False):
     session().put(B + C.DATA_SHEET + '/values/' + _rng(tab, a1),
                   params={'valueInputOption': 'RAW' if raw else 'USER_ENTERED'},
                   json={'values': rows}, timeout=60)
+    _touch()
 
 
 # ── подготовка таблицы ───────────────────────────────────────────────────────

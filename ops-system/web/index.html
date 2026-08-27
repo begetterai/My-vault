@@ -727,7 +727,7 @@
   <button class="send" id="send" disabled>Отправить</button>
 </div>
 <script>
-const BUILD = 'v26.08 уведомления';
+const BUILD = 'v26.08 живое обновление';
 // Заполняются на старте: скрипт телеграма грузится отложенно, и на момент
 // разбора этой строки window.Telegram может ещё не существовать.
 let tg = null, initData = '';
@@ -3275,9 +3275,38 @@ function bootstrap(){
   window.addEventListener('focus', () => refresh(true));
   window.addEventListener('pageshow', () => refresh(true));
   try{ tg?.onEvent?.('activated', () => refresh(true)); }catch(e){}
-  // И раз в минуту, пока приложение открыто: передачу смены ждут сразу,
-  // а не «когда-нибудь».
-  setInterval(() => refresh(false), 60000);
+  // Дальше — сторожок. Спрашивать всю картину часто нельзя: каждый раз это
+  // чтение таблицы, а квота Google одна на всех. Поэтому спрашиваем не
+  // картину, а номер последнего изменения — и просим сервер не отвечать,
+  // пока номер тот же. Он держит запрос до полминуты и отвечает в ту же
+  // секунду, когда кто-то что-то записал. Тогда и перечитываем всё.
+  watchLoop();
+  // Страховка на случай, если счётчик собьётся (например, служба
+  // перезапустилась): раз в две минуты перечитываем без всякого повода.
+  setInterval(() => refresh(false), 120000);
+}
+
+const pause = ms => new Promise(r => setTimeout(r, ms));
+
+async function watchLoop(){
+  for(;;){
+    let wait = 3000;
+    try{
+      const busy = document.hidden || !DATA || kind
+                || $('#pick').classList.contains('hidden');
+      if(!busy){
+        const was = DATA.v;
+        const t0 = Date.now();
+        const r = await fetch('/api/ver?since=' + (was ?? ''), {cache: 'no-store'});
+        const j = await r.json();
+        if(j.ok && DATA && j.v !== DATA.v) await refresh(true);
+        // Ответил мгновенно — значит держать запрос он не умеет (старая
+        // служба). Тогда спрашиваем раз в пять секунд, а не в петлю.
+        wait = Date.now() - t0 < 2000 ? 5000 : 400;
+      }
+    }catch(e){ wait = 8000; }   // связи нет — не долбим
+    await pause(wait);
+  }
 }
 
 let lastBoot = 0, QUIET = false;
@@ -3285,10 +3314,10 @@ function refresh(force){
   // Внутри заполнения не трогаем: перерисовка стёрла бы отметки.
   if(document.hidden || !DATA || kind) return;
   if($('#pick').classList.contains('hidden')) return;
-  if(Date.now() - lastBoot < (force ? 8000 : 55000)) return;
+  if(Date.now() - lastBoot < (force ? 3000 : 115000)) return;
   lastBoot = Date.now();
   QUIET = true;
-  boot();
+  return boot();
 }
 
 if(document.readyState === 'loading'){

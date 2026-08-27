@@ -65,6 +65,10 @@ def _who(init_data):
 
 
 def init_payload(who):
+    # Номер изменения снимаем ДО чтения данных: запись, случившаяся пока
+    # мы собираем картину, увеличит счётчик — телефон это заметит и
+    # перечитает. Снимали бы после — такая запись потерялась бы.
+    ver = S.version()
     role = S.role_of(who)
     dept = S.dept_of(who)
     # Позиция на сегодня берётся из состава: человек может сегодня стоять
@@ -81,7 +85,7 @@ def init_payload(who):
     out = {'company': C.COMPANY, 'name': who[0], 'point': who[1],
            'point_label': S.point_label(who[1]), 'points': pts,
            'role': role, 'dept': dept, 'day': C.day_str(), 'lists': {},
-           'build': page_build()}
+           'build': page_build(), 'v': ver}
     # Поэтапный запуск: пока роль не в ROLLOUT, человек видит одно сообщение
     # и ничего больше. Лучше честное «скоро», чем половина системы.
     if C.ROLLOUT and role not in C.ROLLOUT:
@@ -1172,6 +1176,20 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, open(PAGE, 'rb').read(), 'text/html; charset=utf-8')
             except Exception as e:
                 return self._send(500, {'error': str(e)})
+        # Номер последнего изменения. Данных здесь нет — только число,
+        # поэтому и подпись телеграма не нужна: подтверждать нечего.
+        #
+        # С «since» запрос не отвечает сразу, а ждёт — до полминуты, пока
+        # номер не изменится. Это и есть мгновенность: телефон узнаёт о чужой
+        # работе в ту же секунду, когда она записана, и при этом спрашивает
+        # редко. Каждый запрос живёт в своём потоке, чужие не задерживает.
+        if p.path == '/api/ver':
+            since = urllib.parse.parse_qs(p.query).get('since', [''])[0]
+            if since.isdigit():
+                end = time.time() + 25
+                while S.version() == int(since) and time.time() < end:
+                    time.sleep(0.4)
+            return self._send(200, {'ok': True, 'v': S.version()})
         if p.path == '/api/init':
             init = urllib.parse.parse_qs(p.query).get('initData', [''])[0]
             u = check_init_data(init, C.BOT_TOKEN)
