@@ -70,10 +70,12 @@ def _a1(tab, a1):
 # Сбитое чтение возвращалось как «пусто», и на пустоте система решала, что
 # смена не открыта, а место свободно, — отсюда двойные приходы и «сброс».
 #
-# Ключ кэша — номер изменения: любая запись его двигает, и кэш становится
-# недействительным сам. Тридцать секунд сверху — на случай правки в таблице
-# руками, мимо системы.
+# Ключ кэша — номер изменения ЛИСТА: запись в «Явку» не должна выбрасывать
+# из памяти «Команду», «Точки» и «Пункты» — они меняются раз в неделю, а
+# перечитывались после каждой отметки. Тридцать секунд сверху — на случай
+# правки в таблице руками, мимо системы.
 _CACHE = {}
+_MANY = {}
 CACHE_TTL = 30
 # Сколько раз читали сеть, сколько взяли из кэша, сколько раз не смогли.
 # Видно в /health — по нему считается, упираемся ли мы в предел Google.
@@ -81,7 +83,7 @@ _STAT = {'reads': 0, 'hits': 0, 'fails': 0}
 
 
 def stats():
-    return dict(_STAT, cached=len(_CACHE), version=_VER['n'])
+    return dict(_STAT, cached=len(_CACHE) + len(_MANY), version=_VER['n'])
 
 
 def get(tab, a1='', render='FORMATTED_VALUE', strict=False):
@@ -93,7 +95,7 @@ def get(tab, a1='', render='FORMATTED_VALUE', strict=False):
     """
     key = (tab, a1, render)
     hit = _CACHE.get(key)
-    if hit and hit[0] == _VER['n'] and time.time() - hit[1] < CACHE_TTL:
+    if hit and hit[0] == _TABVER.get(tab, 0) and time.time() - hit[1] < CACHE_TTL:
         _STAT['hits'] += 1
         return hit[2]
     last = ''
@@ -104,7 +106,9 @@ def get(tab, a1='', render='FORMATTED_VALUE', strict=False):
             _STAT['reads'] += 1
             if r.ok:
                 rows = r.json().get('values', [])
-                _CACHE[key] = (_VER['n'], time.time(), rows)
+                if len(_CACHE) > 200:
+                    _CACHE.clear()
+                _CACHE[key] = (_TABVER.get(tab, 0), time.time(), rows)
                 return rows
             last = f'HTTP {r.status_code}'
             # Не наша ошибка — повторять бессмысленно (нет доступа, нет листа).
@@ -128,6 +132,16 @@ def get_many(pairs):
     """
     if not pairs:
         return []
+    # Групповое чтение кэшируется так же, как обычное: пока ни один из его
+    # листов не изменился, второй такой же запрос берётся из памяти. Именно
+    # эти запросы и составляли основной расход — по восемь на каждое
+    # открытие приложения.
+    key = tuple(pairs)
+    ver = tuple(_TABVER.get(t, 0) for t, _ in pairs)
+    hit = _MANY.get(key)
+    if hit and hit[0] == ver and time.time() - hit[1] < CACHE_TTL:
+        _STAT['hits'] += 1
+        return hit[2]
     q = '&'.join('ranges=' + urllib.parse.quote(f"'{t}'!{a}") for t, a in pairs)
     url = B + C.DATA_SHEET + '/values:batchGet?' + q + \
         '&valueRenderOption=FORMATTED_VALUE'
@@ -137,8 +151,14 @@ def get_many(pairs):
             _STAT['reads'] += 1
             r = session().get(url, timeout=60)
             if r.ok:
-                return [v.get('values', [])
-                        for v in r.json().get('valueRanges', [])]
+                out = [v.get('values', [])
+                       for v in r.json().get('valueRanges', [])]
+                # Кэш не должен расти без края: разных запросов немного,
+                # но данные в них с годами тяжелеют.
+                if len(_MANY) > 40:
+                    _MANY.clear()
+                _MANY[key] = (ver, time.time(), out)
+                return out
             last = f'HTTP {r.status_code}'
             if r.status_code not in (429, 500, 502, 503, 504):
                 break
@@ -156,14 +176,17 @@ def get_many(pairs):
 # и телефон перечитывает данные только тогда, когда есть что перечитывать.
 # Процесс один — бот и приложение живут вместе, поэтому счётчик общий.
 _VER = {'n': 0}
+_TABVER = {}
 
 
 def version():
     return _VER['n']
 
 
-def _touch():
+def _touch(tab=''):
     _VER['n'] += 1
+    if tab:
+        _TABVER[tab] = _TABVER.get(tab, 0) + 1
 
 
 def append(tab, rows):
@@ -171,7 +194,7 @@ def append(tab, rows):
                        params={'valueInputOption': 'USER_ENTERED'},
                        json={'values': rows}, timeout=60)
     r.raise_for_status()
-    _touch()
+    _touch(tab)
     rng = (r.json().get('updates', {}) or {}).get('updatedRange', '')
     return ''.join(c for c in rng.split('!')[-1].split(':')[0] if c.isdigit())
 
@@ -185,7 +208,7 @@ def put(tab, a1, rows, raw=False):
     session().put(B + C.DATA_SHEET + '/values/' + _rng(tab, a1),
                   params={'valueInputOption': 'RAW' if raw else 'USER_ENTERED'},
                   json={'values': rows}, timeout=60)
-    _touch()
+    _touch(tab)
 
 
 # ── подготовка таблицы ───────────────────────────────────────────────────────
