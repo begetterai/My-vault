@@ -369,6 +369,15 @@
   .want{outline:2px solid var(--bad);outline-offset:3px;border-radius:12px}
   .send small{display:block;font-family:"Golos Text",sans-serif;font-weight:500;
               font-size:12.5px;opacity:.8;margin-top:3px}
+  /* Полоса «тебе передают смену»: заметная, но не кричащая — она про дело,
+     а не про тревогу. */
+  .handbar{border:1.5px solid var(--brand);border-radius:16px;padding:14px;
+           margin:0 0 14px;background:var(--wash)}
+  .hb-t{font-family:Manrope,sans-serif;font-weight:800;font-size:16px}
+  .hb-s{font-size:14px;color:var(--ink-2);margin-top:4px}
+  .hb-go{width:100%;margin-top:12px;padding:14px;border:0;border-radius:13px;
+         background:var(--brand);color:var(--on-brand);font-weight:800;
+         font-size:15.5px;cursor:pointer}
   .msg{padding:14px;border-radius:14px;border:1px solid var(--line);
        background:var(--wash);margin:12px 0;font-size:14.5px;white-space:pre-line}
   .note{width:100%;padding:15px;border:1.5px solid var(--line);border-radius:14px;
@@ -516,6 +525,12 @@
   </div>
 
   <div id="pick" class="hidden">
+    <!-- Тебе передают смену. Это событие, а не шаг: оно случается раз в день
+         и требует ответа сейчас. Внутри свёрнутого блока его можно было
+         не заметить, поэтому оно живёт полосой поверх всего экрана
+         и исчезает, как только приём пройден. -->
+    <div id="handBanner" class="hidden"></div>
+
     <div id="pointBox" class="hidden">
       <h2><span class="steplabel" id="lb1">1</span><span id="pointHead">Заведение</span></h2>
       <div class="seg" id="pointSeg"></div>
@@ -558,13 +573,6 @@
 
 <details class="blk ok" id="blkCheck" open>
       <summary><span class="ic">✓</span>Уведомления <span id="checkN" class="badge"></span></summary>
-    <div id="handBox" class="hidden">
-      <h2>Приём смены <span id="handN" class="badge"></span></h2>
-      <div class="hint">Смену передали тебе. Прими её — место перейдёт
-        к тебе вместе с листами.</div>
-      <div class="pick" id="handList"></div>
-    </div>
-
     <div id="pendBox" class="hidden">
       <h2 id="pendHead">На проверке <span id="pendN" class="badge"></span></h2>
       <div class="hint">Пройди по пунктам ещё раз и отметь своё.
@@ -592,13 +600,13 @@
     </details>
 
 <details class="blk" id="blkWork">
-      <summary>Моя работа <span id="workN" class="badge"></span></summary>
+      <summary>Чек-листы смены <span id="workN" class="badge"></span></summary>
     <h2><span class="steplabel" id="lb3">5</span>Сегодня</h2>
     <div class="pick" id="pickList"></div>
     </details>
 
     <details class="blk" id="blkRare">
-      <summary>По необходимости <span id="rareN" class="badge"></span></summary>
+      <summary>Доп. чек-листы <span id="rareN" class="badge"></span></summary>
       <div class="hint">Открывается, когда случилось: пришёл кандидат,
         вышел новичок, приехал тайный гость, что-то сломалось.</div>
       <div class="pick" id="rareList"></div>
@@ -736,7 +744,7 @@
   <button class="send" id="send" disabled>Отправить</button>
 </div>
 <script>
-const BUILD = 'v27.08 закрытие';
+const BUILD = 'v27.08 баннер приёма';
 // Заполняются на старте: скрипт телеграма грузится отложенно, и на момент
 // разбора этой строки window.Telegram может ещё не существовать.
 let tg = null, initData = '';
@@ -2128,8 +2136,7 @@ function tidyBlocks(){
   const p = document.querySelector('#blkCheck #pendN');
   const t = document.querySelector('#blkCheck #taskN');
   const d = document.querySelector('#blkCheck #dispN');
-  const hd = document.querySelector('#blkCheck #handN');
-  const n = [p, t, d, hd].reduce((a, x) => a + (parseInt(x && x.textContent) || 0), 0);
+  const n = [p, t, d].reduce((a, x) => a + (parseInt(x && x.textContent) || 0), 0);
   const badge = document.querySelector('#checkN');
   if(badge) badge.textContent = n || '';
 }
@@ -2364,27 +2371,31 @@ async function sendTask(t, verdict, comment, card){
   renderTasks.count = DATA.tasks.length;
 }
 
-/* ── на проверке ─────────────────────────────────────────────────────────── */
-/* Приём смены — входящее событие, а не строчка в списке работы.
-   Смену передают лично: пока человек не заглянет в «Мою работу», он не знает,
-   что его назвали. Здесь он видит это первым делом. */
+/* ── передают смену ──────────────────────────────────────────────────────── */
+/* Полоса поверх экрана. Приём — событие, требующее ответа сейчас: место
+   стоит ничьё, пока человек не принял. В свёрнутом блоке его можно было
+   не заметить, поэтому оно первым, до всех шагов, и уходит после приёма. */
 function renderHandovers(){
-  const box = $('#handList');
+  const box = $('#handBanner');
   if(!box) return;
   const asg = DATA.assigned || {}, all = DATA.lists || {}, fl = DATA.filled || {};
   const keys = Object.keys(asg).filter(k =>
     all[k] && all[k].stage === 'take' && !fl[k]);
-  $('#handBox').classList.toggle('hidden', !keys.length);
-  $('#handN').textContent = keys.length || '';
-  $('#handN').className = 'badge' + (keys.length ? ' warn' : '');
+  box.classList.toggle('hidden', !keys.length);
   box.innerHTML = '';
   keys.forEach(k => {
+    const d = document.createElement('div');
+    d.className = 'handbar';
+    const place = all[k].title.split(' · ')[0];
+    d.innerHTML = '<div class="hb-t">🔔 Тебе передают смену</div>'
+      + '<div class="hb-s"><b>' + place + '</b> · сдал ' + asg[k]
+      + '. Прими — место станет твоим.</div>';
     const b = document.createElement('button');
-    b.className = 'big';
-    b.innerHTML = '🔔 ' + all[k].title + '<div class="sub">смену передал '
-      + asg[k] + ' · прими, и место станет твоим</div>';
+    b.className = 'hb-go';
+    b.textContent = 'Принять смену';
     b.onclick = () => start(k);
-    box.appendChild(b);
+    d.appendChild(b);
+    box.appendChild(d);
   });
 }
 
