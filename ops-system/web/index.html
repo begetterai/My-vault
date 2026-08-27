@@ -351,6 +351,9 @@
   .shoot{display:inline-block;padding:13px 18px;border-radius:13px;
          background:var(--brand);color:var(--on-brand);
          margin-top:12px;cursor:pointer;font-weight:700}
+  /* Второй способ снять — запасной, поэтому тише основного. */
+  .shoot.alt{background:transparent;color:var(--ink);
+             border:1.5px solid var(--line);font-weight:600;margin-left:8px}
 
   /* ── низ ────────────────────────────────────────────────────────────── */
   .foot{position:fixed;left:0;right:0;bottom:0;
@@ -736,7 +739,7 @@
   <button class="send" id="send" disabled>Отправить</button>
 </div>
 <script>
-const BUILD = 'v26.08 камера-2';
+const BUILD = 'v26.08 камера-3';
 // Заполняются на старте: скрипт телеграма грузится отложенно, и на момент
 // разбора этой строки window.Telegram может ещё не существовать.
 let tg = null, initData = '';
@@ -3030,8 +3033,9 @@ function photoRow(p){
   const d = document.createElement('div');
   d.className = 'photo';
   d.innerHTML = '<div><b>' + p.text + ' — обязательно</b></div>' +
-    '<div class="hint">Снимай сейчас, камерой. Нужен хотя бы один снимок, '
-    + 'можно добавить ещё — по кадру на нажатие.</div>';
+    '<div class="hint">Снимай сейчас. Нужен хотя бы один снимок, можно '
+    + 'добавить ещё — по кадру на нажатие. Если вместо камеры открылась '
+    + 'галерея, жми «Снять камерой здесь».</div>';
   const inp = document.createElement('input');
   inp.type = 'file';
   // capture работает только как HTML-атрибут: заданный свойством, он молча
@@ -3049,10 +3053,23 @@ function photoRow(p){
   // Открываем поле сразу, без всякого «сначала попробуем камеру внутри».
   // Разрешение на файл телефон даёт только по живому нажатию, и оно живёт
   // секунды: пока мы ждали ответа от встроенной камеры, оно сгорало —
-  // и по нажатию не открывалось вообще ничего. Ровно это и было.
-  // Камеру включает атрибут capture у поля на один файл — тем же способом
-  // снимается селфи прихода, и на телефоне Владимира он работает.
+  // и по нажатию не открывалось вообще ничего.
   lab.onclick = () => inp.click();
+  // Второй путь — камера прямо в приложении. Нужен там, где телефон
+  // не слушает capture и всё равно открывает галерею. Отдельной кнопкой,
+  // а не «сначала попробуем»: своё нажатие у каждого пути, и ни один
+  // не ломает другой.
+  const own = document.createElement('span');
+  own.className = 'shoot alt';
+  own.textContent = '🎥 Снять камерой здесь';
+  own.onclick = async () => {
+    const ok = await openCamera('environment', data => {
+      photos[p.n].push(data); draw(); paint();
+    });
+    if(!ok) note('Телефон не дал доступ к камере из приложения. '
+      + 'Разреши доступ в настройках телеграма или сними обычной кнопкой.',
+      'err');
+  };
   photos[p.n] = photos[p.n] || [];
 
   const draw = () => {
@@ -3072,14 +3089,24 @@ function photoRow(p){
 
   inp.onchange = async () => {
     const files = [...inp.files];
+    inp.value = '';
     if(!files.length) return;
+    // Телефон открыл галерею вместо камеры — значит можно подставить
+    // вчерашний снимок. Проверяем по времени файла: чек-лист про то,
+    // что на точке сейчас, старая фотография его не подтверждает.
+    const stale = files.filter(f => f.lastModified
+                                 && Date.now() - f.lastModified > 30 * 60000);
+    if(stale.length){
+      draw();
+      return note('Этот снимок сделан раньше — нужен сегодняшний, с этой '
+        + 'смены. Сфотографируй сейчас.', 'err');
+    }
     lab.textContent = 'Обрабатываю…';
     for(const f of files) photos[p.n].push(await shrink(f));
-    inp.value = '';
     draw(); paint();
   };
   draw();
-  d.append(strip, lab, inp);
+  d.append(strip, lab, own, inp);
   return d;
 }
 
