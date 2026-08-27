@@ -559,7 +559,7 @@
     <div id="rest">
 
 <details class="blk ok" id="blkCheck" open>
-      <summary><span class="ic">✓</span>Входящие <span id="checkN" class="badge"></span></summary>
+      <summary><span class="ic">✓</span>Уведомления <span id="checkN" class="badge"></span></summary>
     <div id="handBox" class="hidden">
       <h2>Приём смены <span id="handN" class="badge"></span></h2>
       <div class="hint">Смену передали тебе. Прими её — место перейдёт
@@ -727,7 +727,7 @@
   <button class="send" id="send" disabled>Отправить</button>
 </div>
 <script>
-const BUILD = 'v26.08 входящие';
+const BUILD = 'v26.08 уведомления';
 // Заполняются на старте: скрипт телеграма грузится отложенно, и на момент
 // разбора этой строки window.Telegram может ещё не существовать.
 let tg = null, initData = '';
@@ -2279,7 +2279,7 @@ function renderPending(){
   if(!boss && !list.length) return;
   $('#pendBox').classList.remove('hidden');
   // Сотрудник ничего не проверяет: он видит, что его работа ушла на проверку
-  // и чем закончилась. Название блока при этом общее — «Входящие»: туда же
+  // и чем закончилась. Название блока при этом общее — «Уведомления»: туда же
   // приходит приём смены.
   if(!boss && $('#pendHead'))
     $('#pendHead').innerHTML = 'Моя работа на проверке '
