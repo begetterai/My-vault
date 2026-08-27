@@ -736,7 +736,7 @@
   <button class="send" id="send" disabled>Отправить</button>
 </div>
 <script>
-const BUILD = 'v26.08 место после сдачи';
+const BUILD = 'v27.08 передача и приём';
 // Заполняются на старте: скрипт телеграма грузится отложенно, и на момент
 // разбора этой строки window.Telegram может ещё не существовать.
 let tg = null, initData = '';
@@ -3434,6 +3434,19 @@ function bootstrap(){
 
 const pause = ms => new Promise(r => setTimeout(r, ms));
 
+/* Касается ли нас то, что изменилось. Сервер присылает список листов
+   таблицы; лист чек-листа называется так же, как сам чек-лист. Чужая
+   работа на соседней точке экран дёргать не должна. */
+const ALWAYS = ['Явка', 'Станции', 'Баллы', 'Задачи', 'График', 'Обучение',
+                'Ознакомление', 'Команда'];
+function matters(tabs){
+  if(!tabs) return true;              // сервер не помнит — перечитываем всё
+  const mine = new Set(Object.values(DATA.lists || {}).map(L => L.title));
+  const boss = ['manager', 'coo'].includes(DATA.role);
+  return tabs.some(t => ALWAYS.includes(t) || mine.has(t)
+                     || (boss && t.includes(' · ')));
+}
+
 async function watchLoop(){
   for(;;){
     let wait = 3000;
@@ -3445,7 +3458,11 @@ async function watchLoop(){
         const t0 = Date.now();
         const r = await fetch('/api/ver?since=' + (was ?? ''), {cache: 'no-store'});
         const j = await r.json();
-        if(j.ok && DATA && j.v !== DATA.v) await refresh(true);
+        if(j.ok && DATA && j.v !== DATA.v){
+          // Изменилось не наше — просто догоняем номер, экран не трогаем.
+          if(matters(j.tabs)) await refresh(true);
+          else DATA.v = j.v;
+        }
         // Ответил мгновенно — значит держать запрос он не умеет (старая
         // служба). Тогда спрашиваем раз в пять секунд, а не в петлю.
         wait = Date.now() - t0 < 2000 ? 5000 : 400;

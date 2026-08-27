@@ -392,7 +392,8 @@ def read_doc(who, body):
     return {'ok': True, 'code': code}
 
 
-def handover_notify(kind, day, point, who, to, ok, tot, fails, comment):
+def handover_notify(kind, day, point, who, to, ok, tot, fails, comment,
+                    part=''):
     """Смена сдана — принимающему сообщение; принята — сдавшему ответ.
 
     Без адресата передача остаётся словами на пересменке: сдал «вообще»,
@@ -406,8 +407,14 @@ def handover_notify(kind, day, point, who, to, ok, tot, fails, comment):
     place = cl['title'].split(' · ')[0]
 
     def chat_of(name):
-        return next((cid for cid, v in S.team().items()
-                     if v[0] == name and v[1] == point), None)
+        """Кому писать. Точку не спрашиваем: смену передают и человеку
+        с соседней точки — он приезжает подменить. Раньше такому просто
+        не уходило сообщение, а админ получал «некому передать»."""
+        if not name:
+            return None
+        team = S.team().items()
+        return (next((cid for cid, v in team if v[0] == name and v[1] == point), None)
+                or next((cid for cid, v in team if v[0] == name), None))
 
     if stage == 'give':
         if not to:
@@ -435,7 +442,10 @@ def handover_notify(kind, day, point, who, to, ok, tot, fails, comment):
             # Приём — это начало нового отрезка работы: прошлый у человека
             # закрывается с посчитанными часами, новый открывается здесь.
             # За день так набирается его настоящий маршрут по местам.
-            ok, holder = S.take_station(day, point, 'close', group, who,
+            # Смена дня — та, что человек выбрал сам. Раньше приём всегда
+            # писался «закрывающая»: у управляющего, работающего день
+            # целиком, это врало в отработанных часах.
+            ok, holder = S.take_station(day, point, part or 'close', group, who,
                                         how='принял смену',
                                         frm=src.get('who', ''))
             if not ok:
@@ -735,10 +745,34 @@ def submit(who, body):
     dup = S.already_filled(kind, day, point)
     # Названный должен существовать. Отдел и роль не проверяем: право принять
     # даёт назначение — так человек и переходит на другое место или точку.
-    if C.checklists()[kind].get('stage') == 'give' and to:
+    stage_now = C.checklists()[kind].get('stage')
+    if stage_now == 'give' and to:
         if not any(v[0] == to for v in S.team().values()):
             return {'ok': False, 'error': f'«{to}» нет в системе. '
                                           f'Выбери человека из списка.'}
+        if to == who[0]:
+            return {'ok': False, 'error': 'Себе смену не сдают. Выбери того, '
+                                          'кто заступает после тебя.'}
+    # Приём проверяем на сервере, а не только в приложении. Раньше запрет
+    # жил в телефоне: список просто не открывался. Но телефон может видеть
+    # устаревшую картину — а подпись за чужую работу должна быть невозможна,
+    # а не «неудобна».
+    if stage_now == 'take':
+        gk = kind[:-len('_take')] + '_give'
+        try:
+            src = S.filled_today(day, point, [gk]).get(gk)
+        except Exception as e:
+            print('проверка передачи:', e)
+            return {'ok': False, 'error': 'Не удалось проверить передачу. '
+                                          'Попробуй ещё раз через минуту.'}
+        if not src:
+            return {'ok': False, 'error': 'Смену на этом месте ещё не сдали — '
+                                          'принимать нечего. Лист приёма '
+                                          'откроется, когда сдадут передачу.'}
+        if src.get('to') and src['to'] != who[0] \
+                and S.role_of(who) not in ('manager', 'coo'):
+            return {'ok': False, 'error': f'Эту смену передали не тебе, '
+                                          f'а {src["to"]}. Принять может он.'}
     # Этап дня сдаётся один раз. Событийный лист — собеседование, тайный
     # гость — можно и дважды за день, там каждый раз новый случай.
     if dup and C.checklists()[kind].get('stage'):
@@ -749,13 +783,13 @@ def submit(who, body):
         kind, day, point, who[0], marks, measured, photos, hhmm, comment, sec,
         part, to)
     try:
-        handover_notify(kind, day, point, who[0], to, ok, tot, fails, comment)
+        handover_notify(kind, day, point, who[0], to, ok, tot, fails, comment,
+                        part or '')
     except Exception as e:
         print('передача смены:', e)
     # Сдал передачу — работа на этом месте кончилась, отрезок закрывается.
     # Сдал закрытие — кончилась вся смена: закрывается и явка. Иначе человек
     # числится на работе до полуночи, а часы считаются по воздуху.
-    stage_now = C.checklists()[kind].get('stage')
     if stage_now in ('give', 'close'):
         try:
             S.close_segments(day, who[0])
@@ -1189,11 +1223,16 @@ class Handler(BaseHTTPRequestHandler):
         # редко. Каждый запрос живёт в своём потоке, чужие не задерживает.
         if p.path == '/api/ver':
             since = urllib.parse.parse_qs(p.query).get('since', [''])[0]
+            out = {'ok': True, 'v': S.version()}
             if since.isdigit():
                 end = time.time() + 25
                 while S.version() == int(since) and time.time() < end:
                     time.sleep(0.4)
-            return self._send(200, {'ok': True, 'v': S.version()})
+                # Говорим не только «что-то изменилось», но и что именно:
+                # чужая работа на соседней точке не должна дёргать экран.
+                out = {'ok': True, 'v': S.version(),
+                       'tabs': S.changed_since(int(since))}
+            return self._send(200, out)
         if p.path == '/api/init':
             init = urllib.parse.parse_qs(p.query).get('initData', [''])[0]
             u = check_init_data(init, C.BOT_TOKEN)
