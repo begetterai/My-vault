@@ -736,7 +736,7 @@
   <button class="send" id="send" disabled>Отправить</button>
 </div>
 <script>
-const BUILD = 'v26.08 устойчивость';
+const BUILD = 'v26.08 обновление без сброса';
 // Заполняются на старте: скрипт телеграма грузится отложенно, и на момент
 // разбора этой строки window.Telegram может ещё не существовать.
 let tg = null, initData = '';
@@ -797,6 +797,8 @@ function goHome(){
   $('#btnBack').classList.add('hidden');
   tg?.BackButton?.hide?.();
   window.scrollTo(0, 0);
+  // Освободился — самое время обновиться, если вышла новая сборка.
+  setTimeout(reloadIfDue, 1200);
 }
 
 function enterScreen(){
@@ -944,6 +946,15 @@ async function boot(){
       let tried = '';
       try{ tried = sessionStorage.getItem('romashka.reload') || ''; }catch(e){}
       if(tried !== j.build){
+        // Но не под рукой. Человек может стоять посреди чек-листа или
+        // держать снятое селфи — перезагрузка в этот момент выглядит как
+        // сброс всей работы. Ждём, пока он освободится.
+        if(kind || BUSY || camStream || selfie){
+          PENDING_BUILD = j.build;
+          note('Вышло обновление приложения. Перезагружу, как закончишь —'
+             + ' ничего не потеряется.', 'warn');
+          return;
+        }
         try{ sessionStorage.setItem('romashka.reload', j.build); }catch(e){}
         $('#who').textContent = 'Обновляю до ' + j.build + '…';
         return location.reload();
@@ -1052,6 +1063,16 @@ async function boot(){
 
 /* ── шаги: точка → приход → работа ───────────────────────────────────────── */
 let pointOK = false, selfie = null, BOOTING = false;
+// Сборка, до которой надо обновиться, когда человек освободится.
+let PENDING_BUILD = '';
+
+function reloadIfDue(){
+  if(!PENDING_BUILD || kind || BUSY || camStream || selfie) return;
+  const b = PENDING_BUILD; PENDING_BUILD = '';
+  try{ sessionStorage.setItem('romashka.reload', b); }catch(e){}
+  note('Обновляю приложение до ' + b + '…', 'good');
+  setTimeout(() => location.reload(), 3000);
+}
 
 function stages(){
   const many = (DATA.points || []).length > 1;
@@ -1172,6 +1193,7 @@ async function mark2(direction){
       : 'Не записалось: ' + (e.message || 'ошибка') + '. Попробуй ещё раз.', 'err');
   }finally{
     BUSY--;
+    setTimeout(reloadIfDue, 1500);
   }
 }
 const selfieInput = document.createElement('input');
