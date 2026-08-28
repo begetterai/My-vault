@@ -1392,8 +1392,15 @@ class Handler(BaseHTTPRequestHandler):
             cl = C.checklists().get(key)
             if not cl:
                 return self._send(404, {'error': 'нет такого чек-листа'})
+            try:
+                fixes = S.fixes_for(cl['title'])
+            except Exception as e:
+                print('правки по листу:', e)
+                fixes = {}
             return self._send(200, {
                 'ok': True, 'key': key, 'title': cl['title'],
+                # Что по этому листу уже предложено поправить и не закрыто.
+                'fixes': {f'{b}|{n}': v for (b, n), v in fixes.items()},
                 'code': cl['code'], 'deadline': C.deadline_for(cl, who[1]),
                 'when': cl.get('when', ''), 'total': cl['total'],
                 'blocks': [{'name': b['name'], 'doc': b.get('doc'),

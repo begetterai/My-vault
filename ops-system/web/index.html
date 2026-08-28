@@ -808,7 +808,7 @@
   <button class="send" id="send" disabled>Отправить</button>
 </div>
 <script>
-const BUILD = 'v28.08 вход без геопозиции';
+const BUILD = 'v28.08 правки видны в шаблоне';
 // Заполняются на старте: скрипт телеграма грузится отложенно, и на момент
 // разбора этой строки window.Telegram может ещё не существовать.
 let tg = null, initData = '';
@@ -2643,8 +2643,10 @@ async function openSheet(x){
   $('#who').textContent = j.title;
   const head = document.createElement('div');
   head.className = 'msg warn';
+  const nfix = Object.values(j.fixes || {}).reduce((a, x) => a + x.length, 0);
   head.textContent = 'Шаблон для просмотра. Отметки не ставятся и никуда '
-    + 'не записываются' + (j.deadline ? ' · срок сдачи ' + j.deadline : '')
+    + 'не записываются'
+    + (nfix ? ' · открытых правок: ' + nfix : '') + (j.deadline ? ' · срок сдачи ' + j.deadline : '')
     + (j.when ? ' · заполняет: ' + j.when : '') + '.';
   f.appendChild(head);
   j.blocks.forEach(bl => {
@@ -2664,6 +2666,16 @@ async function openSheet(x){
       fx.onclick = () => sendFix(it, {name: bl.name, doc: bl.doc}, fx, j.title);
       d.appendChild(fx);
       f.appendChild(d);
+      // Уже поданные правки — под пунктом. Без этого один и тот же пункт
+      // правят второй раз, забыв про первый: так в «Правках» и появились
+      // дубли по «Бар · Открытие».
+      ((j.fixes || {})[bl.name + '|' + it.n] || []).forEach(v => {
+        const w = document.createElement('div');
+        w.className = 'msg warn';
+        w.style.margin = '0 0 8px';
+        w.textContent = 'правка от ' + v.day + ': ' + v.what;
+        f.appendChild(w);
+      });
     });
   });
   if(j.measures.length){

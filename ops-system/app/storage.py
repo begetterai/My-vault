@@ -773,5 +773,21 @@ def save_fix(who, form, block, n, text, comment, doc=''):
                   [[C.day_str(), who, form, block, n, text, comment, doc, 'Новая', '']])
 
 
+def fixes_for(form):
+    """Правки, уже поданные по этому чек-листу. {(блок, №): [что поправить]}
+
+    Нужны, чтобы в шаблоне было видно: по пункту замечание уже есть. Иначе
+    один и тот же пункт правят второй раз, забыв про первый.
+    """
+    out = {}
+    for r in get(C.TABS['fixes'], 'A2:J'):
+        r = list(r) + [''] * 10
+        if r[2].strip() != form or str(r[8]).strip().lower() in ('внесено', 'отклонено'):
+            continue
+        out.setdefault((r[3].strip(), str(r[4]).strip()), []).append(
+            {'what': r[6].strip(), 'who': r[1].strip(), 'day': r[0].strip()})
+    return out
+
+
 def save_note(day, who, point, source, text):
     append(C.TABS['ideas'], [[day, who, point, source, text, 'Новая', '']])
