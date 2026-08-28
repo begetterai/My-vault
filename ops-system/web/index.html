@@ -744,7 +744,7 @@
   <button class="send" id="send" disabled>Отправить</button>
 </div>
 <script>
-const BUILD = 'v27.08 баннер приёма';
+const BUILD = 'v28.08 живое обновление не встаёт';
 // Заполняются на старте: скрипт телеграма грузится отложенно, и на момент
 // разбора этой строки window.Telegram может ещё не существовать.
 let tg = null, initData = '';
@@ -929,13 +929,16 @@ async function boot(){
   // Два перечитывания разом рисовали бы один экран вдвоём и путались
   // в порядке: событий возврата в приложение несколько, они приходят
   // пачкой.
-  if(BOOTING) return;
-  BOOTING = true;
+  // Замок снимается сам, если прошлое чтение зависло: на плохой связи
+  // запрос может висеть минутами, и без этого приложение больше никогда
+  // бы не обновилось.
+  if(BOOTING && Date.now() - BOOTING < 30000) return;
+  BOOTING = Date.now();
   lastBoot = Date.now();
   const quiet = QUIET; QUIET = false;   // тихое обновление или открытие руками
   // Не пустили к геопозиции — снимаем замок, иначе повторная попытка
   // человека уже никогда не сработает.
-  if(!MYGEO && !(await gate())){ BOOTING = false; return; }
+  if(!MYGEO && !(await gate())){ BOOTING = 0; return; }
   try{
     const r = await fetch('/api/init?initData=' + encodeURIComponent(initData));
     const j = await r.json();
@@ -999,7 +1002,10 @@ async function boot(){
       $('#pointBox').classList.remove('hidden');
     }
     document.title = (j.company || '') + ' — чек-лист';
-    $('#ver').textContent = 'сборка ' + BUILD;
+    // Время последнего обновления видно человеку: если оно стоит на месте,
+    // значит связь с системой замерла — это видно сразу, а не через час
+    // «почему у меня старое».
+    $('#ver').textContent = 'сборка ' + BUILD + ' · обновлено ' + nowHHMM();
     fillMe();
     const box = $('#pickList'); box.innerHTML = '';
     // Новичок: сначала обучение, работа открывается после.
@@ -1066,11 +1072,11 @@ async function boot(){
       console.error('broken sections', broken);
     }
   }catch(e){ fail('Не открылось: ' + e.message); }
-  finally{ BOOTING = false; }
+  finally{ BOOTING = 0; }
 }
 
 /* ── шаги: точка → приход → работа ───────────────────────────────────────── */
-let pointOK = false, selfie = null, BOOTING = false;
+let pointOK = false, selfie = null, BOOTING = 0;
 // Сборка, до которой надо обновиться, когда человек освободится.
 let PENDING_BUILD = '';
 
@@ -3491,12 +3497,14 @@ function refresh(force){
   // И под рукой не трогаем: идёт отметка, открыта камера или снимок уже
   // сделан, но человек ещё не нажал «Пришёл».
   if(BUSY || camStream || selfie) return;
-  // Человек что-то печатает или выбирает — перерисовка стёрла бы набранное
-  // (состав смены на завтра, поле выбора).
-  const a = document.activeElement;
-  if(a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName)) return;
   // Состав на завтра правится в памяти и уходит одной кнопкой. Пока он
-  // не отправлен, перечитывание стёрло бы всю правку.
+  // не отправлен, перечитывание стёрло бы всю правку. Заодно это и есть
+  // защита «человек печатает»: правка состава — единственное место
+  // на главной, где набранное можно потерять.
+  //
+  // Раньше здесь стояла проверка на любое поле в фокусе — и она вешала
+  // обновление намертво: на телефоне фокус остаётся на списке даже после
+  // того, как человек его закрыл. Экран замирал до перезапуска.
   if(typeof ROSTER === 'object' && ROSTER && ROSTER.dirty) return;
   if(Date.now() - lastBoot < (force ? 3000 : 115000)) return;
   lastBoot = Date.now();
