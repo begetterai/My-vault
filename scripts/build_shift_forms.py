@@ -67,17 +67,18 @@ def groups_for(code, stage):
     приклеена к закрытию: три пункта отдельным листом никому не нужны.
     """
     if stage == 'open':
-        personal = (M.OPEN.PERSONAL_UPR if code == 'У' else M.OPEN.PERSONAL)
+        personal = (M.OPEN.PERSONAL_UPR if code == 'У'
+                    else M.OPEN.personal(code))
         return ([personal] + M.collect(M.OPEN, code)
                 + [M.equip_block(code, 'на открытии')])
     if stage == 'give':
-        out = [M.GIVE, M.equip_block(code, 'при передаче'), M.ROUTINE]
+        out = [M.give_block(code), M.equip_block(code, 'при передаче'), M.ROUTINE]
         extra = M.GIVE_EXTRA.get(code)
         if extra:
             out.insert(1, ('Что оставляем следующей смене', extra))
         return out
     if stage == 'take':
-        return [M.TAKE, M.equip_block(code, 'при приёме'), M.VERDICT]
+        return [M.take_block(code), M.equip_block(code, 'при приёме'), M.VERDICT]
     if code == 'У':
         # Управляющий уходит в 21:00: свет, вентиляция и кондиционеры в это
         # время ещё работают, а помещение сдаёт тот, кто гасит его в 00:30.
