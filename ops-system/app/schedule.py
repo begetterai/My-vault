@@ -88,8 +88,7 @@ def overdue(key, cl, point):
     for cid in S.managers_of(point):
         BOT.say(cid, txt)
         sent.add(str(cid))
-    if str(C.ADMIN_CHAT) not in sent:
-        BOT.admin(txt)
+    BOT.admin(txt, point, skip=sent)
 
 
 def handover_waiting(dstr):
@@ -156,11 +155,19 @@ def unconfirmed(day):
     by_point = {}
     for x in late:
         by_point.setdefault(x['point'], []).append(x)
+    told = set()
     for point, items in by_point.items():
         for cid in S.managers_of(point):
             BOT.say(cid, f'⚠️ <b>{point}: ждут твоего подтверждения</b>\n'
                     + '\n'.join(f'   {i["kind"].lower()} · {i["who"]}' for i in items))
-    BOT.admin('\n'.join(L))
+            told.add(str(cid))
+    # Общий список по всем точкам — только тому, кто отвечает за сеть целиком.
+    # Управляющему чужой точки он не нужен: у него своя рассылка выше.
+    for cid, v in S.team().items():
+        if S.role_of(v) == 'coo' and str(cid) not in told:
+            BOT.say(cid, '\n'.join(L))
+    if C.ADMIN_CHAT and str(C.ADMIN_CHAT) not in told:
+        BOT.say(C.ADMIN_CHAT, '\n'.join(L))
 
 
 # ── отчёты ───────────────────────────────────────────────────────────────────
@@ -192,8 +199,7 @@ def tasks_pass():
         for cid in S.managers_of(point):
             BOT.say(cid, txt)
             sent.add(str(cid))
-        if str(C.ADMIN_CHAT) not in sent:
-            BOT.admin(txt)
+        BOT.admin(txt, point, skip=sent)
 
 
 def daily():
@@ -331,16 +337,21 @@ def close_stations():
             continue
         idle.append(f"· {v['who']} · {v['point']} · {v['start']}–{v['end']} "
                     f"({v['minutes']} мин) — места не выбрал")
-    if idle:
-        BOT.admin('⚠️ <b>Явка без работы</b> · ' + day + '\n'
-                  + '\n'.join(idle)
-                  + '\n\nЧеловек отметил приход, но ни на одно место '
-                    'не встал. Разберись, был ли он на смене.')
-    if told:
-        BOT.admin('🕓 <b>Смена не закрыта</b> · ' + day + '\n'
-                  + '\n'.join(told)
-                  + '\n\nЧасы посчитаны по времени закрытия точки. '
-                    'Если человек ушёл раньше — поправь в «Станциях».')
+    # Разбирает беспорядок управляющий той точки, где он случился, —
+    # значит и письмо должно уйти ему, а не одному человеку на всю сеть.
+    for point in S.points():
+        mine = [x for x in idle if f'· {point} ·' in x]
+        if mine:
+            BOT.admin('⚠️ <b>Явка без работы</b> · ' + day + '\n'
+                      + '\n'.join(mine)
+                      + '\n\nЧеловек отметил приход, но ни на одно место '
+                        'не встал. Разберись, был ли он на смене.', point)
+        mine = [x for x in told if f'· {point} ·' in x]
+        if mine:
+            BOT.admin('🕓 <b>Смена не закрыта</b> · ' + day + '\n'
+                      + '\n'.join(mine)
+                      + '\n\nЧасы посчитаны по времени закрытия точки. '
+                        'Если человек ушёл раньше — поправь в «Станциях».', point)
 
 
 def close_day():

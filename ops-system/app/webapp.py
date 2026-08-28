@@ -429,7 +429,8 @@ def handover_notify(kind, day, point, who, to, ok, tot, fails, comment,
         cid = chat_of(to)
         if not cid:
             BOT.admin(f'⚠️ <b>Некому передать смену</b> · {point} · {place}\n'
-                      f'{who} сдаёт «{to}», а такого человека на точке нет.')
+                      f'{who} сдаёт «{to}», а такого человека на точке нет.',
+                      point)
             return
         BOT.say(cid, f'🔄 <b>Тебе сдают смену</b> · {place}\n'
                      f'{who} закрыл передачу: {ok} из {tot}.'
@@ -458,7 +459,7 @@ def handover_notify(kind, day, point, who, to, ok, tot, fails, comment,
             if not ok:
                 BOT.admin(f'⚠️ <b>Место занято при приёме</b> · {point} · '
                           f'{place}\n{who} принял смену, но на месте '
-                          f'работает {holder}.')
+                          f'работает {holder}.', point)
         except Exception as e:
             print('станция при приёме:', e)
     cid = chat_of(src.get('who', ''))
@@ -887,7 +888,7 @@ def submit(who, body):
         V.review_async(kind, line, point, who[0], shots)
     from . import tasks as TSK
     for q, val, norm, unit in BOT.norm_alerts(kind, measured):
-        BOT.admin(f'🌡 <b>Замер вне нормы</b> · {point} · {who[0]}\n'
+        BOT.admin(point=point, text=f'🌡 <b>Замер вне нормы</b> · {point} · {who[0]}\n'
                   f'{q}: <b>{val} {unit}</b> при норме {norm}')
         try:
             TSK.from_measure(point, q, val, norm, unit)
@@ -1310,7 +1311,7 @@ def note(who, body):
         return {'ok': False, 'error': 'Напиши фразой — что не так и что делать'}
     S.save_note(C.day_str(), who[0], who[1],
                 body.get('source', 'Mini App'), text[:400])
-    BOT.admin(f'💬 <b>Идея с точки {who[1]}</b> · {who[0]}\n«{text[:300]}»')
+    BOT.admin(f'💬 <b>Идея с точки {who[1]}</b> · {who[0]}\n«{text[:300]}»', who[1])
     return {'ok': True}
 
 

@@ -120,8 +120,8 @@ def _tell(point, what, why, owner, due, severity, source):
         if str(cid) not in sent:
             BOT.say(cid, txt)
             sent.add(str(cid))
-    if severity in ('Критично', 'Серьёзное') and str(C.ADMIN_CHAT) not in sent:
-        BOT.admin(txt)
+    if severity in ('Критично', 'Серьёзное'):
+        BOT.admin(txt, point, skip=sent)
 
 
 def close(line, who, verdict=DONE, comment=''):

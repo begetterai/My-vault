@@ -53,21 +53,50 @@ def say(chat_id, text, **kw):
     return r
 
 
-def admin(text):
-    """Сообщение директору. Нет ADMIN_CHAT — шлём тем, у кого роль директора.
+def admin_add(chat_id, text, **kw):
+    """Запрос «добавьте человека» — управляющим, с кнопкой добавления.
 
-    Без запасного адреса такие сообщения исчезали бесследно: «некому передать
-    смену», «замер вне нормы», «идея с точки» уходили в пустоту, и никто
-    об этом не узнавал.
+    Раньше он уходил на адрес директора, а если тот не задан — самому
+    новичку: человек получал сообщение, адресованное не ему.
     """
-    if C.ADMIN_CHAT:
-        return say(C.ADMIN_CHAT, text)
+    seen = set()
+    for cid, v in S.team().items():
+        if S.role_of(v) in ('manager', 'coo') and str(cid) not in seen:
+            seen.add(str(cid))
+            say(cid, text, **kw)
+    if C.ADMIN_CHAT and str(C.ADMIN_CHAT) not in seen:
+        say(C.ADMIN_CHAT, text, **kw)
+    if not seen and not C.ADMIN_CHAT:
+        print('некому передать запрос на добавление:', chat_id)
+
+
+def admin(text, point=None, skip=()):
+    """Сообщение руководству. Всегда доходит до живого человека.
+
+    Раньше это был отдельный адрес директора, и пока он не задан, такие
+    сообщения — «некому передать смену», «место занято при приёме», «кто-то
+    не отметил уход» — исчезали бесследно. Теперь их получает управляющий
+    точки: он и есть тот, кто разбирает беспорядок на месте. Директор
+    добавляется сверху, если его адрес задан.
+
+    point=None — случай без точки (новый человек просится в систему):
+    пишем всем управляющим, кто-то из них ответит.
+    """
+    seen = {str(x) for x in skip}      # кому уже отправили — не дублируем
     try:
         for cid, v in S.team().items():
-            if S.role_of(v) == 'coo':
-                say(cid, text)
+            if S.role_of(v) not in ('manager', 'coo'):
+                continue
+            if point and v[1] != point and S.role_of(v) != 'coo':
+                continue
+            if str(cid) in seen:
+                continue
+            seen.add(str(cid))
+            say(cid, text)
     except Exception as e:
-        print('сообщение директору:', e)
+        print('сообщение руководству:', e)
+    if C.ADMIN_CHAT and str(C.ADMIN_CHAT) not in seen:
+        say(C.ADMIN_CHAT, text)
 
 
 # ── проверки ввода ───────────────────────────────────────────────────────────
@@ -448,14 +477,11 @@ def notify_check(st, ok, tot, fails, line, comment, fast, dup=False):
     for cid in S.managers_of(st['point']):
         say(cid, txt, reply_markup=kb)
         sent.add(str(cid))
-    if str(C.ADMIN_CHAT) in sent:
-        return
     if not sent:
         # некому проверять — молчать нельзя, иначе второй контур просто исчезает
-        say(C.ADMIN_CHAT, f'⚠️ У точки {st["point"]} нет управляющего.\n\n' + txt,
-            reply_markup=kb)
+        admin(f'⚠️ У точки {st["point"]} нет управляющего.\n\n' + txt)
     elif fails or fast or dup:
-        admin(txt)
+        admin(txt, st['point'], skip=sent)
 
 
 def pct(ok, tot):
@@ -535,8 +561,7 @@ def final_report(kind, line, verdict, checker, note=''):
     for cid in S.managers_of(r[1]):
         say(cid, txt)
         sent.add(str(cid))
-    if str(C.ADMIN_CHAT) not in sent:
-        admin(txt)
+    admin(txt, r[1], skip=sent)
     # Тому, кто заполнял, — короткий ответ. Раньше итог видели все, кроме
     # него: человек сдал работу и не знал, приняли её или нет, пока не
     # откроет приложение. Сообщение в боте приходит и при закрытом.
@@ -574,7 +599,7 @@ def unknown(chat_id, u):
                  'Руководителю уже ушёл запрос. Как добавит — напиши «меню».')
     if chat_id not in _SEEN:
         _SEEN.add(chat_id)
-        say(C.ADMIN_CHAT or chat_id,
+        admin_add(chat_id,
             '👤 <b>Просится в систему</b>\n'
             f'{name} · {tag}\nID: <code>{chat_id}</code>',
             reply_markup={'inline_keyboard': [[
@@ -686,7 +711,8 @@ def on_message(msg):
         say(chat_id, f'💬 <b>Записал в «Идеи и задачи»</b>\n\n«{t[:300]}»\n\n'
                      f'{st["day"]} · {st["point"]} · {st["who"]}\n'
                      f'Источник: {src} · Статус: Новая')
-        admin(f'💬 <b>Идея с точки {st["point"]}</b> · {st["who"]}\n«{t[:300]}»')
+        admin(f'💬 <b>Идея с точки {st["point"]}</b> · {st["who"]}\n«{t[:300]}»',
+              st['point'])
         st['stage'] = st.pop('note_return', 'blocks')
         return True
 
@@ -707,7 +733,7 @@ def on_message(msg):
                          f'сообщи управляющему сейчас, не жди конца смены.')
             admin(f'🌡 <b>Замер вне нормы</b> · {st["point"]} · {st["who"]}\n'
                   f'{m["q"]}: <b>{v} {m.get("unit", "")}</b> '
-                  f'при норме {m["norm"]}')
+                  f'при норме {m["norm"]}', st['point'])
         ask_next(chat_id, st)
         return True
 
