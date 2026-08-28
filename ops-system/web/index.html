@@ -808,7 +808,7 @@
   <button class="send" id="send" disabled>Отправить</button>
 </div>
 <script>
-const BUILD = 'v28.08 все чек-листы директору';
+const BUILD = 'v28.08 вход без геопозиции';
 // Заполняются на старте: скрипт телеграма грузится отложенно, и на момент
 // разбора этой строки window.Telegram может ещё не существовать.
 let tg = null, initData = '';
@@ -940,9 +940,12 @@ function askGeo(fresh){
   });
 }
 
-async function gate(){
+async function gate(silent){
   const g = await askGeo();
   if(g.error){
+    // Тихий вызов только спрашивает разрешение: экран-заглушку не показываем,
+    // иначе планшет без геолокации закрывал бы собой всю работу.
+    if(silent) return false;
     const t = g.error === 'denied'
       ? ['Доступ к месту закрыт',
          'Телефон не даёт приложению определить место. Открой настройки, '
@@ -1000,9 +1003,11 @@ async function boot(){
   BOOTING = Date.now();
   lastBoot = Date.now();
   const quiet = QUIET; QUIET = false;   // тихое обновление или открытие руками
-  // Не пустили к геопозиции — снимаем замок, иначе повторная попытка
-  // человека уже никогда не сработает.
-  if(!MYGEO && !(await gate())){ BOOTING = 0; return; }
+  // Геопозиция больше не запирает вход. Она нужна там, где подтверждает
+  // факт: приход, уход, журнал, бланк — там её и спрашиваем. Руководитель
+  // же работает из дома и с планшета, где место вообще может не
+  // определяться, — и упирался в пустой экран вместо проверки смены.
+  if(!MYGEO) gate(true);      // спросим разрешение, но ждать не будем
   try{
     const r = await fetch('/api/init?initData=' + encodeURIComponent(initData));
     const j = await r.json();
