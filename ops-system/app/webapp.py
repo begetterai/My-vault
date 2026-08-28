@@ -1180,7 +1180,10 @@ def roster(who, body):
         cur = RS.planned(day, point)
         out['people'] = cur or RS.template(point, day)
         out['sent'] = bool(cur)
-        out['team'] = sorted({v[0] for v in S.team().values() if v[1] == point})
+        # В состав смены директор не ставится: он не выходит на позицию,
+        # а проверяет тех, кто вышел.
+        out['team'] = sorted({v[0] for v in S.team().values()
+                              if v[1] == point and S.role_of(v) != 'coo'})
         out['depts'] = list(RS.START)
         out['starts'] = RS.START
     return out

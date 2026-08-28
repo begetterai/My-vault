@@ -288,6 +288,11 @@
        padding:0 14px;color:var(--bad);font-weight:700;cursor:pointer}
   select{width:100%;padding:15px;border:1.5px solid var(--line);border-radius:14px;
          background:var(--wash);color:var(--ink);font:inherit}
+  /* Строка состава смены: поля с воздухом и подписями. */
+  .rline{display:flex;flex-direction:column;gap:12px;margin-top:12px}
+  .rline label{display:block;font-size:12px;font-weight:600;letter-spacing:.02em;
+       text-transform:uppercase;color:var(--ink-2);margin-bottom:5px}
+  .rline .note{margin-top:2px}
   .add{width:100%;padding:14px;border:1.5px dashed var(--line);border-radius:14px;
        background:transparent;font-weight:600;cursor:pointer;color:var(--ink-2);
        margin-top:4px}
@@ -793,7 +798,7 @@
   <button class="send" id="send" disabled>Отправить</button>
 </div>
 <script>
-const BUILD = 'v28.08 директор в стороне';
+const BUILD = 'v28.08 состав смены';
 // Заполняются на старте: скрипт телеграма грузится отложенно, и на момент
 // разбора этой строки window.Telegram может ещё не существовать.
 let tg = null, initData = '';
@@ -2991,7 +2996,7 @@ function rosterRow(p, i){
   time.oninput = () => { p.start = time.value; ROSTER.dirty = true; };
 
   const instead = document.createElement('input');
-  instead.type = 'text'; instead.placeholder = 'замена вместо кого (если замена)';
+  instead.type = 'text'; instead.placeholder = 'если это замена — чья';
   instead.value = p.instead || '';
   instead.oninput = () => { p.instead = instead.value.trim(); ROSTER.dirty = true; };
 
@@ -2999,7 +3004,20 @@ function rosterRow(p, i){
   rm.className = 'note'; rm.textContent = '✕ Убрать из смены';
   rm.onclick = () => { ROSTER.people.splice(i, 1); ROSTER.dirty = true; renderRoster(); };
 
-  d.append(who, dept, time, instead, rm);
+  // Поля шли впритык — глазом их не разделить, а это четыре разных вопроса:
+  // кто, на какой позиции, во сколько и кого заменяет. Разводим и подписываем.
+  const box = document.createElement('div');
+  box.className = 'rline';
+  [['Кто', who], ['Позиция', dept], ['Начало смены', time],
+   ['Замена вместо кого', instead]].forEach(([label, el]) => {
+    const w = document.createElement('div');
+    const l = document.createElement('label');
+    l.textContent = label;
+    w.append(l, el);
+    box.appendChild(w);
+  });
+  box.appendChild(rm);
+  d.appendChild(box);
   return d;
 }
 
