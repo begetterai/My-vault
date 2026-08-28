@@ -430,7 +430,11 @@
    целиком, а сигналить должно только то, что внутри требует внимания. */
 .blk>summary .ic{display:inline-flex;align-items:center;justify-content:center;
      width:24px;height:24px;border-radius:50%;background:var(--ok);
-     color:#fff;font-size:14px;font-weight:700;margin-right:9px;flex:0 0 auto}
+     color:#fff;font-size:14px;font-weight:700;margin-right:9px;flex:0 0 auto;
+     /* min-width у flex-элемента по умолчанию «не меньше содержимого»:
+        символ, которого нет в шрифте, подставляется из эмодзи-набора,
+        оказывается втрое крупнее — и раздувает кружок в овал. */
+     min-width:0;min-height:0;padding:0;line-height:1;box-sizing:border-box}
 .blk>summary{align-items:center}
 /* Состояние блока одним значком: сколько дел осталось — то и в кружке,
    цвет говорит о срочности, галочка — что закрыто. Один язык на все блоки:
@@ -441,7 +445,13 @@
 .blk>summary .ic.st.due{background:var(--brand);border-color:var(--brand);
      color:var(--on-brand)}
 .blk>summary .ic.st.late{background:var(--bad);border-color:var(--bad);color:#fff}
-.blk>summary .ic.st.done{background:var(--ok);border-color:var(--ok);color:#fff}
+.blk>summary .ic.st.done{background:var(--ok);border-color:var(--ok);
+     color:transparent;font-size:0}
+/* Галочка нарисована, а не набрана: символ «✓» есть не во всех шрифтах,
+   и телефон подставлял вместо него эмодзи — оно и распирало кружок. */
+.blk>summary .ic.st.done::before{content:'';display:block;width:9px;height:5px;
+     border-left:2px solid #fff;border-bottom:2px solid #fff;
+     transform:rotate(-45deg) translate(1px,-1px)}
 .blk>summary .ic.st.due::after,.blk>summary .ic.st.late::after{
      content:'';position:absolute;top:-2px;right:-2px;width:9px;height:9px;
      border-radius:50%;background:var(--bad);border:2px solid var(--card)}
@@ -763,7 +773,7 @@
   <button class="send" id="send" disabled>Отправить</button>
 </div>
 <script>
-const BUILD = 'v28.08 знак и кружки';
+const BUILD = 'v28.08 кружки ровные';
 // Заполняются на старте: скрипт телеграма грузится отложенно, и на момент
 // разбора этой строки window.Telegram может ещё не существовать.
 let tg = null, initData = '';
