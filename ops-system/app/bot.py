@@ -666,7 +666,23 @@ def on_message(msg):
             add['id'], add['step'] = t.strip(), 'name'
             say(chat_id, 'Как его зовут? Так он будет подписан во всех отчётах.')
         elif add['step'] == 'name':
-            add['name'], add['step'] = t[:60], 'point'
+            name = t[:60].strip()
+            # Имя — это идентификатор: им подписаны явка, часы, баллы
+            # и передача смены. Двое с одним именем склеиваются в отчётах,
+            # и минус может уйти не тому. Предупреждаем до записи.
+            same = [v for v in S.team().values()
+                    if v[0].strip().lower() == name.lower()]
+            if same and not add.get('dup_ok'):
+                add['dup_ok'] = True
+                say(chat_id, f'⚠️ <b>{name}</b> уже есть в системе: '
+                             f'{same[0][1]} · {same[0][2]}.\n\n'
+                             'Имя в отчётах должно быть одно на человека — '
+                             'иначе часы и баллы уйдут не тому.\n\n'
+                             'Это <b>другой человек</b>? Напиши имя с фамилией, '
+                             'чтобы их различать. Это <b>он же</b>? Напиши '
+                             '«отмена» — добавлять второй раз не нужно.')
+                return True
+            add['name'], add['step'] = name, 'point'
             add_ask_point(chat_id, add)
         elif add['step'] == 'point':
             add['point'], add['step'] = t[:40], 'role'
