@@ -305,6 +305,19 @@ def init_payload(who):
         out['filled'] = {}
     # Просрочка: срок прошёл, лист не сдан. Баллов за это не снимаем —
     # система фиксирует, на сколько опоздали, и подсвечивает.
+    # Директору — оглавление всех чек-листов сети: он их не заполняет,
+    # но должен видеть, по чему работают люди, и править формулировки.
+    # Отдаём только оглавление: сами пункты приходят по одному листу,
+    # иначе в ответ уехали бы полторы тысячи строк на каждое открытие.
+    if role == 'coo':
+        out['catalog'] = [
+            {'key': k, 'title': cl['title'], 'code': cl['code'],
+             'items': cl['total'], 'deadline': C.deadline_for(cl, who[1]),
+             'dept': (cl.get('dept') if isinstance(cl.get('dept'), str)
+                      else ', '.join(cl.get('dept') or [])) or '',
+             'stage': cl.get('stage', '')}
+            for k, cl in sorted(C.checklists().items(),
+                                key=lambda x: x[1]['title'])]
     # Операционная минута сервера. Просрочку считает приложение: только оно
     # знает, какую точку человек сейчас смотрит. А время берёт отсюда —
     # часы на телефоне бывают сбиты, и тогда просрочка врёт.
@@ -1367,6 +1380,31 @@ class Handler(BaseHTTPRequestHandler):
                 out = {'ok': True, 'v': S.version(),
                        'tabs': S.changed_since(int(since))}
             return self._send(200, out)
+        # Один чек-лист целиком — для просмотра руководителем. Данные те же,
+        # что видит сотрудник: правится оригинал — меняется и здесь.
+        if p.path == '/api/sheet':
+            q = urllib.parse.parse_qs(p.query)
+            u = check_init_data(q.get('initData', [''])[0], C.BOT_TOKEN)
+            who = S.team().get(str(u.get('id', ''))) if u else None
+            if not who or S.role_of(who) not in ('manager', 'coo'):
+                return self._send(403, {'error': 'Только руководитель'})
+            key = q.get('key', [''])[0]
+            cl = C.checklists().get(key)
+            if not cl:
+                return self._send(404, {'error': 'нет такого чек-листа'})
+            return self._send(200, {
+                'ok': True, 'key': key, 'title': cl['title'],
+                'code': cl['code'], 'deadline': C.deadline_for(cl, who[1]),
+                'when': cl.get('when', ''), 'total': cl['total'],
+                'blocks': [{'name': b['name'], 'doc': b.get('doc'),
+                            'items': [{'n': it['n'], 'text': it['text'],
+                                       'norm': it.get('norm', ''),
+                                       'photo': bool(it.get('photo'))}
+                                      for it in b['items']]}
+                           for b in cl['blocks']],
+                'measures': [{'n': n, 'q': m['q'], 'norm': m.get('norm', ''),
+                              'unit': m.get('unit', '')}
+                             for n, m in sorted(cl['measures'].items())]})
         if p.path == '/api/init':
             init = urllib.parse.parse_qs(p.query).get('initData', [''])[0]
             u = check_init_data(init, C.BOT_TOKEN)

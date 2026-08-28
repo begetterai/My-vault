@@ -676,6 +676,16 @@
     </div>
     </details>
 
+<!-- Все чек-листы сети — директору. Не для заполнения: посмотреть,
+     по чему работают люди, и поправить формулировку. Пункты те же,
+     что у сотрудника: правится оригинал — меняется и здесь. -->
+<details class="blk hidden" id="blkAll">
+      <summary><span class="ic st done" id="icAll">✓</span>Все чек-листы</summary>
+    <div class="hint">Шаблоны: без отметок и без записи в таблицу. Нашёл
+      неточность — нажми ✎ у пункта, правка уйдёт в «Правки».</div>
+    <div class="pick" id="allList"></div>
+    </details>
+
 <details class="blk" id="blkTeam">
       <summary>Люди и смена</summary>
     <div id="rosterBox" class="hidden">
@@ -798,7 +808,7 @@
   <button class="send" id="send" disabled>Отправить</button>
 </div>
 <script>
-const BUILD = 'v28.08 тёзки под контролем';
+const BUILD = 'v28.08 все чек-листы директору';
 // Заполняются на старте: скрипт телеграма грузится отложенно, и на момент
 // разбора этой строки window.Telegram может ещё не существовать.
 let tg = null, initData = '';
@@ -1099,6 +1109,7 @@ async function boot(){
       ['списки', renderLists], ['расстояние', renderDistance],
       ['смена', renderShift], ['точка', renderSite],
       ['задачи', renderTasks], ['приём смены', renderHandovers],
+      ['все чек-листы', renderCatalog],
       ['проверка', renderPending],
       ['журналы', renderJournals], ['бланки', renderForms],
       ['обучение', renderQuizzes], ['баллы', renderScore],
@@ -2581,6 +2592,93 @@ async function sendTask(t, verdict, comment, card){
   renderTasks.count = DATA.tasks.length;
 }
 
+/* ── все чек-листы сети: просмотр для директора ───────────────────────────── */
+/* Не заполнение, а шаблон: тот же источник, что у сотрудника, поэтому правка
+   оригинала видна здесь сразу. Ничего не пишется в таблицу — кроме правок
+   к формулировкам, за этим блок и нужен. */
+function renderCatalog(){
+  const list = DATA.catalog || [];
+  const box = $('#allList');
+  if(!box || !list.length) return;
+  $('#blkAll').classList.remove('hidden');
+  box.innerHTML = '';
+  // Группируем по месту: «Кухня — фритюр» и его четыре этапа рядом.
+  const groups = {};
+  list.forEach(x => {
+    const g = x.title.includes(' · ') ? x.title.split(' · ')[0] : 'Разовые и событийные';
+    (groups[g] = groups[g] || []).push(x);
+  });
+  Object.keys(groups).sort().forEach(g => {
+    const h = document.createElement('div');
+    h.className = 'grouphead';
+    h.textContent = g + ' · ' + groups[g].length;
+    box.appendChild(h);
+    groups[g].forEach(x => {
+      const b = document.createElement('button');
+      b.className = 'big';
+      const tail = x.title.includes(' · ') ? x.title.split(' · ').slice(1).join(' · ')
+                                           : x.title;
+      b.innerHTML = tail + '<div class="sub">' + x.code + ' · пунктов ' + x.items
+        + (x.deadline ? ' · до ' + x.deadline : '')
+        + (x.dept ? ' · ' + x.dept : '') + '</div>';
+      b.onclick = () => openSheet(x);
+      box.appendChild(b);
+    });
+  });
+}
+
+async function openSheet(x){
+  const r = await fetch('/api/sheet?key=' + encodeURIComponent(x.key)
+                      + '&initData=' + encodeURIComponent(initData));
+  const j = await r.json();
+  if(!j.ok) return note(j.error || 'Не открылось', 'err');
+  $('#pick').classList.add('hidden');
+  const f = $('#form'); f.innerHTML = ''; f.classList.remove('hidden');
+  enterScreen();
+  $('#who').textContent = j.title;
+  const head = document.createElement('div');
+  head.className = 'msg warn';
+  head.textContent = 'Шаблон для просмотра. Отметки не ставятся и никуда '
+    + 'не записываются' + (j.deadline ? ' · срок сдачи ' + j.deadline : '')
+    + (j.when ? ' · заполняет: ' + j.when : '') + '.';
+  f.appendChild(head);
+  j.blocks.forEach(bl => {
+    const h = document.createElement('h2'); h.textContent = bl.name;
+    f.appendChild(h);
+    if(bl.doc) f.appendChild(docLine(bl.doc));
+    bl.items.forEach(it => {
+      const d = document.createElement('div');
+      d.className = 'item';
+      d.innerHTML = '<span class="num">' + it.n + '</span>'
+        + '<span class="txt">' + it.text
+        + (it.norm ? '<span class="norm">' + it.norm + '</span>' : '')
+        + (it.photo ? '<span class="norm">нужно фото</span>' : '') + '</span>';
+      const fx = document.createElement('button');
+      fx.className = 'fix'; fx.type = 'button'; fx.textContent = '✎';
+      fx.title = 'Поправить формулировку';
+      fx.onclick = () => sendFix(it, {name: bl.name, doc: bl.doc}, fx, j.title);
+      d.appendChild(fx);
+      f.appendChild(d);
+    });
+  });
+  if(j.measures.length){
+    const h = document.createElement('h2'); h.textContent = 'Замеры';
+    f.appendChild(h);
+    j.measures.forEach(m => {
+      const d = document.createElement('div'); d.className = 'item';
+      d.innerHTML = '<span class="num">' + m.n + '</span><span class="txt">'
+        + m.q + '<span class="norm">норма: ' + m.norm + ' ' + m.unit
+        + '</span></span>';
+      f.appendChild(d);
+    });
+  }
+  const back = document.createElement('button');
+  back.className = 'note'; back.textContent = '◀ К списку';
+  back.onclick = goHome;
+  f.appendChild(back);
+  window.scrollTo(0, 0);
+}
+
 /* ── передают смену ──────────────────────────────────────────────────────── */
 /* Полоса поверх экрана. Приём — событие, требующее ответа сейчас: место
    стоит ничьё, пока человек не принял. В свёрнутом блоке его можно было
@@ -3346,14 +3444,15 @@ function itemRow(it, bl){
   return d;
 }
 
-async function sendFix(it, bl, btn){
+async function sendFix(it, bl, btn, formTitle){
   const t = prompt('Что поправить в пункте?\n\n«' + it.text + '»\n\n'
     + 'Например: «убрать — дублирует п.4» или «переформулировать: не «чисто», '
     + 'а «нет налёта на решётке»»');
   if(!t) return;
   const r = await fetch('/api/fix', {method:'POST',
     headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({initData, form: DATA.lists[kind].title,
+    body: JSON.stringify({initData,
+      form: formTitle || (DATA.lists[kind] || {}).title || '',
       block: bl ? bl.name : '', n: it.n, text: it.text, comment: t,
       doc: bl && bl.doc ? bl.doc.code : ''})});
   const j = await r.json();
