@@ -432,16 +432,20 @@
      width:24px;height:24px;border-radius:50%;background:var(--ok);
      color:#fff;font-size:14px;font-weight:700;margin-right:9px;flex:0 0 auto}
 .blk>summary{align-items:center}
-/* Уведомления — конверт, а не галочка: галочка читается как «сделано»,
-   а тут наоборот, лежит то, что ждёт человека. Пустой — спокойный серый,
-   есть непрочитанное — цвет и точка в углу. */
-.blk>summary .ic.inbox{background:var(--wash);border:1.5px solid var(--line);
-     color:var(--ink-2);position:relative;font-size:13px}
-.blk>summary .ic.inbox.on{background:var(--brand);border-color:var(--brand);
+/* Состояние блока одним значком: сколько дел осталось — то и в кружке,
+   цвет говорит о срочности, галочка — что закрыто. Один язык на все блоки:
+   человек видит объём работы, не раскрывая ни одного. */
+.blk>summary .ic.st{position:relative;font-family:Manrope,sans-serif;
+     font-size:13px;background:transparent;border:1.5px solid var(--line);
+     color:var(--ink-2)}
+.blk>summary .ic.st.due{background:var(--brand);border-color:var(--brand);
      color:var(--on-brand)}
-.blk>summary .ic.inbox.on::after{content:'';position:absolute;top:-2px;right:-2px;
-     width:9px;height:9px;border-radius:50%;background:var(--bad);
-     border:2px solid var(--bg)}
+.blk>summary .ic.st.late{background:var(--bad);border-color:var(--bad);color:#fff}
+.blk>summary .ic.st.done{background:var(--ok);border-color:var(--ok);color:#fff}
+.blk>summary .ic.st.due::after,.blk>summary .ic.st.late::after{
+     content:'';position:absolute;top:-2px;right:-2px;width:9px;height:9px;
+     border-radius:50%;background:var(--bad);border:2px solid var(--card)}
+.blk>summary .ic.st.late::after{background:var(--brand)}
 
 /* Сообщения: были бледной заливкой на бледном фоне и терялись.
    Теперь у каждого цветная полоса слева и свой цвет по смыслу. */
@@ -592,7 +596,7 @@
     <div id="rest">
 
 <details class="blk" id="blkCheck" open>
-      <summary><span class="ic inbox" id="checkIc">✉</span>Уведомления <span id="checkN" class="badge"></span></summary>
+      <summary><span class="ic st" id="icCheck">0</span>Уведомления</summary>
     <div id="pendBox" class="hidden">
       <h2 id="pendHead">На проверке <span id="pendN" class="badge"></span></h2>
       <div class="hint">Пройди по пунктам ещё раз и отметь своё.
@@ -613,14 +617,14 @@
     </details>
 
     <details class="blk" id="blkEdu">
-      <summary>Обучение</summary>
+      <summary><span class="ic st" id="icEdu">0</span>Обучение</summary>
     <div id="qBox" class="hidden">
       <div class="pick" id="qList"></div>
     </div>
     </details>
 
 <details class="blk" id="blkWork">
-      <summary>Чек-листы смены <span id="workN" class="badge"></span></summary>
+      <summary><span class="ic st" id="icWork">0</span>Чек-листы смены</summary>
     <h2><span class="steplabel" id="lb3">5</span>Сегодня</h2>
     <div class="pick" id="pickList"></div>
     </details>
@@ -764,7 +768,7 @@
   <button class="send" id="send" disabled>Отправить</button>
 </div>
 <script>
-const BUILD = 'v28.08 без оправы';
+const BUILD = 'v28.08 кружки состояния';
 // Заполняются на старте: скрипт телеграма грузится отложенно, и на момент
 // разбора этой строки window.Telegram может ещё не существовать.
 let tg = null, initData = '';
@@ -2021,12 +2025,8 @@ function renderLists(){
     [...rareBox.querySelectorAll('button.big')].forEach(x => x.remove());
     rare.forEach(k => add(k, rareBox));
   }
-  const left = live.filter(k => !fl[k]).length;
-  const wn = $('#workN');
-  if(wn){
-    wn.textContent = left || '';
-    wn.className = 'badge' + (left ? ' warn' : '');
-  }
+  // Сколько листов смены ещё не сдано — это и есть состояние блока.
+  WORK_LEFT = live.filter(k => !fl[k]).length;
   const rn = $('#rareN');
   if(rn) rn.textContent = rare.length || '';
   const bd = $('#blkRare');
@@ -2163,17 +2163,28 @@ function tidyBlocks(){
   const t = document.querySelector('#blkCheck #taskN');
   const d = document.querySelector('#blkCheck #dispN');
   const n = [p, t, d].reduce((a, x) => a + (parseInt(x && x.textContent) || 0), 0);
-  const badge = document.querySelector('#checkN');
-  if(badge) badge.textContent = n || '';
-  const ic = $('#checkIc');
-  if(ic) ic.classList.toggle('on', n > 0);
+  setIc('#icCheck', n);
+  // Чек-листы смены: сколько не сдано, и есть ли среди них просроченные.
+  setIc('#icWork', WORK_LEFT, Object.keys(DATA.overdue || {})
+    .some(k => !(DATA.filled || {})[k]));
+  // Обучение: сколько тренингов ещё не сдано.
+  const edu = (DATA.quizzes || []).filter(q => !q.passed).length;
+  setIc('#icEdu', edu);
   // Прибавилось непрочитанного, пока человек смотрел на экран, — сигналим.
   // Первый расчёт после открытия молчит: это не новость, а то, что и так есть.
   if(SEEN_N !== null && n > SEEN_N) ding();
   SEEN_N = n;
 }
 
-let SEEN_N = null, SEEN_HAND = null;
+/* Кружок состояния блока: число дел или галочка, цвет по срочности. */
+function setIc(sel, n, late){
+  const e = $(sel);
+  if(!e) return;
+  e.textContent = n ? String(n) : '✓';
+  e.className = 'ic st ' + (!n ? 'done' : late ? 'late' : 'due');
+}
+
+let SEEN_N = null, SEEN_HAND = null, WORK_LEFT = 0;
 
 /* Короткий сигнал: звук и вибрация. Телеграм даёт вибрацию сам, звук
    собираем на месте — тащить файл ради одного «дзинь» незачем. */
