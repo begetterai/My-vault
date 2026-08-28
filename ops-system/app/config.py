@@ -196,9 +196,16 @@ def for_role(role, dept=None, point=None):
     в блок «Проверка» уже заполненными.
     """
     out = visible(role, 'checklist', dept, point)
-    if role in ('manager', 'coo'):
+    if role == 'coo':
+        # Директор смену не ведёт: ежедневные листы точки — работа
+        # управляющего, а директор их проверяет. Оставляем только событийные:
+        # визит, открытие точки, аттестация — они случаются, а не «каждый день
+        # до 10:30». Иначе у него с утра висит чужая просрочка.
         out = {k: cl for k, cl in out.items()
-               if role in (cl.get('roles') or [])}
+               if 'coo' in (cl.get('roles') or []) and not cl.get('deadline')}
+    elif role == 'manager':
+        out = {k: cl for k, cl in out.items()
+               if 'manager' in (cl.get('roles') or [])}
     return out
 
 
