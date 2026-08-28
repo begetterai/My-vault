@@ -171,7 +171,9 @@
   .faultrow .num{display:inline-flex;align-items:center;justify-content:center;
         width:26px;height:26px;border-radius:8px;background:var(--wash);
         font-weight:700;font-size:13px;flex:none}
-  .faultrow .seg{flex:1}
+  /* Три кнопки в строке вместо двух — ужимаем, чтобы влезли на телефон. */
+  .faultrow .seg{flex:1;gap:6px;margin-top:0}
+  .faultrow .seg button{padding:10px 4px;font-size:12.5px;border-radius:11px}
   /* обзор */
   .bcard{background:var(--card);border:1px solid var(--line);border-radius:18px;
         padding:16px 18px;margin-bottom:12px}
@@ -791,7 +793,7 @@
   <button class="send" id="send" disabled>Отправить</button>
 </div>
 <script>
-const BUILD = 'v28.08 разбор и уход';
+const BUILD = 'v28.08 первая и вторая смена';
 // Заполняются на старте: скрипт телеграма грузится отложенно, и на момент
 // разбора этой строки window.Telegram может ещё не существовать.
 let tg = null, initData = '';
@@ -1982,7 +1984,7 @@ function savePoint(code){
   }catch(e){}
 }
 
-const PART_NAME = {open: 'Открывающая', close: 'Закрывающая',
+const PART_NAME = {open: 'Первая смена', close: 'Вторая смена',
                    one: 'Один на весь день'};
 const PART_SUB = {open: 'открытие точки и передача смены',
                   close: 'приём смены и закрытие',
@@ -2773,19 +2775,20 @@ function faultBox(x){
   const box = document.createElement('div');
   box.className = 'faults';
   box.innerHTML = '<div class="hint">Невыполненные пункты — чья вина? '
-    + 'От этого зависит, будет минус смене или задача на починку.</div>';
+    + 'На пересменке это разные люди, поэтому смены две. «Не их вина» — '
+    + 'значит поломка: пойдёт задачей на починку, без минуса.</div>';
+  const KIND = [['first', '1 смена'], ['second', '2 смена'], ['ext', 'Не их вина']];
   nums.forEach(n => {
     const row = document.createElement('div'); row.className = 'faultrow';
     row.innerHTML = '<span class="num">' + n + '</span>';
     const seg = document.createElement('div'); seg.className = 'seg';
-    [['guilty', 'Вина смены'], ['ext', 'Не их вина']].forEach(([v, t]) => {
+    KIND.forEach(([v, t]) => {
       const b = document.createElement('button');
       b.textContent = t; b.setAttribute('aria-pressed', 'false');
       b.onclick = () => {
         x._guilty[n] = v;
         seg.querySelectorAll('button').forEach((q, i) =>
-          q.setAttribute('aria-pressed', (i === 0 ? 'guilty' : 'ext') === v
-            ? 'true' : 'false'));
+          q.setAttribute('aria-pressed', KIND[i][0] === v ? 'true' : 'false'));
         tg?.HapticFeedback?.selectionChanged?.();
       };
       seg.appendChild(b);
@@ -2804,13 +2807,14 @@ async function sendCheck(x, verdict, diff, card){
     return note('Отметь по каждому невыполненному пункту, чья это вина. '
                + 'Иначе система накажет за честную отметку.', 'warn');
   }
-  const guilty = nums.filter(n => marked[n] === 'guilty');
+  const first = nums.filter(n => marked[n] === 'first');
+  const second = nums.filter(n => marked[n] === 'second');
   const external = nums.filter(n => marked[n] === 'ext');
   card.querySelectorAll('button').forEach(b => b.disabled = true);
   const r = await fetch('/api/check', {method:'POST',
     headers:{'Content-Type':'application/json'},
     body: JSON.stringify({initData, key: x.key, line: x.line, verdict,
-                          note: diff, guilty, external})});
+                          note: diff, first, second, external})});
   const j = await r.json();
   if(!j.ok){
     card.querySelectorAll('button').forEach(b => b.disabled = false);

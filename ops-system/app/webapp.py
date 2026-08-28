@@ -476,7 +476,8 @@ def part_of(day, who, said=''):
     В явке она стоит с того момента, как человек встал на место, — это его
     же выбор, но записанный. Телефону верим только когда в явке пусто.
     """
-    back = {v: k for k, v in S.PART_RU.items()}
+    back = dict(S.PART_OLD)
+    back.update({v: k for k, v in S.PART_RU.items()})
     try:
         live = F.open_shift(day, who)
         if live and len(live[1]) > 11:
@@ -917,9 +918,13 @@ def faults(key, line, who, body):
     нарисованная галочка — нет. Система не отличает грязный пол от сломанного
     холодильника, управляющий отличает за две секунды.
     """
-    guilty = [str(x) for x in (body.get('guilty') or [])]
+    # «Вина смены» разделена на две: пункт мог не сделать тот, кто сдавал,
+    # или тот, кто принимал. При пересменке это разные люди, и минус должен
+    # уходить виноватому, а не тому, чья фамилия стоит в листе.
+    first = [str(x) for x in (body.get('first') or body.get('guilty') or [])]
+    second = [str(x) for x in (body.get('second') or [])]
     external = [str(x) for x in (body.get('external') or [])]
-    if not guilty and not external:
+    if not first and not second and not external:
         return
     try:
         r = S.get(C.checklists()[key]['tab'], f'A{line}:C{line}')
@@ -927,9 +932,13 @@ def faults(key, line, who, body):
     except Exception:
         point, filler = who[1], ''
     texts = {str(n): t for n, _b, t in C.flat(key)}
-    for n in guilty:
-        if filler:
-            SC.add(point, filler, 'item_fail', f'{key}:{n}')
+    one, two = shift_people(key, C.day_str(), point, filler)
+    for n in first:
+        if one:
+            SC.add(point, one, 'item_fail', f'{key}:{n}')
+    for n in second:
+        if two:
+            SC.add(point, two, 'item_fail', f'{key}:{n}')
     if external:
         try:
             from . import tasks as TSK
@@ -941,6 +950,33 @@ def faults(key, line, who, body):
     # Честно отмеченный ✕, оказавшийся не виной смены, — это находка.
     if filler and external:
         SC.add(point, filler, 'found_issue', key)
+
+
+def shift_people(key, day, point, filler=''):
+    """Кто на этом месте работал в первую смену и кто во вторую.
+
+    Ищем по сданным листам дня: открытие и передачу сдаёт первая смена,
+    приём и закрытие — вторая. Не нашли — обе роли на заполнившем: лучше
+    записать минус ему, чем потерять его вовсе.
+    """
+    grp = re.sub(r'_(open|give|take|close)$', '', key)
+    keys = [f'{grp}_{s}' for s in ('open', 'give', 'take', 'close')
+            if f'{grp}_{s}' in C.checklists()]
+    try:
+        got = S.filled_today(day, point, keys)
+    except Exception as e:
+        print('кто в какой смене:', e)
+        got = {}
+    def who_of(*stages):
+        for st in stages:
+            rec = got.get(f'{grp}_{st}')
+            if rec and rec.get('who'):
+                return rec['who']
+        return ''
+    one = who_of('give', 'open') or filler
+    two = who_of('take', 'close') \
+        or (got.get(f'{grp}_give') or {}).get('to', '') or filler
+    return one, two
 
 
 def check(who, body):
@@ -965,7 +1001,8 @@ def check(who, body):
         print('невыполненные пункты:', e)
         fails = []
     if fails:
-        got = {str(x) for x in (body.get('guilty') or [])} \
+        got = {str(x) for x in (body.get('first') or body.get('guilty') or [])} \
+            | {str(x) for x in (body.get('second') or [])} \
             | {str(x) for x in (body.get('external') or [])}
         left = [n for n in fails if n not in got]
         if left:
