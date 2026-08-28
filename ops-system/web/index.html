@@ -378,6 +378,13 @@
   .hb-go{width:100%;margin-top:12px;padding:14px;border:0;border-radius:13px;
          background:var(--brand);color:var(--on-brand);font-weight:800;
          font-size:15.5px;cursor:pointer}
+  /* Выбор после «Ушёл»: три коротких пути, чтобы человек не думал,
+     что уход — это всегда конец дня. */
+  .leave{display:block;width:100%;margin-top:8px;padding:13px;border-radius:12px;
+     border:1.5px solid var(--line);background:transparent;color:var(--ink);
+     font-family:"Golos Text",sans-serif;font-size:14.5px;font-weight:600;
+     text-align:left;cursor:pointer}
+  .leave.off{border:0;color:var(--ink-2);font-weight:500;text-align:center}
   .msg{padding:14px;border-radius:14px;border:1px solid var(--line);
        background:var(--wash);margin:12px 0;font-size:14.5px;white-space:pre-line}
   .note{width:100%;padding:15px;border:1.5px solid var(--line);border-radius:14px;
@@ -575,6 +582,17 @@
         <button id="btnIn">Пришёл</button>
         <button id="btnOut" class="out">Ушёл</button>
       </div>
+      <!-- «Ушёл» — не всегда «домой»: человек может уйти на другую точку
+           или просто перейти на другое место здесь же. Спрашиваем до отметки,
+           потому что от ответа зависит, закрывать ли смену вообще. -->
+      <div id="leaveBox" class="hidden">
+        <div class="hint" style="margin-top:10px">Что дальше?</div>
+        <button class="leave" id="leaveHome">🏠 Домой — смена окончена</button>
+        <button class="leave" id="leavePoint">🚕 На другую точку</button>
+        <button class="leave" id="leaveStation">🔄 Остаюсь здесь, меняю место</button>
+        <button class="leave off" id="leaveCancel">Отмена</button>
+      </div>
+
       <div class="selfie" id="selfieBox">
         <span class="shoot" id="selfieBtn">📷 Сфотографировать себя</span>
         <img id="selfieImg" class="hidden" alt="">
@@ -773,7 +791,7 @@
   <button class="send" id="send" disabled>Отправить</button>
 </div>
 <script>
-const BUILD = 'v28.08 кружки ровные';
+const BUILD = 'v28.08 уход с развилкой';
 // Заполняются на старте: скрипт телеграма грузится отложенно, и на момент
 // разбора этой строки window.Telegram может ещё не существовать.
 let tg = null, initData = '';
@@ -1200,6 +1218,8 @@ function renderShift(){
   $('#btnOut').disabled = !sh.in || !!sh.out;
   $('#btnIn').textContent = sh.in ? 'Пришёл ✓' : 'Пришёл';
   $('#btnOut').textContent = sh.out ? 'Ушёл ✓' : 'Ушёл';
+  // Развилку показываем только когда есть что закрывать.
+  if(!sh.in || sh.out) $('#leaveBox').classList.add('hidden');
   if(sh.late && +sh.late > 0)
     $('#shiftHint').textContent = 'Опоздание ' + sh.late + ' мин — управляющий видит.';
 }
@@ -1222,18 +1242,21 @@ async function mark2(direction){
     const j = await r.json();
     if(!j.ok){
       renderShift(); stages();
-      return note(j.error || 'Не записалось. Попробуй ещё раз.', 'err');
+      note(j.error || 'Не записалось. Попробуй ещё раз.', 'err');
+      return false;
     }
     if(j.shift){ DATA.shift = j.shift; }
     selfie = null;
     renderShift(); stages();
     note((j.message || 'Готово').replace(/<[^>]+>/g, ''), 'good');
     tg?.HapticFeedback?.notificationOccurred?.('success');
+    return true;
   }catch(e){
     renderShift(); stages();
     note(navigator.onLine === false
       ? 'Связь пропала. Отметка не записалась — нажми ещё раз, когда появится сеть.'
       : 'Не записалось: ' + (e.message || 'ошибка') + '. Попробуй ещё раз.', 'err');
+    return false;
   }finally{
     BUSY--;
     setTimeout(reloadIfDue, 1500);
@@ -1327,7 +1350,46 @@ $('#btnIn').onclick = () => {
     + 'что на смену вышел именно ты.');
   mark2('in');
 };
-$('#btnOut').onclick = () => mark2('out');
+/* Уход — развилка, а не одна кнопка. «Домой» закрывает смену и приложение.
+   «На другую точку» закрывает смену здесь: там человек отметит приход заново,
+   и часы посчитаются по каждой точке отдельно. «Меняю место» смену не трогает
+   вовсе — переход внутри дня закрывает отрезок сам, когда человек встаёт
+   на новое место. Раньше все три случая выглядели как одна кнопка «Ушёл»,
+   и переход на другое место закрывал человеку день. */
+$('#btnOut').onclick = () => {
+  const many = (DATA.points || []).length > 1;
+  $('#leavePoint').classList.toggle('hidden', !many);
+  $('#leaveBox').classList.remove('hidden');
+  $('#leaveBox').scrollIntoView({behavior: 'smooth', block: 'center'});
+};
+$('#leaveCancel').onclick = () => $('#leaveBox').classList.add('hidden');
+
+$('#leaveHome').onclick = async () => {
+  $('#leaveBox').classList.add('hidden');
+  if(await mark2('out')){
+    note('Смена закрыта. До завтра.', 'good');
+    // Даём прочитать сообщение и закрываем приложение — человек уже ушёл.
+    setTimeout(() => { try{ tg?.close?.(); }catch(e){} }, 2200);
+  }
+};
+
+$('#leavePoint').onclick = async () => {
+  $('#leaveBox').classList.add('hidden');
+  if(!await mark2('out')) return;
+  saveStation(''); savePoint('');
+  pointOK = false;
+  await boot();
+  note('Смена здесь закрыта. Выбери другое заведение и отметь приход — '
+     + 'часы посчитаются по каждой точке отдельно.', 'good');
+  $('#pointBox')?.scrollIntoView({behavior: 'smooth', block: 'center'});
+};
+
+$('#leaveStation').onclick = () => {
+  $('#leaveBox').classList.add('hidden');
+  note('Уходить не нужно: просто выбери другое рабочее место ниже. '
+     + 'Время на прежнем закроется само.', 'warn');
+  $('#stationBox')?.scrollIntoView({behavior: 'smooth', block: 'center'});
+};
 
 /* ── журналы ─────────────────────────────────────────────────────────────── */
 function docLine(doc){
