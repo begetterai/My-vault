@@ -798,7 +798,7 @@
   <button class="send" id="send" disabled>Отправить</button>
 </div>
 <script>
-const BUILD = 'v28.08 состав смены';
+const BUILD = 'v28.08 замена выбором';
 // Заполняются на старте: скрипт телеграма грузится отложенно, и на момент
 // разбора этой строки window.Telegram может ещё не существовать.
 let tg = null, initData = '';
@@ -2979,7 +2979,12 @@ function rosterRow(p, i){
   const who = document.createElement('select');
   who.innerHTML = (ROSTER.team || []).map(n =>
     '<option' + (n === p.who ? ' selected' : '') + '>' + n + '</option>').join('');
-  who.onchange = () => { p.who = who.value; ROSTER.dirty = true; };
+  who.onchange = () => {
+    p.who = who.value; ROSTER.dirty = true;
+    // Сам себя человек заменить не может — убираем его из списка замен.
+    if(p.instead === p.who){ p.instead = ''; }
+    renderRoster();
+  };
 
   const dept = document.createElement('select');
   dept.innerHTML = (ROSTER.depts || []).map(n =>
@@ -2995,10 +3000,13 @@ function rosterRow(p, i){
   time.type = 'time'; time.step = 60; time.value = p.start || '';
   time.oninput = () => { p.start = time.value; ROSTER.dirty = true; };
 
-  const instead = document.createElement('input');
-  instead.type = 'text'; instead.placeholder = 'если это замена — чья';
-  instead.value = p.instead || '';
-  instead.oninput = () => { p.instead = instead.value.trim(); ROSTER.dirty = true; };
+  // Кого заменяет — выбором, а не руками: имя, набранное с опечаткой,
+  // система не свяжет с человеком, и замена потеряется.
+  const instead = document.createElement('select');
+  instead.innerHTML = '<option value="">— не замена —</option>'
+    + (ROSTER.team || []).filter(n => n !== p.who).map(n =>
+        '<option' + (n === p.instead ? ' selected' : '') + '>' + n + '</option>').join('');
+  instead.onchange = () => { p.instead = instead.value; ROSTER.dirty = true; };
 
   const rm = document.createElement('button');
   rm.className = 'note'; rm.textContent = '✕ Убрать из смены';
