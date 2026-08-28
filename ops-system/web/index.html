@@ -433,6 +433,16 @@
      width:24px;height:24px;border-radius:50%;background:var(--ok);
      color:#fff;font-size:14px;font-weight:700;margin-right:9px;flex:0 0 auto}
 .blk>summary{align-items:center}
+/* Уведомления — конверт, а не галочка: галочка читается как «сделано»,
+   а тут наоборот, лежит то, что ждёт человека. Пустой — спокойный серый,
+   есть непрочитанное — цвет и точка в углу. */
+.blk>summary .ic.inbox{background:var(--wash);border:1.5px solid var(--line);
+     color:var(--ink-2);position:relative;font-size:13px}
+.blk>summary .ic.inbox.on{background:var(--brand);border-color:var(--brand);
+     color:var(--on-brand)}
+.blk>summary .ic.inbox.on::after{content:'';position:absolute;top:-2px;right:-2px;
+     width:9px;height:9px;border-radius:50%;background:var(--bad);
+     border:2px solid var(--bg)}
 
 /* Сообщения: были бледной заливкой на бледном фоне и терялись.
    Теперь у каждого цветная полоса слева и свой цвет по смыслу. */
@@ -572,7 +582,7 @@
     <div id="rest">
 
 <details class="blk ok" id="blkCheck" open>
-      <summary><span class="ic">✓</span>Уведомления <span id="checkN" class="badge"></span></summary>
+      <summary><span class="ic inbox" id="checkIc">✉</span>Уведомления <span id="checkN" class="badge"></span></summary>
     <div id="pendBox" class="hidden">
       <h2 id="pendHead">На проверке <span id="pendN" class="badge"></span></h2>
       <div class="hint">Пройди по пунктам ещё раз и отметь своё.
@@ -744,7 +754,7 @@
   <button class="send" id="send" disabled>Отправить</button>
 </div>
 <script>
-const BUILD = 'v28.08 проверенное уходит';
+const BUILD = 'v28.08 конверт и сигнал';
 // Заполняются на старте: скрипт телеграма грузится отложенно, и на момент
 // разбора этой строки window.Telegram может ещё не существовать.
 let tg = null, initData = '';
@@ -2145,6 +2155,33 @@ function tidyBlocks(){
   const n = [p, t, d].reduce((a, x) => a + (parseInt(x && x.textContent) || 0), 0);
   const badge = document.querySelector('#checkN');
   if(badge) badge.textContent = n || '';
+  const ic = $('#checkIc');
+  if(ic) ic.classList.toggle('on', n > 0);
+  // Прибавилось непрочитанного, пока человек смотрел на экран, — сигналим.
+  // Первый расчёт после открытия молчит: это не новость, а то, что и так есть.
+  if(SEEN_N !== null && n > SEEN_N) ding();
+  SEEN_N = n;
+}
+
+let SEEN_N = null, SEEN_HAND = null;
+
+/* Короткий сигнал: звук и вибрация. Телеграм даёт вибрацию сам, звук
+   собираем на месте — тащить файл ради одного «дзинь» незачем. */
+function ding(){
+  tg?.HapticFeedback?.notificationOccurred?.('warning');
+  try{
+    const A = window.AudioContext || window.webkitAudioContext;
+    if(!A) return;
+    const ctx = new A();
+    const o = ctx.createOscillator(), g = ctx.createGain();
+    o.type = 'sine'; o.frequency.value = 880;
+    g.gain.setValueAtTime(0.0001, ctx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.16, ctx.currentTime + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.35);
+    o.connect(g); g.connect(ctx.destination);
+    o.start(); o.stop(ctx.currentTime + 0.36);
+    o.onended = () => ctx.close();
+  }catch(e){ /* звук запрещён — вибрации достаточно */ }
 }
 function showTour(){
   const b = $('#tourBody');
@@ -2388,6 +2425,10 @@ function renderHandovers(){
   const keys = Object.keys(asg).filter(k =>
     all[k] && all[k].stage === 'take' && !fl[k]);
   box.classList.toggle('hidden', !keys.length);
+  // Передача смены — самое срочное из всего, что бывает: пока не принял,
+  // место ничьё. Появилась — сигналим, даже если человек смотрит в экран.
+  if(SEEN_HAND !== null && keys.length > SEEN_HAND) ding();
+  SEEN_HAND = keys.length;
   box.innerHTML = '';
   keys.forEach(k => {
     const d = document.createElement('div');

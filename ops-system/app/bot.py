@@ -537,6 +537,18 @@ def final_report(kind, line, verdict, checker, note=''):
         sent.add(str(cid))
     if str(C.ADMIN_CHAT) not in sent:
         admin(txt)
+    # Тому, кто заполнял, — короткий ответ. Раньше итог видели все, кроме
+    # него: человек сдал работу и не знал, приняли её или нет, пока не
+    # откроет приложение. Сообщение в боте приходит и при закрытом.
+    me = next((c for c, v in S.team().items() if v[0] == str(r[2]).strip()), None)
+    if me and str(me) not in sent:
+        say(me, (f'✅ <b>Твой лист подтверждён</b>\n{cl["title"]} · {r[0]}\n'
+                 f'Проверил {checker}. Начислено +5 баллов.')
+            if verdict == 'ok' else
+            (f'⚠️ <b>Расхождение при проверке</b>\n{cl["title"]} · {r[0]}\n'
+             f'{checker}: {note}' if note else
+             f'⚠️ <b>Расхождение при проверке</b>\n{cl["title"]} · {r[0]}\n'
+             f'Проверил {checker}.'))
 
 
 # ── подключение человека ─────────────────────────────────────────────────────
