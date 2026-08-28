@@ -793,7 +793,7 @@
   <button class="send" id="send" disabled>Отправить</button>
 </div>
 <script>
-const BUILD = 'v28.08 роли и доступ';
+const BUILD = 'v28.08 руководителю без прихода';
 // Заполняются на старте: скрипт телеграма грузится отложенно, и на момент
 // разбора этой строки window.Telegram может ещё не существовать.
 let tg = null, initData = '';
@@ -1163,7 +1163,10 @@ function stages(){
   const openPart = pointOK && came && !boss2;
   const openStation = pointOK && came && (partOK || boss2) && !boss;
   const stationOK = boss || !!loadStation() || !(DATA.stations || []).length;
-  const openRest = pointOK && came && (partOK || boss2) && stationOK;
+  // Руководителю приход не запирает работу. Он проверяет чужие смены из дома
+  // и по обеим точкам сразу — требовать за это селфи на точке бессмысленно.
+  // Отметка ему остаётся: по ней считаются его собственные часы.
+  const openRest = pointOK && (boss || (came && (partOK || boss2) && stationOK));
 
   mark('#lb1', pointOK ? 'done' : 'now');
   mark('#lb2', came ? 'done' : (pointOK ? 'now' : 'wait'));
@@ -1180,8 +1183,10 @@ function stages(){
   if(!pointOK){
     $('#shiftHint').textContent = 'Сначала выбери заведение.';
   } else if(!came){
-    $('#shiftHint').textContent =
-      'Отметь приход — после этого выберешь рабочее место.';
+    $('#shiftHint').textContent = boss
+      ? 'Отметь приход, когда будешь на точке — по нему считаются твои часы. '
+        + 'Проверять работу смены можно и без отметки.'
+      : 'Отметь приход — после этого выберешь рабочее место.';
   } else {
     $('#shiftHint').textContent =
       'Отметка ставит время, подтверждает место и фиксирует, что пришёл ты.';
