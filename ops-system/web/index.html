@@ -385,6 +385,19 @@
   .hb-go{width:100%;margin-top:12px;padding:14px;border:0;border-radius:13px;
          background:var(--brand);color:var(--on-brand);font-weight:800;
          font-size:15.5px;cursor:pointer}
+  /* Корректировка пункта в шаблоне: кнопка подписана словами, поле ввода
+     прямо под пунктом. Системное окошко prompt на планшете выглядит как
+     ошибка, и замечания до таблицы не доходили. */
+  .fixwrap{margin:-4px 0 10px}
+  .fixbtn{background:transparent;border:0;padding:4px 0;cursor:pointer;
+     color:var(--brand-2);font-family:"Golos Text",sans-serif;font-size:13px;
+     font-weight:600}
+  .fixbox{margin-top:6px}
+  .fixbox textarea{width:100%;min-height:74px;padding:12px;border-radius:12px;
+     border:1.5px solid var(--line);background:var(--wash);color:var(--ink);
+     font:inherit;font-size:14px}
+  .fixbox .send{margin-top:8px;padding:13px;font-size:15px}
+  .fixbox .note{margin-top:6px;padding:11px;font-size:14px}
   /* Выбор после «Ушёл»: три коротких пути, чтобы человек не думал,
      что уход — это всегда конец дня. */
   .leave{display:block;width:100%;margin-top:8px;padding:13px;border-radius:12px;
@@ -808,7 +821,7 @@
   <button class="send" id="send" disabled>Отправить</button>
 </div>
 <script>
-const BUILD = 'v28.08 правки видны в шаблоне';
+const BUILD = 'v28.08 кнопка корректировки';
 // Заполняются на старте: скрипт телеграма грузится отложенно, и на момент
 // разбора этой строки window.Telegram может ещё не существовать.
 let tg = null, initData = '';
@@ -2660,12 +2673,65 @@ async function openSheet(x){
         + '<span class="txt">' + it.text
         + (it.norm ? '<span class="norm">' + it.norm + '</span>' : '')
         + (it.photo ? '<span class="norm">нужно фото</span>' : '') + '</span>';
-      const fx = document.createElement('button');
-      fx.className = 'fix'; fx.type = 'button'; fx.textContent = '✎';
-      fx.title = 'Поправить формулировку';
-      fx.onclick = () => sendFix(it, {name: bl.name, doc: bl.doc}, fx, j.title);
-      d.appendChild(fx);
       f.appendChild(d);
+      // Кнопка правки — видимая и подписанная. Раньше это был значок ✎
+      // и системное окошко ввода: на планшете оно выглядит как ошибка,
+      // и половина замечаний просто не доходила.
+      const wrap = document.createElement('div');
+      wrap.className = 'fixwrap';
+      const open = document.createElement('button');
+      open.className = 'fixbtn'; open.type = 'button';
+      open.textContent = '✎ Внести корректировку';
+      const box = document.createElement('div');
+      box.className = 'fixbox hidden';
+      const ta = document.createElement('textarea');
+      ta.placeholder = 'Что поправить в этом пункте. Например: '
+        + '«убрать — дублирует п.4» или «писать не «чисто», '
+        + 'а «нет налёта на решётке»»';
+      const save = document.createElement('button');
+      save.className = 'send'; save.textContent = 'Зафиксировать';
+      const cancel = document.createElement('button');
+      cancel.className = 'note'; cancel.textContent = 'Отмена';
+      box.append(ta, save, cancel);
+      wrap.append(open, box);
+      f.appendChild(wrap);
+
+      open.onclick = () => {
+        box.classList.remove('hidden');
+        open.classList.add('hidden');
+        setTimeout(() => ta.focus(), 60);
+      };
+      cancel.onclick = () => {
+        box.classList.add('hidden');
+        open.classList.remove('hidden');
+        ta.value = '';
+      };
+      save.onclick = async () => {
+        const t = ta.value.trim();
+        if(t.split(/\s+/).filter(Boolean).length < 2)
+          return note('Напиши, что именно поправить — двух слов достаточно.',
+                      'warn');
+        save.disabled = true; save.textContent = 'Записываю…';
+        const r = await fetch('/api/fix', {method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({initData, form: j.title, block: bl.name,
+                                n: it.n, text: it.text, comment: t,
+                                doc: bl.doc ? bl.doc.code : ''})});
+        const res = await r.json();
+        save.disabled = false; save.textContent = 'Зафиксировать';
+        if(!res.ok) return note(res.error || 'Не записалось.', 'err');
+        tg?.HapticFeedback?.notificationOccurred?.('success');
+        const done = document.createElement('div');
+        done.className = 'msg warn';
+        done.style.margin = '0 0 8px';
+        done.textContent = 'правка от сегодня: ' + t;
+        wrap.parentNode.insertBefore(done, wrap);
+        ta.value = '';
+        box.classList.add('hidden');
+        open.classList.remove('hidden');
+        open.textContent = '✎ Ещё корректировка';
+        note('Записал в «Правки». Внесу в чек-лист и закрою.', 'good');
+      };
       // Уже поданные правки — под пунктом. Без этого один и тот же пункт
       // правят второй раз, забыв про первый: так в «Правках» и появились
       // дубли по «Бар · Открытие».
