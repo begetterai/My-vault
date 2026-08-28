@@ -66,7 +66,11 @@ def remind(key, cl, point, left):
         return
     # Напоминание — тому, чей это чек-лист: своя позиция, своя роль.
     # Иначе кассир получает напоминания про кухню и перестаёт их читать.
-    who = ready_workers(point, cl) or S.managers_of(point)
+    #
+    # Некому сдавать — не с кого и спрашивать: позиция не занята, человека
+    # на ней нет. Раньше такие напоминания падали на управляющего, и он
+    # получал по десятку красных сообщений за раз ни о чём.
+    who = ready_workers(point, cl)
     for cid in who:
         v = S.team().get(str(cid))
         BOT.say(cid, f'⏰ <b>{cl["title"]}</b> · {point}\n'
@@ -80,6 +84,9 @@ def remind(key, cl, point, left):
 
 def overdue(key, cl, point):
     if not C.REMINDERS:
+        return
+    # Пустая позиция не «просрочена»: на ней сегодня никто не работает.
+    if not ready_workers(point, cl):
         return
     txt = (f'🚨 <b>Просрочено</b> · {point}\n'
            f'{cl["title"].lower()} не заполнен '
