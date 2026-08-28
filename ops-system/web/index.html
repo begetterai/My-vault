@@ -791,7 +791,7 @@
   <button class="send" id="send" disabled>Отправить</button>
 </div>
 <script>
-const BUILD = 'v28.08 уход и сроки точки';
+const BUILD = 'v28.08 камера обязательна';
 // Заполняются на старте: скрипт телеграма грузится отложенно, и на момент
 // разбора этой строки window.Telegram может ещё не существовать.
 let tg = null, initData = '';
@@ -1285,12 +1285,21 @@ selfieInput.onchange = async () => {
    откатываемся на выбор файла, чтобы отметка вообще была возможна. */
 let camStream = null, camDone = null;
 
+/* → true, если камера открылась. Иначе причина отказа:
+   'denied'  — человек запретил доступ. Запасного пути тут быть не должно:
+               иначе достаточно нажать «Запретить», чтобы вместо съёмки
+               открылась галерея и подставилось старое фото.
+   'none'    — камеры нет или браузер её не умеет. Тогда выбор файла —
+               единственный способ вообще сдать лист. */
 async function openCamera(facing, done){
-  if(!navigator.mediaDevices?.getUserMedia) return false;
+  if(!navigator.mediaDevices?.getUserMedia) return 'none';
   try{
     camStream = await navigator.mediaDevices.getUserMedia({
       video: {facingMode: facing || 'user', width: {ideal: 720}}, audio: false});
-  }catch(e){ return false; }
+  }catch(e){
+    return (e && (e.name === 'NotAllowedError'
+                  || e.name === 'SecurityError')) ? 'denied' : 'none';
+  }
   camDone = done;
   const box = $('#camBox');
   const v = $('#camVideo');
@@ -1335,12 +1344,17 @@ function takeSelfie(data){
 let selfieByFile = false;
 $('#selfieBtn').onclick = async () => {
   if(selfieByFile) return selfieInput.click();
-  const ok = await openCamera('user', takeSelfie);
-  if(ok) return;
+  const r = await openCamera('user', takeSelfie);
+  if(r === true) return;
+  if(r === 'denied'){
+    note('Доступ к камере запрещён. Разреши его для телеграма в настройках '
+       + 'телефона — приход отмечается снимком с места.', 'err');
+    return;
+  }
   selfieByFile = true;
   $('#selfieBtn').textContent = '📷 Сфотографировать себя';
-  note('Телефон не дал доступ к камере из приложения. Нажми ещё раз — '
-     + 'откроется камера телефона.', 'err');
+  note('Камера в приложении недоступна. Нажми ещё раз — откроется камера '
+     + 'телефона.', 'err');
 };
 $('#camShoot').onclick = shootFromCamera;
 $('#camCancel').onclick = closeCamera;
@@ -3303,14 +3317,21 @@ function photoRow(p){
   let byFile = false;
   lab.onclick = async () => {
     if(byFile) return inp.click();
-    const ok = await openCamera('environment', data => {
+    const r = await openCamera('environment', data => {
       photos[p.n].push(data); draw(); paint();
     });
-    if(ok) return;
+    if(r === true) return;
+    if(r === 'denied'){
+      // Отказ в доступе не открывает дорогу к галерее: иначе запрет камеры
+      // становится способом подставить старое фото.
+      note('Доступ к камере запрещён. Разреши его для телеграма в настройках '
+         + 'телефона — снимок для чек-листа делается только на месте.', 'err');
+      return;
+    }
     byFile = true;
     lab.textContent = '📷 Выбрать снимок';
-    note('Телефон не дал доступ к камере из приложения. Нажми ещё раз — '
-       + 'откроется камера телефона. Старый снимок система не примет.', 'err');
+    note('Камера в приложении недоступна. Нажми ещё раз — откроется камера '
+       + 'телефона. Снимок должен быть свежий, старый система не примет.', 'err');
   };
   photos[p.n] = photos[p.n] || [];
 
@@ -3337,7 +3358,7 @@ function photoRow(p){
     // вчерашний снимок. Проверяем по времени файла: чек-лист про то,
     // что на точке сейчас, старая фотография его не подтверждает.
     const stale = files.filter(f => f.lastModified
-                                 && Date.now() - f.lastModified > 30 * 60000);
+                                 && Date.now() - f.lastModified > 10 * 60000);
     if(stale.length){
       draw();
       return note('Этот снимок сделан раньше — нужен сегодняшний, с этой '
