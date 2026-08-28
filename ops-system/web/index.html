@@ -426,9 +426,8 @@
 
 /* Блок проверки — второй по счёту и заметный: это ежедневная работа
    руководителя, а не раздел, куда заходят по случаю. */
-.blk.ok{border-color:var(--ok);border-width:1.5px}
-.blk.ok>summary{color:var(--ok);background:var(--ok-soft)}
-.blk.ok[open]>summary{border-bottom-color:var(--ok)}
+/* Зелёная оправа вокруг «Уведомлений» убрана: рамка кричала о блоке
+   целиком, а сигналить должно только то, что внутри требует внимания. */
 .blk>summary .ic{display:inline-flex;align-items:center;justify-content:center;
      width:24px;height:24px;border-radius:50%;background:var(--ok);
      color:#fff;font-size:14px;font-weight:700;margin-right:9px;flex:0 0 auto}
@@ -592,7 +591,7 @@
 
     <div id="rest">
 
-<details class="blk ok" id="blkCheck" open>
+<details class="blk" id="blkCheck" open>
       <summary><span class="ic inbox" id="checkIc">✉</span>Уведомления <span id="checkN" class="badge"></span></summary>
     <div id="pendBox" class="hidden">
       <h2 id="pendHead">На проверке <span id="pendN" class="badge"></span></h2>
@@ -765,7 +764,7 @@
   <button class="send" id="send" disabled>Отправить</button>
 </div>
 <script>
-const BUILD = 'v28.08 цветные ответы';
+const BUILD = 'v28.08 без оправы';
 // Заполняются на старте: скрипт телеграма грузится отложенно, и на момент
 // разбора этой строки window.Telegram может ещё не существовать.
 let tg = null, initData = '';
