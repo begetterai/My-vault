@@ -793,7 +793,7 @@
   <button class="send" id="send" disabled>Отправить</button>
 </div>
 <script>
-const BUILD = 'v28.08 руководителю без прихода';
+const BUILD = 'v28.08 директор без смены';
 // Заполняются на старте: скрипт телеграма грузится отложенно, и на момент
 // разбора этой строки window.Telegram может ещё не существовать.
 let tg = null, initData = '';
@@ -1175,8 +1175,14 @@ function stages(){
   mark('#lb3', openRest ? 'now' : 'wait');
   $('#partBox').classList.toggle('hidden', !openPart);
   $('#stationBox').classList.toggle('hidden', !openStation);
-  $('#shiftCard').classList.toggle('locked', !pointOK);
-  $('#shiftHead').classList.toggle('locked', !pointOK);
+  // Директор смены не стоит: у него нет ни прихода, ни ухода, ни часов
+  // на точке. Показывать ему эти кнопки — предлагать отметиться там,
+  // где он сегодня, может, и не был.
+  const chief = DATA.role === 'coo';
+  $('#shiftCard').classList.toggle('hidden', chief);
+  $('#shiftHead').classList.toggle('hidden', chief);
+  $('#shiftCard').classList.toggle('locked', !chief && !pointOK);
+  $('#shiftHead').classList.toggle('locked', !chief && !pointOK);
   $('#rest').classList.toggle('locked', !openRest);
   $('#rest').classList.toggle('hidden', !openRest);
 
@@ -1214,6 +1220,7 @@ function geo(){
 
 function renderShift(){
   const sh = DATA.shift || {};
+  if(DATA.role === 'coo') return;      // директор смену не отмечает
   $('#shiftCard').classList.remove('hidden');
   $('#shiftHead').classList.remove('hidden');
   const info = sh.in
