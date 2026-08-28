@@ -793,7 +793,7 @@
   <button class="send" id="send" disabled>Отправить</button>
 </div>
 <script>
-const BUILD = 'v28.08 директор не заполняет';
+const BUILD = 'v28.08 директор в стороне';
 // Заполняются на старте: скрипт телеграма грузится отложенно, и на момент
 // разбора этой строки window.Telegram может ещё не существовать.
 let tg = null, initData = '';
@@ -2306,9 +2306,10 @@ function tidyBlocks(){
   setIc('#icCheck', n);
   // Чек-листы смены: сколько не сдано, и есть ли среди них просроченные.
   setIc('#icWork', WORK_LEFT, WORK_LATE);
-  // Обучение: сколько тренингов ещё не сдано.
-  const edu = (DATA.quizzes || []).filter(q => !q.passed).length;
-  setIc('#icEdu', edu);
+  // Обучение: сколько тренингов ещё не сдано. Руководителю сдавать нечего —
+  // он их проверяет, а список держит открытым, чтобы видеть, чему учат людей.
+  const boss = ['manager', 'coo'].includes(DATA.role);
+  setIc('#icEdu', boss ? 0 : (DATA.quizzes || []).filter(q => !q.passed).length);
   // Прибавилось непрочитанного, пока человек смотрел на экран, — сигналим.
   // Первый расчёт после открытия молчит: это не новость, а то, что и так есть.
   if(SEEN_N !== null && n > SEEN_N) ding();
