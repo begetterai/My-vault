@@ -77,7 +77,7 @@ def shift_row(day, point, who, only_open=False):
             if r[3].strip() and not r[4].strip():
                 found = (i + 2, r)
             continue
-        if r[1].strip() == point:
+        if not point or r[1].strip() == point:
             found = (i + 2, r)
     return found
 

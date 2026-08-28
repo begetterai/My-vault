@@ -791,7 +791,7 @@
   <button class="send" id="send" disabled>Отправить</button>
 </div>
 <script>
-const BUILD = 'v28.08 уход с развилкой';
+const BUILD = 'v28.08 уход и сроки точки';
 // Заполняются на старте: скрипт телеграма грузится отложенно, и на момент
 // разбора этой строки window.Telegram может ещё не существовать.
 let tg = null, initData = '';
@@ -2037,6 +2037,20 @@ function renderLists(){
   // вышел новичок, приехал тайный гость. В одном списке они мешают друг другу.
   // Сутки операционные: 00:30 — это конец дня, а не его начало,
   // иначе закрытие встаёт в списке первым.
+  // Срок листа для той точки, которую человек сейчас смотрит: у ОВИРа
+  // закрытие на три часа позже, и по сроку ЗБ он выглядел бы просроченным.
+  const dead = k => ((all[k].deadline_by || {})[point]) || all[k].deadline;
+  // Просрочку считаем сами — по сроку выбранной точки и по времени сервера.
+  const mnow = DATA.mnow;
+  const over = k => {
+    const d = dead(k);
+    if(!d || fl[k] || mnow == null) return 0;
+    const [h, m] = d.split(':').map(Number);
+    let v = h * 60 + m - 5 * 60;          // операционные сутки кончаются в 05:00
+    if(v < 0) v += 1440;
+    const gap = mnow - v;
+    return gap > 0 ? gap : 0;
+  };
   const dmin = (t) => {
     if(!t) return 9999;
     const [h, m] = t.split(':').map(Number);
@@ -2044,18 +2058,18 @@ function renderLists(){
     return v < 5 * 60 ? v + 24 * 60 : v;
   };
   const fl = DATA.filled || {};
-  const live = show.filter(k => all[k].deadline)
+  const live = show.filter(k => dead(k))
     .sort((x, y) => (!!fl[x] - !!fl[y])           // сданные — вниз списка
-                 || dmin(all[x].deadline) - dmin(all[y].deadline));
-  const rare = show.filter(k => !all[k].deadline);
+                 || dmin(dead(x)) - dmin(dead(y)));
+  const rare = show.filter(k => !dead(k));
   const add = (k, into) => {
     const b = document.createElement('button');
     b.className = 'big';
     const done = (DATA.filled || {})[k];
     const gave = (DATA.assigned || {})[k];
     const wait = done ? null : lockedBy(k);
-    const over = done ? 0 : ((DATA.overdue || {})[k] || 0);
-    const dl = all[k].deadline ? ' · до ' + all[k].deadline : '';
+    const late = done ? 0 : over(k);
+    const dl = dead(k) ? ' · до ' + dead(k) : '';
     let sub = all[k].code + dl;
     if(done) sub = 'сдан · ' + done.who + ' в ' + done.at
                  + (done.to ? ' · принимает ' + done.to : '');
@@ -2064,11 +2078,11 @@ function renderLists(){
                                                : 'откроется, когда сдадут ' + wait;
     // Не сдан и срок прошёл: показываем, на сколько опоздали. Баллы за это
     // не снимаются — снимается за факт сдачи позже срока, при отправке.
-    else if(over) sub = '⏰ не сдан · просрочка ' + hhmmFrom(over)
-                      + ' · срок был ' + all[k].deadline;
+    else if(late) sub = '⏰ не сдан · просрочка ' + hhmmFrom(late)
+                      + ' · срок был ' + dead(k);
     if(!done && gave) sub = 'смену передал ' + gave + ' · ' + sub;
     b.innerHTML = all[k].title + '<div class="sub">' + sub + '</div>';
-    if(over) b.classList.add('late');
+    if(late) b.classList.add('late');
     if(wait){
       b.style.opacity = '.55';
       b.innerHTML = '🔒 ' + all[k].title + '<div class="sub">' + sub + '</div>';
@@ -2094,6 +2108,7 @@ function renderLists(){
   }
   // Сколько листов смены ещё не сдано — это и есть состояние блока.
   WORK_LEFT = live.filter(k => !fl[k]).length;
+  WORK_LATE = live.some(k => !fl[k] && over(k));
   const rn = $('#rareN');
   if(rn) rn.textContent = rare.length || '';
   const bd = $('#blkRare');
@@ -2232,8 +2247,7 @@ function tidyBlocks(){
   const n = [p, t, d].reduce((a, x) => a + (parseInt(x && x.textContent) || 0), 0);
   setIc('#icCheck', n);
   // Чек-листы смены: сколько не сдано, и есть ли среди них просроченные.
-  setIc('#icWork', WORK_LEFT, Object.keys(DATA.overdue || {})
-    .some(k => !(DATA.filled || {})[k]));
+  setIc('#icWork', WORK_LEFT, WORK_LATE);
   // Обучение: сколько тренингов ещё не сдано.
   const edu = (DATA.quizzes || []).filter(q => !q.passed).length;
   setIc('#icEdu', edu);
@@ -2251,7 +2265,7 @@ function setIc(sel, n, late){
   e.className = 'ic st ' + (!n ? 'done' : late ? 'late' : 'due');
 }
 
-let SEEN_N = null, SEEN_HAND = null, WORK_LEFT = 0;
+let SEEN_N = null, SEEN_HAND = null, WORK_LEFT = 0, WORK_LATE = false;
 
 /* Короткий сигнал: звук и вибрация. Телеграм даёт вибрацию сам, звук
    собираем на месте — тащить файл ради одного «дзинь» незачем. */

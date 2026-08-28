@@ -278,6 +278,10 @@ def init_payload(who):
         out['lists'][key] = {
             'title': cl['title'], 'code': cl['code'], 'ask_time': cl['ask_time'],
             'deadline': C.deadline_for(cl, who[1]),
+            # Срок по точкам: ОВИР закрывается на три часа позже. Отдаём
+            # приложению целиком, чтобы при переключении точки оно
+            # показывало её срок, а не срок домашней точки человека.
+            'deadline_by': cl.get('deadline_point') or {},
             'station': cl.get('station', ''), 'stage': cl.get('stage', ''),
             'part': cl.get('part') or [], 'when': cl.get('when', ''),
             'blocks': [{'name': b['name'], 'doc': b.get('doc'), 'items': [
@@ -298,12 +302,15 @@ def init_payload(who):
         out['filled'] = {}
     # Просрочка: срок прошёл, лист не сдан. Баллов за это не снимаем —
     # система фиксирует, на сколько опоздали, и подсвечивает.
-    mnow = C.now_minute()
+    # Операционная минута сервера. Просрочку считает приложение: только оно
+    # знает, какую точку человек сейчас смотрит. А время берёт отсюда —
+    # часы на телефоне бывают сбиты, и тогда просрочка врёт.
+    out['mnow'] = C.now_minute()
     out['overdue'] = {}
     for k, L in out['lists'].items():
         if k in out['filled'] or not L.get('deadline'):
             continue
-        gap = mnow - C.op_minute(L['deadline'])
+        gap = out['mnow'] - C.op_minute(L['deadline'])
         if gap > 0:
             out['overdue'][k] = gap
     return out
@@ -522,8 +529,13 @@ def shift_state(who):
     Приложение должно показывать текущую, а не первую попавшуюся.
     """
     try:
-        found = F.open_shift(C.day_str(), who[0]) \
-            or F.shift_row(C.day_str(), who[1], who[0])
+        # Последняя смена за день: сначала открытая, потом закрытая на своей
+        # точке, потом закрытая на любой. Человек мог отработать на соседней
+        # точке — без последнего шага приложение показывало бы ему
+        # «смена не отмечена», хотя он отработал полный день.
+        found = (F.open_shift(C.day_str(), who[0])
+                 or F.shift_row(C.day_str(), who[1], who[0])
+                 or F.shift_row(C.day_str(), None, who[0]))
     except Exception:
         return {'in': '', 'out': ''}
     if not found:
