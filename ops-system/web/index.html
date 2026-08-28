@@ -791,7 +791,7 @@
   <button class="send" id="send" disabled>Отправить</button>
 </div>
 <script>
-const BUILD = 'v28.08 камера обязательна';
+const BUILD = 'v28.08 разбор и уход';
 // Заполняются на старте: скрипт телеграма грузится отложенно, и на момент
 // разбора этой строки window.Telegram может ещё не существовать.
 let tg = null, initData = '';
@@ -1376,9 +1376,37 @@ $('#btnOut').onclick = () => {
   $('#leaveBox').classList.remove('hidden');
   $('#leaveBox').scrollIntoView({behavior: 'smooth', block: 'center'});
 };
-$('#leaveCancel').onclick = () => $('#leaveBox').classList.add('hidden');
+$('#leaveCancel').onclick = () => {
+  $('#leaveBox').classList.add('hidden');
+  LEAVE_OK = false;
+};
+
+/* Что человек не сдал перед уходом. Старший смены на кухне ведёт два листа:
+   своё рабочее место и лист старшего — и передать должен оба. Лист старшего
+   к месту не привязан, поэтому он легко остаётся забытым. */
+function unsent(){
+  const all = DATA.lists || {}, fl = DATA.filled || {};
+  return LIVE_KEYS.filter(k => {
+    const L = all[k] || {};
+    return !fl[k] && (L.stage === 'give' || L.stage === 'close');
+  }).map(k => all[k].title);
+}
+
+let LEAVE_OK = false;
+
+/* Уходить с несданной передачей нельзя молча: смену за человека никто
+   не закроет, а место останется ничьим. Спрашиваем один раз. */
+function leaveBlocked(){
+  const left = unsent();
+  if(!left.length || LEAVE_OK) return false;
+  LEAVE_OK = true;
+  note('Не сдано: ' + left.join(' · ')
+     + '. Сдай — или нажми ещё раз, чтобы уйти как есть.', 'warn');
+  return true;
+}
 
 $('#leaveHome').onclick = async () => {
+  if(leaveBlocked()) return;
   $('#leaveBox').classList.add('hidden');
   if(await mark2('out')){
     note('Смена закрыта. До завтра.', 'good');
@@ -1388,6 +1416,7 @@ $('#leaveHome').onclick = async () => {
 };
 
 $('#leavePoint').onclick = async () => {
+  if(leaveBlocked()) return;
   $('#leaveBox').classList.add('hidden');
   if(!await mark2('out')) return;
   saveStation(''); savePoint('');
@@ -2122,6 +2151,7 @@ function renderLists(){
   }
   // Сколько листов смены ещё не сдано — это и есть состояние блока.
   WORK_LEFT = live.filter(k => !fl[k]).length;
+  LIVE_KEYS = live;                    // что сегодня числится за человеком
   WORK_LATE = live.some(k => !fl[k] && over(k));
   const rn = $('#rareN');
   if(rn) rn.textContent = rare.length || '';
@@ -2280,6 +2310,7 @@ function setIc(sel, n, late){
 }
 
 let SEEN_N = null, SEEN_HAND = null, WORK_LEFT = 0, WORK_LATE = false;
+let LIVE_KEYS = [];
 
 /* Короткий сигнал: звук и вибрация. Телеграм даёт вибрацию сам, звук
    собираем на месте — тащить файл ради одного «дзинь» незачем. */
@@ -2764,20 +2795,22 @@ function faultBox(x){
   return box;
 }
 
-async function sendCheck(x, verdict, note, card){
+async function sendCheck(x, verdict, diff, card){
+  // Параметр раньше назывался note и закрывал собой функцию note() —
+  // сообщение «отметь, чья вина» вместо показа роняло обработчик.
   const marked = x._guilty || {};
   const nums = String(x.fails || '').match(/\d+/g) || [];
   if(nums.length && nums.some(n => !marked[n])){
     return note('Отметь по каждому невыполненному пункту, чья это вина. '
-               + 'Иначе система накажет за честную отметку.');
+               + 'Иначе система накажет за честную отметку.', 'warn');
   }
   const guilty = nums.filter(n => marked[n] === 'guilty');
   const external = nums.filter(n => marked[n] === 'ext');
   card.querySelectorAll('button').forEach(b => b.disabled = true);
   const r = await fetch('/api/check', {method:'POST',
     headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({initData, key: x.key, line: x.line, verdict, note,
-                          guilty, external})});
+    body: JSON.stringify({initData, key: x.key, line: x.line, verdict,
+                          note: diff, guilty, external})});
   const j = await r.json();
   if(!j.ok){
     card.querySelectorAll('button').forEach(b => b.disabled = false);

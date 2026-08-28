@@ -3,7 +3,7 @@
 
 Личность приходит от телеграма подписанной — паролей нет, подделать нельзя.
 """
-import os, json, hmac, hashlib, base64, random, time, datetime, threading, urllib.parse
+import os, re, json, hmac, hashlib, base64, random, time, datetime, threading, urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from . import config as C
@@ -955,6 +955,24 @@ def check(who, body):
         return {'ok': False, 'error': 'не та запись'}
     if verdict == 'bad' and len(note_txt.split()) < 2:
         return {'ok': False, 'error': 'Опиши, что именно не сошлось'}
+    # Невыполненные пункты нельзя оставить неразобранными. Иначе честный «✕»
+    # повисает: он записан, но за него ни минуса смене, ни задачи на починку —
+    # и человеку выгоднее нарисовать галочку, чем сказать правду.
+    try:
+        row = S.get(C.checklists()[key]['tab'], f'I{line}:I{line}')
+        fails = re.findall(r'\d+', str(row[0][0]) if row and row[0] else '')
+    except Exception as e:
+        print('невыполненные пункты:', e)
+        fails = []
+    if fails:
+        got = {str(x) for x in (body.get('guilty') or [])} \
+            | {str(x) for x in (body.get('external') or [])}
+        left = [n for n in fails if n not in got]
+        if left:
+            return {'ok': False, 'error':
+                    'Сначала разбери невыполненные пункты: '
+                    + ', '.join(left)
+                    + '. По каждому скажи, вина смены или задача на починку.'}
     S.save_check(key, line, who[0], verdict, note_txt)
     faults(key, line, who, body)
     if verdict == 'bad':
