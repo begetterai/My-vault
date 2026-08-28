@@ -446,10 +446,21 @@
 
 /* Сообщения: были бледной заливкой на бледном фоне и терялись.
    Теперь у каждого цветная полоса слева и свой цвет по смыслу. */
+/* Ответ системы человек должен видеть, а не вычитывать. Поэтому у каждого
+   свой цвет и знак: зелёный — всё в порядке, оранжевый — нужно действие,
+   красный — сбой. Серым остаётся только то, что ни к чему не призывает. */
 .msg{border-left:4px solid var(--ink-2);font-weight:500;color:var(--ink)}
+.msg.good,.msg.warn,.msg.err{font-weight:600;display:flex;gap:9px;
+     align-items:flex-start}
+.msg.good::before,.msg.warn::before,.msg.err::before{
+     flex:0 0 auto;font-size:15px;line-height:1.35}
 .msg.good{border-left-color:var(--ok);background:var(--ok-soft);color:var(--ok)}
-.msg.warn{border-left-color:var(--brand-2);background:var(--wash)}
+.msg.good::before{content:'✓'}
+.msg.warn{border-left-color:var(--brand-2);background:var(--wash);
+     color:var(--brand-2)}
+.msg.warn::before{content:'!'}
 .msg.err{border-left-color:var(--bad);background:var(--bad-soft);color:var(--bad)}
+.msg.err::before{content:'⚠'}
 
 /* Уведомления. Раньше это была бледная плашка внизу экрана — её просто
    не замечали. Теперь всплывает сверху, поверх всего, с цветом по смыслу. */
@@ -754,7 +765,7 @@
   <button class="send" id="send" disabled>Отправить</button>
 </div>
 <script>
-const BUILD = 'v28.08 конверт и сигнал';
+const BUILD = 'v28.08 цветные ответы';
 // Заполняются на старте: скрипт телеграма грузится отложенно, и на момент
 // разбора этой строки window.Telegram может ещё не существовать.
 let tg = null, initData = '';
@@ -1075,7 +1086,7 @@ async function boot(){
     $('#pick').classList.remove('hidden');
     if(broken.length){
       const w = document.createElement('div');
-      w.className = 'msg';
+      w.className = 'msg err';
       w.style.marginTop = '14px';
       w.textContent = 'Не отрисовалось: ' + broken.join(' · ');
       $('#pick').appendChild(w);
@@ -2026,7 +2037,7 @@ function renderLists(){
   // решит, что ему нечего заполнять.
   if(!saved && !boss && !live.length && !rare.length){
     const d = document.createElement('div');
-    d.className = 'msg';
+    d.className = 'msg warn';
     d.textContent = 'Выбери рабочее место выше — откроются его чек-листы.';
     box.appendChild(d);
   }
@@ -2243,7 +2254,7 @@ function renderSite(){
   $('#equipN').textContent = list.length || '';
   const box = $('#equipList'); box.innerHTML = '';
   if(!list.length){
-    box.innerHTML = '<div class="msg">Реестр пуст. Пройди по точке и добавь '
+    box.innerHTML = '<div class="msg warn">Реестр пуст. Пройди по точке и добавь '
       + 'оборудование — вместе с ним придут пункты проверки, замеры с нормой '
       + 'и график ТО.</div>';
     return;
@@ -2361,7 +2372,7 @@ function renderTasks(){
   $('#taskN').className = 'badge' + (late ? ' warn' : '');
   const box = $('#taskList'); box.innerHTML = '';
   if(!list.length){
-    box.innerHTML = '<div class="msg">Открытых задач нет.</div>';
+    box.innerHTML = '<div class="msg good">Открытых задач нет.</div>';
     return;
   }
   list.sort((a, b) => (b.late ? 1 : 0) - (a.late ? 1 : 0));
@@ -2454,7 +2465,7 @@ function renderPending(){
   // карточки оставались на экране навсегда: система уже знала, что лист
   // подтверждён, а человек продолжал видеть «ждёт проверки управляющего».
   if(!boss && !list.length){
-    box.innerHTML = '<div class="msg">Вся твоя работа проверена.</div>';
+    box.innerHTML = '<div class="msg good">Вся твоя работа проверена.</div>';
     if($('#pendHead'))
       $('#pendHead').innerHTML = 'Моя работа на проверке '
         + '<span id="pendN" class="badge"></span>';
@@ -2473,7 +2484,7 @@ function renderPending(){
   $('#pendN').className = 'badge' + (list.length > 3 ? ' warn' : '');
   box.innerHTML = '';
   if(!list.length){
-    box.innerHTML = '<div class="msg">Всё проверено. Ни одно заполнение '
+    box.innerHTML = '<div class="msg good">Всё проверено. Ни одно заполнение '
       + 'не ждёт подтверждения.</div>';
     // Раньше здесь был выход — и история проверок за день не показывалась
     // именно тогда, когда всё разобрано, то есть чаще всего.
