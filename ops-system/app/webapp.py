@@ -945,9 +945,11 @@ def fix(who, body):
     comment = str(body.get('comment', '')).strip()
     if len(comment.split()) < 2:
         return {'ok': False, 'error': 'Напиши, что именно поправить'}
+    # 400 символов оборвали правку Владимира по входной группе на полуслове
+    # 30.08. Правка — это объяснение, а не заголовок: режем на 2000.
     S.save_fix(who[0], str(body.get('form', ''))[:60], str(body.get('block', ''))[:60],
                body.get('n', ''), str(body.get('text', ''))[:300],
-               comment[:400], str(body.get('doc', ''))[:20])
+               comment[:2000], str(body.get('doc', ''))[:20])
     return {'ok': True}
 
 
