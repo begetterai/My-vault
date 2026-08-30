@@ -248,9 +248,6 @@
   .qrev .t{font-weight:700;font-size:15px;line-height:1.4;margin-bottom:6px}
   .qrev .why{font-size:14px;color:var(--ink-2);line-height:1.5}
   .qrev.bad{border-color:var(--bad)}
-  .selfie{margin-top:12px}
-  .selfie img{width:110px;height:110px;object-fit:cover;border-radius:16px;
-        display:block;margin-top:10px;border:2px solid var(--brand)}
   .dist{display:inline-block;padding:2px 9px;border-radius:99px;font-size:12px;
         font-weight:700;margin-left:6px}
   .dist.near{background:var(--ok-soft);color:var(--ok)}
@@ -613,12 +610,8 @@
         <button class="leave off" id="leaveCancel">Отмена</button>
       </div>
 
-      <div class="selfie" id="selfieBox">
-        <span class="shoot" id="selfieBtn">📷 Сфотографировать себя</span>
-        <img id="selfieImg" class="hidden" alt="">
-      </div>
-      <div class="hint" id="shiftHint">Отметка ставит время, подтверждает место
-        и фиксирует, что пришёл именно ты.</div>
+      <div class="hint" id="shiftHint">Отметка ставит время и подтверждает
+        место: без геолокации приход не записывается.</div>
     </div>
 
     <div id="partBox" class="hidden">
@@ -821,7 +814,7 @@
   <button class="send" id="send" disabled>Отправить</button>
 </div>
 <script>
-const BUILD = 'v30.08 разбор двух дней';
+const BUILD = 'v30.08 проверка и геометка';
 // Заполняются на старте: скрипт телеграма грузится отложенно, и на момент
 // разбора этой строки window.Telegram может ещё не существовать.
 let tg = null, initData = '';
@@ -1042,7 +1035,7 @@ async function boot(){
         // Но не под рукой. Человек может стоять посреди чек-листа или
         // держать снятое селфи — перезагрузка в этот момент выглядит как
         // сброс всей работы. Ждём, пока он освободится.
-        if(kind || BUSY || camStream || selfie){
+        if(kind || BUSY || camStream){
           PENDING_BUILD = j.build;
           note('Вышло обновление приложения. Перезагружу, как закончишь —'
              + ' ничего не потеряется.', 'warn');
@@ -1159,12 +1152,12 @@ async function boot(){
 }
 
 /* ── шаги: точка → приход → работа ───────────────────────────────────────── */
-let pointOK = false, selfie = null, BOOTING = 0;
+let pointOK = false, BOOTING = 0;
 // Сборка, до которой надо обновиться, когда человек освободится.
 let PENDING_BUILD = '';
 
 function reloadIfDue(){
-  if(!PENDING_BUILD || kind || BUSY || camStream || selfie) return;
+  if(!PENDING_BUILD || kind || BUSY || camStream) return;
   const b = PENDING_BUILD; PENDING_BUILD = '';
   try{ sessionStorage.setItem('romashka.reload', b); }catch(e){}
   note('Обновляю приложение до ' + b + '…', 'good');
@@ -1231,7 +1224,6 @@ function stages(){
     $('#shiftHint').textContent =
       'Отметка ставит время, подтверждает место и фиксирует, что пришёл ты.';
   }
-  $('#selfieBox').classList.toggle('hidden', came);
 }
 
 function mark(sel, state){
@@ -1285,8 +1277,7 @@ async function mark2(direction){
       headers:{'Content-Type':'application/json'},
       body: JSON.stringify({initData, direction, point,
                             lat: g.lat ?? null, lon: g.lon ?? null,
-                            part: PART || '',
-                            photo: direction === 'in' ? selfie : null})});
+                            part: PART || ''})});
     const j = await r.json();
     if(!j.ok){
       renderShift(); stages();
@@ -1294,7 +1285,6 @@ async function mark2(direction){
       return false;
     }
     if(j.shift){ DATA.shift = j.shift; }
-    selfie = null;
     renderShift(); stages();
     note((j.message || 'Готово').replace(/<[^>]+>/g, ''), 'good');
     tg?.HapticFeedback?.notificationOccurred?.('success');
@@ -1310,23 +1300,6 @@ async function mark2(direction){
     setTimeout(reloadIfDue, 1500);
   }
 }
-const selfieInput = document.createElement('input');
-selfieInput.type = 'file';
-// capture работает только как HTML-атрибут: заданный свойством, он молча
-// игнорируется, и вместо камеры открывается галерея. Ровно это и было.
-selfieInput.setAttribute('accept', 'image/*');
-selfieInput.setAttribute('capture', 'user');   // фронтальная камера
-selfieInput.style.display = 'none';
-document.body.appendChild(selfieInput);
-selfieInput.onchange = async () => {
-  const f = selfieInput.files[0];
-  if(!f) return;
-  $('#selfieBtn').textContent = 'Обрабатываю…';
-  selfie = await shrink(f);
-  $('#selfieImg').src = selfie;
-  $('#selfieImg').classList.remove('hidden');
-  $('#selfieBtn').textContent = '📷 Переснять';
-};
 /* Съёмка в самом приложении. На части Android атрибут capture игнорируется
    и открывается галерея — то есть человек может подставить старое фото.
    Поэтому сначала пробуем включить камеру прямо здесь; не вышло —
@@ -1379,39 +1352,10 @@ async function shootFromCamera(){
   if(done) done(data);
 }
 
-function takeSelfie(data){
-  selfie = data;
-  $('#selfieImg').src = data;
-  $('#selfieImg').classList.remove('hidden');
-  $('#selfieBtn').textContent = '📷 Переснять';
-}
-
-// Тот же порядок, что и для фото в чек-листе: сначала камера внутри
-// приложения, а запасной выбор файла — по отдельному нажатию. После
-// неудачной попытки открыть его уже нельзя: право сгорает, пока ждём.
-let selfieByFile = false;
-$('#selfieBtn').onclick = async () => {
-  if(selfieByFile) return selfieInput.click();
-  const r = await openCamera('user', takeSelfie);
-  if(r === true) return;
-  if(r === 'denied'){
-    note('Доступ к камере запрещён. Разреши его для телеграма в настройках '
-       + 'телефона — приход отмечается снимком с места.', 'err');
-    return;
-  }
-  selfieByFile = true;
-  $('#selfieBtn').textContent = '📷 Сфотографировать себя';
-  note('Камера в приложении недоступна. Нажми ещё раз — откроется камера '
-     + 'телефона.', 'err');
-};
 $('#camShoot').onclick = shootFromCamera;
 $('#camCancel').onclick = closeCamera;
 
-$('#btnIn').onclick = () => {
-  if(!selfie) return note('Сначала сфотографируй себя — это подтверждает, '
-    + 'что на смену вышел именно ты.');
-  mark2('in');
-};
+$('#btnIn').onclick = () => mark2('in');
 /* Уход — развилка, а не одна кнопка. «Домой» закрывает смену и приложение.
    «На другую точку» закрывает смену здесь: там человек отметит приход заново,
    и часы посчитаются по каждой точке отдельно. «Меняю место» смену не трогает
@@ -3929,7 +3873,7 @@ function refresh(force){
   if($('#pick').classList.contains('hidden')) return;
   // И под рукой не трогаем: идёт отметка, открыта камера или снимок уже
   // сделан, но человек ещё не нажал «Пришёл».
-  if(BUSY || camStream || selfie) return;
+  if(BUSY || camStream) return;
   // Состав на завтра правится в памяти и уходит одной кнопкой. Пока он
   // не отправлен, перечитывание стёрло бы всю правку. Заодно это и есть
   // защита «человек печатает»: правка состава — единственное место

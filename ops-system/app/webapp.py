@@ -185,6 +185,14 @@ def init_payload(who):
     if role in ('manager', 'coo'):
         try:
             from . import reports as RP
+            # Кто кого проверяет: управляющий — линейный персонал своей точки,
+            # директор — самих управляющих. Свой лист не подтверждает никто:
+            # 29–30.08 управляющий так закрыл четыре собственных заполнения.
+            scope = dict(
+                point=None if role == 'coo' else who[1],
+                roles=('manager', 'coo') if role == 'coo'
+                      else ('staff', 'senior'),
+                skip=who[0])
             out['pending'] = [
                 {'key': x['key'], 'line': x['line'], 'title': x['title'],
                  'point': x['point'], 'who': x['who'], 'day': x['day'],
@@ -192,7 +200,7 @@ def init_payload(who):
                  'fails': x['fails'], 'comment': x['comment'],
                  'minutes': x['minutes'], 'fast': x['fast'],
                  'age': (C.today() - x['date']).days}
-                for x in RP.pending(None if role == 'coo' else who[1])]
+                for x in RP.pending(**scope)]
             # Проверенное сегодня — рядом, с отметкой. Иначе к вечеру список
             # пуст, и не видно, что за день вообще было.
             out['checked'] = [
@@ -201,7 +209,7 @@ def init_payload(who):
                  'ok': int(x['ok']), 'tot': int(x['tot']), 'fails': x['fails'],
                  'checked': x['checked'], 'checked_at': x['checked_at'],
                  'diff': x['diff']}
-                for x in RP.pending(None if role == 'coo' else who[1], done=True)]
+                for x in RP.pending(done=True, **scope)]
         except Exception as e:
             print('проверка:', e)
             out['pending'], out['checked'] = [], []
@@ -568,14 +576,12 @@ def shift_state(who):
 def shift(who, body):
     d = 'out' if body.get('direction') == 'out' else 'in'
     lat, lon = body.get('lat'), body.get('lon')
-    link = ''
-    if d == 'in':
-        raw = photo_bytes(body.get('photo'))
-        if not raw:
-            return {'ok': False, 'error': 'Нужно фото. Сфотографируй себя '
-                                          'на точке — это подтверждает, '
-                                          'что пришёл именно ты.'}
-        link = S.save_photo(raw, f'{who[1]}-приход-{C.day_str()}-{who[0]}')
+    if d == 'in' and lat is None:
+        # До 30.08 место было пометкой, а не условием: на ОВИР оба дня явка
+        # проходила без координат. Теперь без места приход не записывается —
+        # фото при этом больше не спрашиваем, подтверждает геометка.
+        return {'ok': False, 'error': 'Не вижу, где ты. Разреши доступ '
+                                      'к геолокации и нажми ещё раз.'}
     point = pick_point(who, body)
     # Время начала берём из состава: у повара цеха смена в 07:00, у кассира
     # в 09:30 — считать опоздание всем от одного часа неправильно.
@@ -586,7 +592,7 @@ def shift(who, body):
     except Exception as e:
         print('состав:', e)
     msg, flag, line = F.mark_shift(d, C.day_str(), point, who[0], lat, lon,
-                                   plan=plan, photo=link,
+                                   plan=plan,
                                    part=str(body.get('part') or ''))
     if d == 'out':
         # Ушёл — рабочее место освободилось, а отрезок закрылся с минутами.
@@ -605,8 +611,6 @@ def shift(who, body):
         except Exception as e:
             print('начало дня:', e)
     if d == 'in':
-        if lat is None:
-            SC.add(point, who[0], 'geo_missing')
         # Опоздание — минус за каждую минуту (решение Азиза 21.08.2026).
         late = 0
         try:
@@ -618,8 +622,6 @@ def shift(who, body):
             SC.add(point, who[0], 'late', qty=late)
     if flag:
         txt = f'📍 <b>Явка</b> · {point} · {who[0]}\n' + msg.replace('✅ ', '')
-        if link:
-            txt += f'\n<a href="{link}">фото прихода</a>'
         for cid in S.managers_of(point):
             BOT.say(cid, txt)
     return {'ok': True, 'message': msg, 'shift': shift_state(who)}
@@ -1019,6 +1021,15 @@ def check(who, body):
                     'error': f'Уже подтвердил {done[0][0]}'}
     except Exception as e:
         print('повторная проверка:', e)
+    # Свой лист не подтверждает никто. Управляющий так закрыл четыре
+    # собственных заполнения 29–30.08 — проверки по факту не было.
+    try:
+        r = S.get(C.checklists()[key]['tab'], f'C{line}:C{line}')
+        if r and r[0] and str(r[0][0]).strip() == who[0]:
+            return {'ok': False, 'error': 'Свой лист подтверждает тот, кто '
+                                          'выше: управляющего — директор.'}
+    except Exception as e:
+        print('автор заполнения:', e)
     # Невыполненные пункты нельзя оставить неразобранными. Иначе честный «✕»
     # повисает: он записан, но за него ни минуса смене, ни задачи на починку —
     # и человеку выгоднее нарисовать галочку, чем сказать правду.

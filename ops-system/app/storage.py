@@ -446,6 +446,22 @@ def managers_of(point):
             if v[1] == point and role_of(v) in ('manager', 'coo')]
 
 
+def checkers_of(point, filler=''):
+    """Кому идёт заполнение на проверку.
+
+    Лист линейного персонала — управляющему точки, лист самого управляющего —
+    директору. Себе не отправляем: свой лист человек не подтверждает.
+    """
+    up = role_of(next((v for v in team().values()
+                       if v[0].strip() == str(filler).strip()), ())) \
+        in ('manager', 'coo')
+    out = [cid for cid, v in team().items()
+           if v[0].strip() != str(filler).strip()
+           and (role_of(v) == 'coo' if up
+                else (v[1] == point and role_of(v) in ('manager', 'coo')))]
+    return out
+
+
 def staff_of(point):
     """Кто заполняет на точке. Старший смены на кухне — тоже: кухонные чек-листы его."""
     return [cid for cid, v in team().items()

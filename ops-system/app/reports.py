@@ -77,8 +77,21 @@ def day_block(day, point=None):
     return '\n'.join(L)
 
 
-def pending(point=None, days=14, done=False):
+def role_by_name():
+    """имя → роль. Проверку раздаём по ней: линейный персонал смотрит
+    управляющий, самого управляющего — директор."""
+    out = {}
+    for v in S.team().values():
+        if v and v[0]:
+            out[v[0].strip()] = S.role_of(v)
+    return out
+
+
+def pending(point=None, days=14, done=False, roles=None, skip=''):
     """Заполнения, которые ждут подтверждения управляющего.
+
+    roles — чьи заполнения показывать (по роли заполнившего). skip — чьё
+    заполнение не показывать: свой лист человек себе не подтверждает.
 
     Раньше проверка жила одним сообщением в чате: пропустил — забыл.
     Здесь список, который висит, пока его не разберут.
@@ -89,6 +102,7 @@ def pending(point=None, days=14, done=False):
     """
     since = C.today() if done else C.today() - datetime.timedelta(days=days)
     cls = list(C.checklists().values())
+    by_role = role_by_name() if roles is not None else {}
     out = []
     for cl, rows in zip(cls, S.get_many([(cl['tab'], 'A2:Q') for cl in cls])):
         for i, r in enumerate(rows):
@@ -101,7 +115,12 @@ def pending(point=None, days=14, done=False):
             checked = str(r[13]).strip()    # колонка «Проверил»
             if bool(checked) != done:
                 continue
-            if not str(r[2]).strip():
+            name = str(r[2]).strip()
+            if not name:
+                continue
+            if skip and name == skip:
+                continue
+            if roles is not None and by_role.get(name, 'staff') not in roles:
                 continue
             out.append({
                 'checked': checked, 'checked_at': str(r[14]).strip(),

@@ -474,7 +474,7 @@ def notify_check(st, ok, tot, fails, line, comment, fast, dup=False):
             {'text': '⚠️ Расхождение',
              'callback_data': f'cl:ck:bad:{st["kind"]}:{line}'}]]}
     sent = set()
-    for cid in S.managers_of(st['point']):
+    for cid in S.checkers_of(st['point'], st['who']):
         say(cid, txt, reply_markup=kb)
         sent.add(str(cid))
     if not sent:
@@ -504,6 +504,16 @@ def already_checked(kind, line):
     except Exception as e:
         print('повторная проверка:', e)
         return False
+
+
+def filler_of(kind, line):
+    """Кто заполнил строку."""
+    try:
+        r = S.get(C.checklists()[kind]['tab'], f'C{line}:C{line}')
+        return str(r[0][0]).strip() if r and r[0] else ''
+    except Exception as e:
+        print('автор заполнения:', e)
+        return ''
 
 
 def _award_check(kind, line, checker, verdict):
@@ -974,8 +984,10 @@ def on_callback(cq):
 
     if data.startswith('cl:ck:'):
         _, _, verdict, kind, line = data.split(':')
-        if verdict == 'ok' and already_checked(kind, line):
+        if already_checked(kind, line):
             return ack('Уже подтверждён') or True
+        if filler_of(kind, line) == who[0]:
+            return ack('Свой лист подтверждает тот, кто выше') or True
         if verdict == 'ok':
             S.save_check(kind, line, who[0], 'ok')
             _award_check(kind, line, who[0], 'ok')
