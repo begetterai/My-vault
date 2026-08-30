@@ -54,6 +54,15 @@ DEADLINE_UPR = {'open': '10:30', 'close': '21:30'}
 BY_POINT_UPR = {'open': {'ОВИР': '12:30'}}
 
 
+# Первоисточник листов смены. Стоит в реестре 00-REF-01 в колонке
+# «ИСТОЧНИК» у строк 03-CL-01 и 03-CL-02. Ссылку кладём в каждый лист,
+# чтобы человек мог открыть оригинал прямо из пункта, а не верить на слово.
+SOURCE = {'code': '03-CL-00',
+          'title': 'Источник: чек-лист администратора (Лохути 11)',
+          'url': 'https://docs.google.com/spreadsheets/d/'
+                 '1_7IT2C54j7W4T5dWO4lfE4veFEY52r1qAMN7V9HPKxg/edit'}
+
+
 def clean(t):
     """Из документа приходит HTML — в приложении он не нужен."""
     return re.sub(r'<[^>]+>', '', t).replace('  ', ' ').strip()
@@ -109,7 +118,7 @@ def build(code, zone, who):
         form = {'title': f'{zone} · {name}', 'code': f'03-CL-01/{code}-{letter}',
                 'type': 'checklist', 'ask_time': 'Во сколько закрыли этап?',
                 'stage': stage, 'part': parts, 'when': when,
-                'deadline': dead, 'blocks': blocks}
+                'deadline': dead, 'doc': dict(SOURCE), 'blocks': blocks}
         by = (BY_POINT_UPR if key == 'shift_upr' else BY_POINT).get(stage)
         if by:
             form['deadline_point'] = dict(by)

@@ -17,7 +17,7 @@ TODAY = datetime.date.today()
 
 META = {
  'kind':'ЧЕК-ЛИСТ', 'code':'03-CL-02', 'title':'Закрытие смены',
- 'version':'v1.0 (черновик — требует сверки с точкой)',
+ 'version':'v3.0 (по источнику — фото-чек-лист сдачи смены)',
  'date': TODAY.strftime('%d.%m.%Y'),
  'owner':'Управляющий точки',
  'review': TODAY.replace(year=TODAY.year+1).strftime('%d.%m.%Y'),
