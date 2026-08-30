@@ -79,7 +79,9 @@ def groups_for(code, stage):
         personal = (M.OPEN.PERSONAL_UPR if code == 'У'
                     else M.OPEN.personal(code))
         return ([personal] + M.collect(M.OPEN, code)
-                + [M.equip_block(code, 'на открытии')])
+                + [M.equip_block(code, 'на открытии')]
+                + ([('В течение дня', M.DAY_EXTRA[code])]
+                   if code in M.DAY_EXTRA else []))
     if stage == 'give':
         out = [M.give_block(code), M.equip_block(code, 'при передаче'),
                M.ROUTINE_BY.get(code, M.ROUTINE)]
