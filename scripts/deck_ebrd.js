@@ -364,8 +364,8 @@ way.forEach((w, i) => {
   const y = TOP + 0.1 + i * 1.14;
   s.addShape(p.ShapeType.ellipse, {x: CX, y: y + 0.04, w: 0.24, h: 0.24,
     fill: {color: i ? ACC : NAVY}});
-  if (i < 3) s.addShape(p.ShapeType.line, {x: CX + 0.12, y: y + 0.3, w: 0,
-    h: 0.82, line: {color: LINE, width: 1.5}});
+  if (i < 3) s.addShape(p.ShapeType.line, {x: CX + 0.12, y: y + 0.28, w: 0,
+    h: 0.9, line: {color: LINE, width: 1.5}});
   s.addText(w[0], {x: CX + 0.5, y, w: CW - 0.5, h: 0.32, fontFace: F,
     fontSize: 15.5, bold: true, color: NAVY, valign: 'top', isTextBox: true, margin: 0});
   s.addText(w[1], {x: CX + 0.5, y: y + 0.34, w: CW - 0.5, h: 0.5, fontFace: F,
@@ -429,7 +429,7 @@ st.forEach((x, i) => {
     fill: {color: ACC}});
   s.addText(x[0], {x: 0.88, y, w: 1.5, h: 0.3, fontFace: F, fontSize: 15.5,
     bold: true, color: ACCL, valign: 'top', isTextBox: true, margin: 0});
-  s.addText(x[1], {x: 2.5, y, w: 6.9, h: 0.9, fontFace: F,
+  s.addText(x[1], {x: 2.5, y, w: 6.9, h: 0.62, fontFace: F,
     fontSize: 13, color: ICE2, valign: 'top', isTextBox: true, margin: 0});
 });
 s.addShape(p.ShapeType.rect, {x: 0.6, y: 4.72, w: 8.8, h: 0.6,
