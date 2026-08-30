@@ -458,7 +458,7 @@ def checkers_of(point, filler=''):
     out = [cid for cid, v in team().items()
            if v[0].strip() != str(filler).strip()
            and (role_of(v) == 'coo' if up
-                else (v[1] == point and role_of(v) in ('manager', 'coo')))]
+                else (v[1] == point and role_of(v) == 'manager'))]
     return out
 
 
