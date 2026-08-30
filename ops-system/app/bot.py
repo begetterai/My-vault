@@ -496,6 +496,16 @@ def _num(x):
         return None
 
 
+def already_checked(kind, line):
+    """Строку уже подтвердили. Второе нажатие дало бы второй «+5»."""
+    try:
+        r = S.get(C.checklists()[kind]['tab'], f'N{line}:N{line}')
+        return bool(r and r[0] and str(r[0][0]).strip())
+    except Exception as e:
+        print('повторная проверка:', e)
+        return False
+
+
 def _award_check(kind, line, checker, verdict):
     """Проверяющему — за то, что дошёл. Заполнявшему — за честность.
 
@@ -964,6 +974,8 @@ def on_callback(cq):
 
     if data.startswith('cl:ck:'):
         _, _, verdict, kind, line = data.split(':')
+        if verdict == 'ok' and already_checked(kind, line):
+            return ack('Уже подтверждён') or True
         if verdict == 'ok':
             S.save_check(kind, line, who[0], 'ok')
             _award_check(kind, line, who[0], 'ok')
