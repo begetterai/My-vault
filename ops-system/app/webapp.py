@@ -165,11 +165,15 @@ def init_payload(who):
     # экраном, решив, что заполнять нечего.
     GROUPS = {'кухня': 'Кухня', 'цех': 'Цех', 'бар': 'Бар',
               'касса': 'Касса', 'зал': 'Зал'}
+    # Зона цеха закреплена за ролью: заготовщик лавашей видит только лаваши.
+    pinned = C.station_for(who[2] if len(who) > 2 else '')
     out['stations'] = [
         {'key': st['key'], 'title': st['title'],
          'group': GROUPS.get(st['dept'] or '', 'Прочее')}
         for st in C.stations().values()
-        if not dept or not st['dept'] or st['dept'].lower() == (dept or '').lower()]
+        if (st['key'] == pinned if pinned
+            else (not dept or not st['dept']
+                  or st['dept'].lower() == (dept or '').lower()))]
     # Занятые станции: два человека не встают на одно место в одну смену.
     # Смену человек выбирает в приложении, серверу она на этом шаге ещё
     # не известна — отдаём все три, приложение возьмёт свою.
