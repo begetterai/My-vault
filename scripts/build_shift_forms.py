@@ -100,7 +100,7 @@ def groups_for(code, stage):
         # время ещё работают, а помещение сдаёт тот, кто гасит его в 00:30.
         return M.collect(M.CLOSE, code) + [M.ROUTINE_BY.get(code, M.ROUTINE)]
     return (M.collect(M.CLOSE, code) + [M.equip_block(code, 'на закрытии')]
-            + [M.ROOM, M.ROUTINE_BY.get(code, M.ROUTINE)])
+            + [M.ROUTINE_BY.get(code, M.ROUTINE), M.ROOM])
 
 
 def build(code, zone, who):
@@ -110,6 +110,11 @@ def build(code, zone, who):
     for stage, name, letter, when, parts in STAGES:
         # Управляющий на точке один и работает весь день: передавать смену
         # ему некому, приём от кого-то — тоже. Остаются открытие и закрытие.
+        # Цех и управляющий работают в одиночку: заготовщик сам открывает
+        # свою зону и сам закрывает её по выполнению объёма, передавать
+        # некому. Правка Владимира 30.08.
+        if code.startswith('Ц-') and stage in ('give', 'take'):
+            continue
         if key == 'shift_upr' and stage in ('give', 'take'):
             continue
         blocks = []
@@ -145,12 +150,19 @@ def main():
               if k.startswith('shift_') and 'stage' not in v]:
         del data[k]                      # лист из шести этапов заменён на четыре
     added = 0
+    fresh = set()
     for suffix, zone, who, _ in M.OPEN.POSITIONS:
         for key, form in build(suffix, zone, who):
             data[key] = form
+            fresh.add(key)
             added += 1
             n = sum(len(b['items']) for b in form['blocks'])
             print(f'{key:<20} {form["title"]:<34} пунктов: {n}')
+    # Этап, который перестал выпускаться, надо и убрать: у цеха отменены
+    # передача и приём, а формы от прошлой сборки иначе висят в приложении.
+    for k in [k for k in data if k.startswith('shift_') and k not in fresh]:
+        del data[k]
+        print(f'{k:<20} удалён — этап больше не выпускается')
     json.dump(data, open(JSON, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
     print(f'\nформ в файле: {len(data)} (листов смены: {added})')
 

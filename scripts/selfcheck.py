@@ -105,9 +105,12 @@ def check_forms():
         if cl.get('stage'):
             groups[k.rsplit('_', 1)[0]][cl['stage']] = cl
     for g, st in groups.items():
-        # У управляющего передачи и приёма нет: на точке он один и работает
-        # весь день — передавать некому. Остальным нужны все четыре этапа.
-        need = {'open', 'close'} if g == 'shift_upr' else set(C.STAGES)
+        # У управляющего и у цеха передачи и приёма нет: они работают
+        # в одиночку и передавать смену некому — заготовщик сам открывает
+        # зону и сам закрывает её по выполнению объёма (правка Владимира
+        # 30.08). Остальным нужны все четыре этапа.
+        alone = g == 'shift_upr' or g.startswith('shift_ceh')
+        need = {'open', 'close'} if alone else set(C.STAGES)
         miss = need - set(st)
         if miss:
             bad.append(f'{g}: нет этапов {miss}')
