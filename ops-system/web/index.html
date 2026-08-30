@@ -402,6 +402,18 @@
      font-family:"Golos Text",sans-serif;font-size:14.5px;font-weight:600;
      text-align:left;cursor:pointer}
   .leave.off{border:0;color:var(--ink-2);font-weight:500;text-align:center}
+  .subrow{display:flex;align-items:center;gap:12px;padding:11px 0;
+     border-top:1px solid var(--line)}
+  .subrow:first-child{border-top:0}
+  .subrow .n{flex:1;min-width:0;font-size:14.5px;font-weight:600}
+  .subrow .n span{display:block;font-size:12.5px;font-weight:500;
+     color:var(--ink-2);margin-top:2px}
+  .subrow button{flex:none;padding:9px 14px;border-radius:11px;
+     border:1.5px solid var(--line);background:transparent;color:var(--ink);
+     font-family:"Golos Text",sans-serif;font-size:13.5px;font-weight:600;
+     cursor:pointer}
+  .subrow button.on{border-color:var(--brand);background:var(--brand);
+     color:var(--on-brand)}
   .msg{padding:14px;border-radius:14px;border:1px solid var(--line);
        background:var(--wash);margin:12px 0;font-size:14.5px;white-space:pre-line}
   .note{width:100%;padding:15px;border:1.5px solid var(--line);border-radius:14px;
@@ -589,6 +601,13 @@
       <div class="seg" id="pointSeg"></div>
       <div class="hint hidden" id="pointHint">Обзор выше — по обеим точкам.
         Выбор нужен, чтобы посмотреть подробности и работать с точкой.</div>
+    </div>
+
+    <!-- Управляющий заболел — точка не должна остаться без проверки.
+         Пока замещение включено, листы её людей приходят директору. -->
+    <div id="standinBox" class="card hidden">
+      <h2 style="margin-top:0">Замещение управляющего</h2>
+      <div id="standinList"></div>
     </div>
 
     <h2 id="shiftHead" class="hidden">
@@ -814,7 +833,7 @@
   <button class="send" id="send" disabled>Отправить</button>
 </div>
 <script>
-const BUILD = 'v30.08 проверка и геометка-2';
+const BUILD = 'v30.08 геометка на уходе и замещение';
 // Заполняются на старте: скрипт телеграма грузится отложенно, и на момент
 // разбора этой строки window.Telegram может ещё не существовать.
 let tg = null, initData = '';
@@ -985,6 +1004,49 @@ function distanceM(a, b, c, d){
   return 2 * R * Math.asin(Math.sqrt(x));
 }
 
+/* Замещение управляющего. Видит только директор: он один может встать
+   на точку вместо управляющего, пока того нет. */
+function renderStandin(){
+  const box = $('#standinBox');
+  if(!box) return;
+  if(DATA.role !== 'coo' || !DATA.standin){ box.classList.add('hidden'); return; }
+  box.classList.remove('hidden');
+  const list = $('#standinList');
+  list.innerHTML = '';
+  (DATA.points || []).forEach(p => {
+    const cur = DATA.standin[p.code] || '';
+    const mine = cur === DATA.name;
+    const row = document.createElement('div');
+    row.className = 'subrow';
+    const n = document.createElement('div');
+    n.className = 'n';
+    n.textContent = p.code;
+    const sub = document.createElement('span');
+    sub.textContent = mine ? 'ведёшь ты — листы приходят тебе'
+      : cur ? 'ведёт ' + cur
+      : 'управляющий: ' + ((DATA.managers || {})[p.code] || 'не назначен');
+    n.appendChild(sub);
+    const b = document.createElement('button');
+    b.textContent = mine ? 'Сойти' : 'Встать';
+    if(mine) b.classList.add('on');
+    b.onclick = async () => {
+      b.disabled = true; b.textContent = '…';
+      const r = await fetch('/api/standin', {method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({initData, point: p.code, on: !mine})});
+      const j = await r.json();
+      if(!j.ok){ note(j.error || 'Не вышло', 'err'); renderStandin(); return; }
+      DATA.standin[p.code] = j.standin;
+      note(j.standin ? 'Встал на точку ' + p.code
+                     : 'Сошёл с точки ' + p.code, 'good');
+      renderStandin();
+      refresh(true);
+    };
+    row.appendChild(n); row.appendChild(b);
+    list.appendChild(row);
+  });
+}
+
 function renderDistance(){
   const el = $('#distBadge');
   if(!el) return;
@@ -1082,6 +1144,7 @@ async function boot(){
     // «почему у меня старое».
     $('#ver').textContent = 'сборка ' + BUILD + ' · обновлено ' + nowHHMM();
     fillMe();
+    renderStandin();
     const box = $('#pickList'); box.innerHTML = '';
     // Новичок: сначала обучение, работа открывается после.
     if((j.training_left || []).length){

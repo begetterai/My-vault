@@ -248,7 +248,8 @@ def ensure_structure():
                              'Отдел', 'Может подменить (позиции)',
                              'Может быть старшим'],
             C.TABS['points']: ['Код', 'Название', 'Адрес', 'Активна',
-                               'Широта', 'Долгота', 'Радиус, м'],
+                               'Широта', 'Долгота', 'Радиус, м',
+                               'Замещает управляющего'],
             C.TABS['shift']: F.SHIFT_COLS,
             C.TABS['score']: SC.COLS,
             RS.TAB: RS.COLS,
@@ -385,7 +386,7 @@ def dept_of(who):
     return (who[3] if len(who) > 3 else '') or ''
 
 
-_PTS = {'ts': None, 'map': {}, 'geo': {}}
+_PTS = {'ts': None, 'map': {}, 'geo': {}, 'standin': {}}
 
 
 def points_map(force=False):
@@ -399,9 +400,9 @@ def points_map(force=False):
     # минут после правки человек не станет.
     if not force and _PTS['ts'] and (now - _PTS['ts']).seconds < 60:
         return _PTS['map']
-    m, geo = {}, {}
-    for r in get(C.TABS['points'], 'A2:G50'):
-        r = list(r) + [''] * (7 - len(r))
+    m, geo, standin = {}, {}, {}
+    for r in get(C.TABS['points'], 'A2:H50'):
+        r = list(r) + [''] * (8 - len(r))
         code = str(r[0]).strip()
         if not code:
             continue
@@ -409,6 +410,8 @@ def points_map(force=False):
         if act not in ('да', 'yes', '1', 'true', ''):
             continue
         m[code] = (str(r[1]).strip(), str(r[2]).strip())
+        if str(r[7]).strip():
+            standin[code] = str(r[7]).strip()
         try:
             lat, lon = float(str(r[4]).replace(',', '.')), float(str(r[5]).replace(',', '.'))
             rad = float(str(r[6]).replace(',', '.')) if str(r[6]).strip() else 150.0
@@ -420,6 +423,7 @@ def points_map(force=False):
         print('точки: пустой ответ таблицы, оставляю прошлые')
         return _PTS['map']
     _PTS['ts'], _PTS['map'], _PTS['geo'] = now, m, geo
+    _PTS['standin'] = standin
     return m
 
 
@@ -427,6 +431,27 @@ def point_geo(code):
     """(широта, долгота, радиус в метрах) или None, если координаты не заданы."""
     points_map()
     return _PTS.get('geo', {}).get(code)
+
+
+def standin_of(code):
+    """Кто временно ведёт точку вместо управляющего. Пусто — управляющий на месте.
+
+    Управляющий заболел — точка не должна остаться без проверки: пока
+    замещение включено, заполнения его людей уходят замещающему.
+    """
+    points_map()
+    return _PTS.get('standin', {}).get(code, '')
+
+
+def set_standin(code, name):
+    """Включить или снять замещение. Пустое имя — снять."""
+    rows = get(C.TABS['points'], 'A2:A50')
+    for i, r in enumerate(rows):
+        if r and str(r[0]).strip() == code:
+            put(C.TABS['points'], f'H{i + 2}', [[name]])
+            _PTS['ts'] = None
+            return True
+    return False
 
 
 def point_label(code):
@@ -451,14 +476,26 @@ def checkers_of(point, filler=''):
 
     Лист линейного персонала — управляющему точки, лист самого управляющего —
     директору. Себе не отправляем: свой лист человек не подтверждает.
+
+    Включено замещение — линейный персонал точки идёт замещающему, а не
+    управляющему: управляющего на точке нет, и его список никто не разберёт.
     """
+    name = str(filler).strip()
     up = role_of(next((v for v in team().values()
-                       if v[0].strip() == str(filler).strip()), ())) \
-        in ('manager', 'coo')
-    out = [cid for cid, v in team().items()
-           if v[0].strip() != str(filler).strip()
-           and (role_of(v) == 'coo' if up
-                else (v[1] == point and role_of(v) == 'manager'))]
+                       if v[0].strip() == name), ())) in ('manager', 'coo')
+    sub = standin_of(point)
+    out = []
+    for cid, v in team().items():
+        if v[0].strip() == name:
+            continue
+        if up:
+            ok = role_of(v) == 'coo'
+        elif sub:
+            ok = v[0].strip() == sub
+        else:
+            ok = v[1] == point and role_of(v) == 'manager'
+        if ok:
+            out.append(cid)
     return out
 
 

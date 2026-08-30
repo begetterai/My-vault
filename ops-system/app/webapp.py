@@ -152,6 +152,14 @@ def init_payload(who):
         if p not in have:
             pts.append({'code': p, 'label': S.point_label(p)})
     out['points'] = pts
+    if role == 'coo':
+        # Кем сейчас ведётся каждая точка: пусто — своим управляющим.
+        out['standin'] = {p['code']: S.standin_of(p['code']) for p in pts}
+        out['managers'] = {
+            p['code']: ', '.join(sorted(
+                v[0] for v in S.team().values()
+                if v[1] == p['code'] and S.role_of(v) == 'manager'))
+            for p in pts}
     # Рабочие места смены — только своего отдела. Чужое место выбрать нельзя:
     # его листы человеку всё равно не открыты, и он остался бы с пустым
     # экраном, решив, что заполнять нечего.
@@ -193,6 +201,16 @@ def init_payload(who):
                 roles=('manager', 'coo') if role == 'coo'
                       else ('staff', 'senior'),
                 skip=who[0])
+            # Точки, где он встал вместо управляющего: их линейный персонал
+            # тоже на нём, иначе список некому разобрать.
+            subs = [p for p in S.points() if S.standin_of(p) == who[0]]
+
+            def collect(done=False):
+                rows = RP.pending(done=done, **scope)
+                for p in subs:
+                    rows += RP.pending(point=p, roles=('staff', 'senior'),
+                                       skip=who[0], done=done)
+                return rows
             out['pending'] = [
                 {'key': x['key'], 'line': x['line'], 'title': x['title'],
                  'point': x['point'], 'who': x['who'], 'day': x['day'],
@@ -200,7 +218,7 @@ def init_payload(who):
                  'fails': x['fails'], 'comment': x['comment'],
                  'minutes': x['minutes'], 'fast': x['fast'],
                  'age': (C.today() - x['date']).days}
-                for x in RP.pending(**scope)]
+                for x in collect()]
             # Проверенное сегодня — рядом, с отметкой. Иначе к вечеру список
             # пуст, и не видно, что за день вообще было.
             out['checked'] = [
@@ -209,7 +227,7 @@ def init_payload(who):
                  'ok': int(x['ok']), 'tot': int(x['tot']), 'fails': x['fails'],
                  'checked': x['checked'], 'checked_at': x['checked_at'],
                  'diff': x['diff']}
-                for x in RP.pending(done=True, **scope)]
+                for x in collect(True)]
         except Exception as e:
             print('проверка:', e)
             out['pending'], out['checked'] = [], []
@@ -576,10 +594,11 @@ def shift_state(who):
 def shift(who, body):
     d = 'out' if body.get('direction') == 'out' else 'in'
     lat, lon = body.get('lat'), body.get('lon')
-    if d == 'in' and lat is None:
+    if lat is None:
         # До 30.08 место было пометкой, а не условием: на ОВИР оба дня явка
-        # проходила без координат. Теперь без места приход не записывается —
-        # фото при этом больше не спрашиваем, подтверждает геометка.
+        # проходила без координат. Теперь ни приход, ни уход без места
+        # не записываются — фото при этом не спрашиваем, подтверждает геометка.
+        # Уход тоже: иначе смену можно закрыть из дома и дописать себе часы.
         return {'ok': False, 'error': 'Не вижу, где ты. Разреши доступ '
                                       'к геолокации и нажми ещё раз.'}
     point = pick_point(who, body)
@@ -595,10 +614,6 @@ def shift(who, body):
                                    plan=plan,
                                    part=str(body.get('part') or ''))
     if d == 'out':
-        # Уход не блокируем: человека нельзя запереть на смене из-за GPS.
-        # Но отметку без места помечаем — приход-то теперь без неё не пройдёт.
-        if lat is None:
-            SC.add(point, who[0], 'geo_missing')
         # Ушёл — рабочее место освободилось, а отрезок закрылся с минутами.
         # Без этого место числится занятым до конца суток, и следующая
         # смена не может на него встать.
@@ -1095,6 +1110,35 @@ def parse_coords(text):
         return None
 
 
+def standin(who, body):
+    """Директор встаёт на точку вместо управляющего — или сходит с неё.
+
+    Управляющий заболел, а его люди сдают листы: без замещения список
+    ждёт того, кого сегодня нет.
+    """
+    if S.role_of(who) != 'coo':
+        return {'ok': False, 'error': 'Замещение включает директор'}
+    point = str(body.get('point', '')).strip()
+    if point not in S.points():
+        return {'ok': False, 'error': 'не та точка'}
+    on = bool(body.get('on'))
+    cur = S.standin_of(point)
+    if on and cur and cur != who[0]:
+        return {'ok': False, 'error': f'Точку уже ведёт {cur}'}
+    if not on and cur and cur != who[0]:
+        return {'ok': False, 'error': f'Замещение поставил {cur} — ему и снимать'}
+    S.set_standin(point, who[0] if on else '')
+    S._touch(C.TABS['points'])
+    for cid in S.managers_of(point):
+        BOT.say(cid, ('🧑‍💼 <b>Замещение</b>\n' + who[0]
+                      + (f' встал на точку {point} вместо управляющего. '
+                         'Заполнения твоих людей пока уходят ему.'
+                         if on else
+                         f' снял замещение на точке {point}. '
+                         'Проверка снова на тебе.')))
+    return {'ok': True, 'point': point, 'standin': who[0] if on else ''}
+
+
 def set_geo(who, body):
     """Координаты точки задаются С МЕСТА, стоя на точке.
 
@@ -1484,6 +1528,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, note(who, body))
             if p == '/api/geo':
                 return self._send(200, set_geo(who, body))
+            if p == '/api/standin':
+                return self._send(200, standin(who, body))
             if p == '/api/equip':
                 return self._send(200, equip(who, body))
             if p == '/api/task':
