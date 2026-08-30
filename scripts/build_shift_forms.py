@@ -57,10 +57,10 @@ BY_POINT_UPR = {'open': {'ОВИР': '12:30'}}
 # Первоисточник листов смены. Стоит в реестре 00-REF-01 в колонке
 # «ИСТОЧНИК» у строк 03-CL-01 и 03-CL-02. Ссылку кладём в каждый лист,
 # чтобы человек мог открыть оригинал прямо из пункта, а не верить на слово.
-SOURCE = {'code': '03-CL-00',
-          'title': 'Источник: чек-лист администратора (Лохути 11)',
-          'url': 'https://docs.google.com/spreadsheets/d/'
-                 '1_7IT2C54j7W4T5dWO4lfE4veFEY52r1qAMN7V9HPKxg/edit'}
+SOURCE = {'code': '01-DK-04',
+          'title': 'Подлинник: черновик чек-листов (концепт v5)',
+          'url': 'https://docs.google.com/document/d/'
+                 '1cArHFawo4G3UWgDwWorg8_rYo4tIiwPoH3hiW0U5b78/edit'}
 
 
 def clean(t):
@@ -81,19 +81,24 @@ def groups_for(code, stage):
         return ([personal] + M.collect(M.OPEN, code)
                 + [M.equip_block(code, 'на открытии')])
     if stage == 'give':
-        out = [M.give_block(code), M.equip_block(code, 'при передаче'), M.ROUTINE]
+        out = [M.give_block(code), M.equip_block(code, 'при передаче'),
+               M.ROUTINE_BY.get(code, M.ROUTINE)]
         extra = M.GIVE_EXTRA.get(code)
         if extra:
             out.insert(1, ('Что оставляем следующей смене', extra))
         return out
     if stage == 'take':
-        return [M.take_block(code), M.equip_block(code, 'при приёме'), M.VERDICT]
+        out = [M.take_block(code), M.equip_block(code, 'при приёме'), M.VERDICT]
+        extra = M.TAKE_EXTRA.get(code)
+        if extra:
+            out.insert(1, ('Что принимаем по счёту', extra))
+        return out
     if code == 'У':
         # Управляющий уходит в 21:00: свет, вентиляция и кондиционеры в это
         # время ещё работают, а помещение сдаёт тот, кто гасит его в 00:30.
-        return M.collect(M.CLOSE, code) + [M.ROUTINE]
+        return M.collect(M.CLOSE, code) + [M.ROUTINE_BY.get(code, M.ROUTINE)]
     return (M.collect(M.CLOSE, code) + [M.equip_block(code, 'на закрытии')]
-            + [M.ROOM, M.ROUTINE])
+            + [M.ROOM, M.ROUTINE_BY.get(code, M.ROUTINE)])
 
 
 def build(code, zone, who):
