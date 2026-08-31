@@ -2,8 +2,10 @@
 """Расписание: напоминания до дедлайна, эскалация после и отчёты руководителям.
 
 Крутится отдельным потоком раз в минуту по местному времени точки.
-Что уже отправлено — помнится за текущий день, поэтому перезапуск сервиса
-не рассылает повторно то, что люди уже получили.
+Что уже отправлено, лежит во вкладке «Служебное»: до 31.08.2026 оно
+помнилось только в памяти, а `restartPolicyType: ALWAYS` и каждый деплой
+эту память обнуляли — и всё, что люди уже получили утром, приходило
+второй раз.
 """
 import datetime, threading, traceback
 
@@ -12,17 +14,44 @@ from . import storage as S
 from . import bot as BOT
 from . import reports as R
 
-_done = {'day': None, 'keys': set()}
+TAB_DONE = 'Служебное'
+_done = {'day': None, 'keys': set(), 'line': 0}
+
+
+def _load_done(day):
+    """(строка в таблице, уже отправленное за этот день)."""
+    for i, r in enumerate(S.get(TAB_DONE, 'A2:B60')):
+        r = list(r) + ['', '']
+        if str(r[0]).strip() == day:
+            return i + 2, {x.strip() for x in str(r[1]).split(',') if x.strip()}
+    return 0, set()
+
+
+def _save_done(day):
+    val = ','.join(sorted(_done['keys']))
+    if _done['line']:
+        S.put(TAB_DONE, f"A{_done['line']}:B{_done['line']}", [[day, val]])
+    else:
+        _done['line'] = S.append(TAB_DONE, [[day, val]]) or 0
 
 
 def once(key):
     """True — если сегодня это ещё не отправляли."""
-    today = C.today().isoformat()
-    if _done['day'] != today:
-        _done['day'], _done['keys'] = today, set()
+    day = C.today().strftime('%d.%m.%Y')
+    if _done['day'] != day:
+        try:
+            line, keys = _load_done(day)
+        except Exception as e:
+            print('журнал отправленного:', e)
+            line, keys = 0, set()
+        _done.update(day=day, keys=keys, line=line)
     if key in _done['keys']:
         return False
     _done['keys'].add(key)
+    try:
+        _save_done(day)
+    except Exception as e:
+        print('журнал отправленного:', e)
     return True
 
 
@@ -333,6 +362,14 @@ def close_stations():
         if not by_shift:
             told.append(f"· {v['who']} · {v['station']} · с {v['start']} — "
                         f"ухода нет, поставлен {end}")
+    # Отрезки закрылись, а сама явка оставалась открытой навсегда: у Тохирова
+    # смена от 30.08 висела без ухода и без часов. «Часов» — это зарплата,
+    # пустая клетка в ней хуже, чем посчитанная с пометкой.
+    try:
+        for w in close_open_shifts(day):
+            told.append(w)
+    except Exception as e:
+        print('закрытие явок:', e)
     # Пришёл, отметился — и ни одного места за смену. Так выглядит явка
     # ради явки: человек посидел и ушёл. Считать это работой нельзя.
     idle = []
@@ -359,6 +396,51 @@ def close_stations():
                       + '\n'.join(mine)
                       + '\n\nЧасы посчитаны по времени закрытия точки. '
                         'Если человек ушёл раньше — поправь в «Станциях».', point)
+
+
+def close_open_shifts(day):
+    """Явки без ухода: проставить уход, часы и пометку. → строки для письма.
+
+    Уход берём по концу последнего отрезка человека — там уже стоит либо
+    его настоящий уход, либо срок закрытия точки. Своего времени не
+    выдумываем: посчитанное с пометкой можно поправить, пустую клетку —
+    только вспомнить.
+    """
+    from . import forms as F
+    out = []
+    rows = S.get(C.TABS['shift'], 'A2:L')
+    ends = {}
+    for _, v in S.segments(day):
+        if v.get('end'):
+            ends[v['who']] = v['end']
+    for i, r in enumerate(rows):
+        r = list(r) + [''] * (12 - len(r))
+        if not r[3].strip() or r[4].strip():
+            continue
+        # Не только за сегодня: пропущенная ночь оставляла строку открытой
+        # навсегда. Смена от 30.08 висела без часов вторые сутки.
+        try:
+            d = datetime.datetime.strptime(r[0].strip(), '%d.%m.%Y').date()
+        except ValueError:
+            continue
+        if d > C.today():
+            continue
+        who, point = r[2].strip(), r[1].strip()
+        # Конец отрезка годится только для разбираемого дня: у вчерашней
+        # строки сегодняшний отрезок — чужое время.
+        end = ends.get(who) if r[0].strip() == day else ''
+        if not end:
+            end = C.deadline_for({}, point) or '00:00'
+        line = i + 2
+        hours = round((F.mins(end) - F.mins(r[3])) / 60, 2)
+        if hours < 0:
+            hours = round(hours + 24, 2)
+        S.put(C.TABS['shift'], f'E{line}:J{line}',
+              [[end, hours, r[6], r[7], 'ухода не было — закрыто автоматически',
+                2]])
+        out.append(f'· {who} · {point} · с {r[3]} — ухода нет, '
+                   f'поставлен {end}, часов {hours}')
+    return out
 
 
 def close_day():

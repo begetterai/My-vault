@@ -88,7 +88,7 @@ def open_shift(day, who):
 
 
 def mark_shift(direction, day, point, who, lat, lon, plan=None, photo='',
-               part='', at=None):
+               part='', at=None, geo_note=''):
     """Приход или уход. → (сообщение, поздно ли, строка, записано ли)
 
     Фото при приходе — вторая опора после геометки. Место подделывается
@@ -99,6 +99,10 @@ def mark_shift(direction, day, point, who, lat, lon, plan=None, photo='',
     и переход на другую точку виден как есть.
     """
     geo, far = geo_check(point, lat, lon)
+    # Отметку вне точки разрешил живой человек — пишем это рядом с местом,
+    # иначе в таблице останется просто «ВНЕ ТОЧКИ» и не видно, кто пустил.
+    if geo_note:
+        geo = f'{geo} — {geo_note}'
     now = at or C.now().strftime('%H:%M')
     live = open_shift(day, who)
     late = 0

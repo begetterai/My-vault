@@ -624,6 +624,47 @@ def shift_state(who):
             'point': r[1], 'part': r[11] if len(r) > 11 else ''}
 
 
+# Кому разрешено отметиться вне точки: имя → (кто разрешил, до какого времени).
+# В памяти, а не в таблице: разрешение живёт минуты и умирает вместе
+# с попыткой. Перезапуск его теряет — человек просит заново, это дешевле,
+# чем хранить в таблице право, которое действует полчаса.
+GEO_OK = {}
+GEO_TTL = 30 * 60
+
+
+def geo_allowed(name):
+    """Кто разрешил этому человеку отметиться вне точки, либо пусто."""
+    v = GEO_OK.get(name)
+    if not v or v[1] < time.time():
+        GEO_OK.pop(name, None)
+        return ''
+    return v[0]
+
+
+def geo_ask(who, body):
+    """«Я на месте, а телефон врёт» — запрос управляющему."""
+    lat, lon = body.get('lat'), body.get('lon')
+    point = pick_point(who, body)
+    where = F.geo_check(point, lat, lon)[0] if lat is not None else 'места нет'
+    d = 'уход' if body.get('direction') == 'out' else 'приход'
+    cid = next((c for c, v in S.team().items() if v[0] == who[0]), '')
+    txt = (f'📍 <b>Просит разрешить отметку</b>\n{who[0]} · {S.point_label(point)}'
+           f' · {d}\nТелефон показывает: {where}\n\n'
+           f'Разрешай, только если человек действительно на месте — '
+           f'твоё имя останется в таблице рядом с отметкой.')
+    sent = 0
+    for m in S.managers_of(point):
+        BOT.say(m, txt, reply_markup={'inline_keyboard': [[
+            {'text': f'✅ Разрешить {who[0]}', 'callback_data': f'cl:geo:{cid}'}]]})
+        sent += 1
+    if not sent:
+        return {'ok': False, 'error': 'Некому разрешить — управляющего нет '
+                                      'в системе. Позвони ему.'}
+    return {'ok': True, 'message': 'Запрос ушёл управляющему. Как разрешит — '
+                                   'нажми «Пришёл» ещё раз.'}
+
+
+@S.serial
 def shift(who, body):
     d = 'out' if body.get('direction') == 'out' else 'in'
     lat, lon = body.get('lat'), body.get('lon')
@@ -651,6 +692,18 @@ def shift(who, body):
             BOT.admin(f'📍 <b>{who[0]}</b> отметил приход на точке '
                       f'{S.point_label(point)} — это не его точка '
                       f'({S.point_label(who[1])}).', point=point)
+    # Место — не пометка, а условие. До 31.08 «далеко» просто записывалось
+    # в таблицу: 31.08 приход прошёл с 6,2 км от точки при радиусе 150 м,
+    # и Азиз всё это время считал, что защита стоит. Теперь не проходит —
+    # но и не запирает человека с севшим GPS: он просит управляющего,
+    # тот разрешает, и его имя остаётся в таблице рядом с отметкой.
+    geo_txt, far = F.geo_check(point, lat, lon)
+    allow = geo_allowed(who[0])
+    if far and not allow:
+        return {'ok': False, 'far': True, 'point': point, 'where': geo_txt,
+                'error': f'Ты не на точке: {geo_txt}. Отметиться отсюда '
+                         f'нельзя. Если ты на месте, а телефон врёт — '
+                         f'попроси управляющего разрешить.'}
     # Время начала берём из состава: у повара цеха смена в 07:00, у кассира
     # в 09:30 — считать опоздание всем от одного часа неправильно.
     plan = body.get('plan')
@@ -661,11 +714,16 @@ def shift(who, body):
         print('состав:', e)
     msg, flag, line, saved = F.mark_shift(d, C.day_str(), point, who[0],
                                           lat, lon, plan=plan,
-                                          part=str(body.get('part') or ''))
+                                          part=str(body.get('part') or ''),
+                                          geo_note=(f'разрешил {allow}'
+                                                    if far and allow else ''))
     # Отметку не записали (второй приход подряд, уход без прихода) — значит
     # ни отрезков, ни баллов: последствия бывают только у записанной отметки.
     if not saved:
         return {'ok': False, 'error': msg.replace('<b>', '').replace('</b>', '')}
+    # Разрешение одноразовое: оно давалось под эту отметку, а не на полдня.
+    if far and allow:
+        GEO_OK.pop(who[0], None)
     if d == 'out':
         # Ушёл — рабочее место освободилось, а отрезок закрылся с минутами.
         # Без этого место числится занятым до конца суток, и следующая
@@ -779,8 +837,10 @@ def journal(who, body):
         link = S.save_photo(raw, f'{point}-{C.day_str()}-{cl["code"]}')
     line = F.save_journal(key, point, who[0], vals, link,
                           body.get('lat'), body.get('lon'))
-    # Записанное происшествие — это находка: доп. счёт, но подтверждает
-    # управляющий, иначе баллы набираются записями «всё нормально».
+    # Записанное происшествие — это находка: +5 на доп. счёт сразу, без
+    # подтверждения. Решение Азиза 31.08.2026: пусть лучше запишут лишнее,
+    # чем промолчат. От накрутки держит потолок — три записи в день
+    # (SC.DAY_CAP), дальше начисления не идут.
     SC.add(point, who[0], 'found_issue', cl['code'])
     sev = vals.get('severity', '')
     txt = (f'{cl.get("icon", "📌")} <b>{cl["title"]}</b> · {point} · {who[0]}\n'
@@ -856,6 +916,14 @@ def allowed_points(who):
     out = {who[1]}
     if S.role_of(who) in ('manager', 'coo'):
         return out | set(S.points())
+    # Открытая явка главнее состава и прописки: где человек отметился,
+    # там он и работает — значит туда же должны ложиться его листы.
+    try:
+        live = F.open_shift(C.day_str(), who[0])
+        if live and live[1][1].strip():
+            out.add(live[1][1].strip())
+    except Exception as e:
+        print('точка по явке:', e)
     try:
         from . import roster as RS
         r = RS.for_person(C.today(), who[0])
@@ -884,6 +952,7 @@ def photo_bytes(data_url):
         return b''
 
 
+@S.serial
 def submit(who, body):
     kind = body.get('kind')
     if kind not in C.checklists():
@@ -904,11 +973,11 @@ def submit(who, body):
     hhmm = BOT.parse_time(body.get('time', ''))
     if not hhmm:
         return {'ok': False, 'error': 'Время нужно в формате ЧЧ:ММ'}
-    point = str(body.get('point') or '').strip() or who[1]
-    if point != who[1] and S.role_of(who) not in ('manager', 'coo'):
-        point = who[1]
-    if point not in S.points():
-        point = who[1]
+    # Точку выбирает общее правило, а не своя копия его: здесь она была
+    # написана отдельно и разошлась. Линейного сотрудника отбрасывало
+    # на домашнюю точку, и лист, заполненный на соседней, уходил в отчёт
+    # той точки, где человека сегодня не было.
+    point = pick_point(who, body)
     photos, shots = [], []
     for ph in (body.get('photos') or []):
         raw = b''
@@ -1099,6 +1168,7 @@ def shift_people(key, day, point, filler=''):
     return one, two
 
 
+@S.serial
 def check(who, body):
     """Второй круг: подтвердить заполнение либо описать расхождение."""
     if S.role_of(who) not in ('manager', 'coo'):
@@ -1120,6 +1190,18 @@ def check(who, body):
                     'error': f'Уже подтвердил {done[0][0]}'}
     except Exception as e:
         print('повторная проверка:', e)
+    # Чужая точка — не его дело. В список ему такой лист не попадёт, но
+    # запрос до 31.08 принимали: право проверять держалось только тем,
+    # что кнопки не видно.
+    try:
+        r = S.get(C.checklists()[key]['tab'], f'B{line}:B{line}')
+        pt = str(r[0][0]).strip() if r and r[0] else ''
+        if (pt and S.role_of(who) != 'coo' and pt != who[1]
+                and S.standin_of(pt) != who[0]):
+            return {'ok': False, 'error': f'Это лист точки {S.point_label(pt)}. '
+                                          f'Его проверяет её управляющий.'}
+    except Exception as e:
+        print('точка заполнения:', e)
     # Свой лист не подтверждает никто. Управляющий так закрыл четыре
     # собственных заполнения 29–30.08 — проверки по факту не было.
     try:
@@ -1498,6 +1580,16 @@ def dispute_resolve(who, body):
         return {'ok': False, 'error': 'Споры разбирает руководитель'}
     line = str(body.get('line', ''))
     verdict = 'drop' if body.get('verdict') == 'drop' else 'keep'
+    # Спор чужой точки разбирает её управляющий, а не любой руководитель.
+    try:
+        r = S.get(C.TABS['score'], f'B{line}:B{line}')
+        pt = str(r[0][0]).strip() if r and r[0] else ''
+        if (pt and S.role_of(who) != 'coo' and pt != who[1]
+                and S.standin_of(pt) != who[0]):
+            return {'ok': False, 'error': f'Это списание на точке '
+                                          f'{S.point_label(pt)}.'}
+    except Exception as e:
+        print('точка списания:', e)
     if not SC.resolve(line, verdict, str(body.get('note', ''))):
         return {'ok': False, 'error': 'не та строка'}
     return {'ok': True}
@@ -1637,6 +1729,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, note(who, body))
             if p == '/api/geo':
                 return self._send(200, set_geo(who, body))
+            if p == '/api/geo_ask':
+                return self._send(200, geo_ask(who, body))
             if p == '/api/standin':
                 return self._send(200, standin(who, body))
             if p == '/api/equip':

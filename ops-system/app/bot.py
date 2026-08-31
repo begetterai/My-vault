@@ -3,7 +3,7 @@
 
 Всё, что бот знает о компании, приходит из конфига и листа «Команда».
 """
-import datetime, random, re, requests
+import datetime, random, re, time, requests
 
 from . import config as C
 from . import storage as S
@@ -1072,23 +1072,45 @@ def on_callback(cq):
 
     if data.startswith('cl:ck:'):
         _, _, verdict, kind, line = data.split(':')
-        if already_checked(kind, line):
-            return ack('Уже подтверждён') or True
-        if filler_of(kind, line) == who[0]:
-            return ack('Свой лист подтверждает тот, кто выше') or True
-        if verdict == 'ok':
-            S.save_check(kind, line, who[0], 'ok')
-            _award_check(kind, line, who[0], 'ok')
-            tg('editMessageText', chat_id=chat_id, message_id=mid,
-               text=cq['message'].get('text', '') + f'\n\n✅ Проверил: {who[0]}')
-            try:
-                final_report(kind, line, 'ok', who[0])
-            except Exception as e:
-                print('итоговый отчёт:', e)
-            return ack('Записал') or True
+        # Под тем же замком, что и проверка из приложения: иначе два нажатия
+        # подряд успевают пройти проверку до того, как первое запишется.
+        with S.WRITE_LOCK:
+            if already_checked(kind, line):
+                return ack('Уже подтверждён') or True
+            if filler_of(kind, line) == who[0]:
+                return ack('Свой лист подтверждает тот, кто выше') or True
+            if verdict == 'ok':
+                S.save_check(kind, line, who[0], 'ok')
+                _award_check(kind, line, who[0], 'ok')
+                tg('editMessageText', chat_id=chat_id, message_id=mid,
+                   text=cq['message'].get('text', '')
+                        + f'\n\n✅ Проверил: {who[0]}')
+                try:
+                    final_report(kind, line, 'ok', who[0])
+                except Exception as e:
+                    print('итоговый отчёт:', e)
+                return ack('Записал') or True
         CHECK[chat_id] = (kind, line, who[0])
         say(chat_id, 'Напиши, что именно не сошлось.')
         return ack() or True
+
+    # Человек стоит на точке, а телефон показывает километры: разрешаем ему
+    # одну отметку. Разрешение именное — имя разрешившего уходит в таблицу
+    # рядом с отметкой, чтобы это не стало тихой кнопкой «пропустить всех».
+    if data.startswith('cl:geo:'):
+        if S.role_of(who or ('', '', '')) not in ('manager', 'coo'):
+            return ack('Разрешает руководитель') or True
+        target = S.team().get(data.split(':', 2)[2])
+        if not target:
+            return ack('Не нашёл этого человека') or True
+        from . import webapp as W
+        W.GEO_OK[target[0]] = (who[0], time.time() + W.GEO_TTL)
+        tg('editMessageText', chat_id=chat_id, message_id=mid,
+           text=cq['message'].get('text', '') + f'\n\n✅ Разрешил: {who[0]}')
+        say(data.split(':', 2)[2],
+            f'✅ {who[0]} разрешил отметку вне точки. Нажми ещё раз — '
+            f'разрешение действует 30 минут.')
+        return ack('Разрешил') or True
 
     if data.startswith('cl:go:'):
         kind = data.split(':')[2]

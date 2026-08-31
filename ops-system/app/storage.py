@@ -4,7 +4,7 @@
 Структура таблицы создаётся автоматически при первом запуске — клиенту
 не нужно ничего готовить руками, только дать доступ сервисному аккаунту.
 """
-import os, json, time, base64, datetime, urllib.parse
+import os, json, time, base64, datetime, threading, urllib.parse
 os.environ.setdefault('REQUESTS_CA_BUNDLE', '/etc/ssl/certs/ca-certificates.crt')
 from google.oauth2 import service_account
 from google.auth.transport.requests import AuthorizedSession
@@ -59,6 +59,25 @@ def session():
             cr = cr.with_subject(C.GOOGLE_SUBJECT)
         _S['v'] = AuthorizedSession(cr)
     return _S['v']
+
+
+# Одна запись за раз. Сервер многопоточный, а все защиты в системе устроены
+# одинаково: прочитал таблицу — решил — записал. Между чтением и записью
+# второе нажатие успевало пройти ту же проверку, и запись случалась дважды:
+# так вышли два «+5» за один лист 29.08 и два списания за одно опоздание
+# 31.08. Каждый раз чинили последствие. Замок закрывает причину: людей
+# полтора десятка, запись занимает секунду, очередь никому не мешает.
+WRITE_LOCK = threading.RLock()
+
+
+def serial(fn):
+    """Обёртка: выполняется по одному, без наложений."""
+    def wrapped(*a, **kw):
+        with WRITE_LOCK:
+            return fn(*a, **kw)
+    wrapped.__name__ = fn.__name__
+    wrapped.__doc__ = fn.__doc__
+    return wrapped
 
 
 def _rng(tab, a1=''):
@@ -266,6 +285,9 @@ def ensure_structure():
             C.TABS['equip']: EQ.EQUIP_COLS,
             'Ознакомление': READ_COLS,
             'Люди — журнал': PEOPLE_COLS,
+            # Что расписание уже отправило за день. Переживает перезапуск:
+            # без этого каждый деплой рассылал утренние напоминания заново.
+            'Служебное': ['Дата', 'Уже отправлено'],
             'Станции': STATION_COLS}
     for key, cl in C.forms().items():
         cols = F.cols_for(cl)

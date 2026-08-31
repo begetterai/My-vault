@@ -841,7 +841,7 @@
   <button class="send" id="send" disabled>Отправить</button>
 </div>
 <script>
-const BUILD = 'v31.08 люди, чужая точка, deep clean';
+const BUILD = 'v01.09 геоблок, точка листа, замок';
 // Заполняются на старте: скрипт телеграма грузится отложенно, и на момент
 // разбора этой строки window.Telegram может ещё не существовать.
 let tg = null, initData = '';
@@ -1336,6 +1336,30 @@ function renderShift(){
     $('#shiftHint').textContent = 'Опоздание ' + sh.late + ' мин — управляющий видит.';
 }
 
+/* Отметка не прошла, потому что телефон показывает не ту точку. Кнопка
+   просит управляющего разрешить: он один знает, стоит человек на месте
+   или нет. Его имя уходит в таблицу рядом с отметкой. */
+function askGeo(direction, g){
+  const box = $('#shiftHint');
+  box.textContent = '';
+  const b = document.createElement('button');
+  b.className = 'note';
+  b.textContent = '📍 Я на месте — попросить управляющего';
+  b.onclick = async () => {
+    b.disabled = true; b.textContent = 'Отправляю…';
+    try{
+      const r = await fetch('/api/geo_ask', {method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({initData, direction, point,
+                              lat: g.lat ?? null, lon: g.lon ?? null})});
+      const j = await r.json();
+      note(j.ok ? j.message : (j.error || 'Не ушло.'), j.ok ? 'good' : 'err');
+    }catch(e){ note('Не ушло: ' + (e.message || 'ошибка'), 'err'); }
+    b.remove();
+  };
+  box.appendChild(b);
+}
+
 async function mark2(direction){
   const btn = direction === 'in' ? $('#btnIn') : $('#btnOut');
   btn.disabled = true; btn.textContent = 'Определяю место…';
@@ -1354,6 +1378,9 @@ async function mark2(direction){
     if(!j.ok){
       renderShift(); stages();
       note(j.error || 'Не записалось. Попробуй ещё раз.', 'err');
+      // Не на точке. Телефон иногда врёт на сотни метров — даём попросить
+      // разрешение, а не оставляем человека без смены.
+      if(j.far) askGeo(direction, g);
       return false;
     }
     if(j.shift){ DATA.shift = j.shift; }
