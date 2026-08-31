@@ -564,6 +564,12 @@ def tick():
         close_stations()
         close_day()
 
+    # Deep Clean — воскресенье, 10:00. Решение Азиза 30.08. Лист ведёт
+    # управляющий: он объявляет субботник, обходит зоны и отмечает сам.
+    # Без напоминания субботник вспоминается через раз.
+    if day.weekday() == 6 and minute >= hhmm('10:00') and once('deepclean'):
+        deepclean_reminder()
+
     # Суббота вечером — сводка к воскресному собранию.
     if (C.SUMMARIES and day.weekday() == 5
             and minute >= hhmm(C.SUMMARY_AT) and once('points')):
@@ -576,6 +582,23 @@ def tick():
     if day.day == 1 and minute >= hhmm(C.WEEKLY_AT) and once('monthly'):
         monthly()
         review_month()
+
+
+def deepclean_reminder():
+    """Напоминание о субботнике — управляющим обеих точек."""
+    txt = ('🧽 <b>Сегодня Deep Clean — субботник</b>\n\n'
+           'Убирается всё заведение и все зоны одновременно. Объяви смене, '
+           'распредели зоны и прими работу лично.\n\n'
+           'Критерий один: провести сухой белой салфеткой по поверхностям '
+           'и углам — салфетка остаётся чистой.\n\n'
+           'Лист «Deep Clean — субботник» открыт в приложении. Фото «после» — '
+           '3–5 на каждую зону.')
+    kb = ({'inline_keyboard': [[{'text': '📱 Открыть приложение',
+                                 'web_app': {'url': C.WEBAPP_URL}}]]}
+          if C.WEBAPP_URL else None)
+    for point in S.points():
+        for cid in S.managers_of(point):
+            BOT.say(cid, txt, **({'reply_markup': kb} if kb else {}))
 
 
 def loop():
