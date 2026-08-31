@@ -127,7 +127,7 @@ def today_count(who, event):
 
 def rows(since=None, until=None, point=None, who=None):
     out = []
-    for r in S.get(C.TABS['score'], 'A2:K'):
+    for i, r in enumerate(S.get(C.TABS['score'], 'A2:K'), start=2):
         if len(r) < 5:
             continue
         r = list(r) + [''] * (11 - len(r))
@@ -144,7 +144,8 @@ def rows(since=None, until=None, point=None, who=None):
             pts = int(float(str(r[4]).replace(',', '.')))
         except ValueError:
             continue
-        out.append({'date': d, 'point': r[1].strip(), 'who': r[2].strip(),
+        out.append({'line': i,
+                    'date': d, 'point': r[1].strip(), 'who': r[2].strip(),
                     'event': r[3].strip(), 'pts': pts, 'why': r[5],
                     'link': r[6], 'kind': (r[7] or BASE).strip(),
                     'period': r[8], 'dispute': r[9], 'verdict': r[10]})
@@ -190,19 +191,15 @@ def _dropped(r):
 
 
 def _numbered(rs):
-    """Строки с номерами в таблице — по ним приложение шлёт спор."""
-    out, seen = [], {}
-    all_rows = S.get(C.TABS['score'], 'A2:K')
-    for i, raw in enumerate(all_rows):
-        key = (str(raw[0]).strip() if raw else '', str(raw[2]).strip() if len(raw) > 2 else '',
-               str(raw[3]).strip() if len(raw) > 3 else '',
-               str(raw[4]).strip() if len(raw) > 4 else '')
-        seen.setdefault(key, []).append(i + 2)
-    for r in rs:
-        key = (r['date'].strftime('%d.%m.%Y'), r['who'], r['event'], str(r['pts']))
-        line = seen.get(key, [None]).pop(0) if seen.get(key) else None
-        out.append((line, r))
-    return out
+    """Строки с их настоящими номерами в таблице.
+
+    Раньше номер угадывался по связке «дата + кто + событие + баллы».
+    Ключ не уникален: у Тохирова 31.08 оказалось два одинаковых списания,
+    и спор, поданный со второй строки, управляющий разбирал в первой —
+    вердикт писался не туда, а уведомление висело после каждого нажатия.
+    Номер строки теперь идёт из самой выгрузки и ничего не угадывает.
+    """
+    return [(r.get('line'), r) for r in rs]
 
 
 def dispute(line, who, text):

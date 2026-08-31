@@ -89,7 +89,7 @@ def open_shift(day, who):
 
 def mark_shift(direction, day, point, who, lat, lon, plan=None, photo='',
                part='', at=None):
-    """Приход или уход. → (сообщение, поздно ли, строка)
+    """Приход или уход. → (сообщение, поздно ли, строка, записано ли)
 
     Фото при приходе — вторая опора после геометки. Место подделывается
     чужим телефоном, лицо — нет.
@@ -104,11 +104,15 @@ def mark_shift(direction, day, point, who, lat, lon, plan=None, photo='',
     late = 0
     if direction == 'in':
         if live:
-            where = live[1][1].strip()
+            # Отметка не записана — значит и последствий у неё быть не должно.
+            # Раньше отсюда возвращались молча, а вызывающий всё равно шёл
+            # дальше и начислял опоздание второй раз за тот же приход:
+            # у Тохирова 31.08 вышло два списания по 38 минут на одну явку.
             return (f'Смена уже открыта с {live[1][3]}'
-                    + (f' на точке {where}' if where != point else '')
+                    + (f' на точке {live[1][1].strip()}'
+                       if live[1][1].strip() != point else '')
                     + '. Сначала закрой её — отметь уход или сдай смену.',
-                    False, live[0])
+                    False, live[0], False)
         if plan:
             late = max(0, mins(now) - mins(plan))
         line = S.append(C.TABS['shift'],
@@ -119,10 +123,10 @@ def mark_shift(direction, day, point, who, lat, lon, plan=None, photo='',
             msg += f'\n⚠️ Опоздание {late} мин'
         if far:
             msg += f'\n📍 {geo}'
-        return msg, bool(late or far), line
+        return msg, bool(late or far), line, True
     # уход
     if not live:
-        return 'Открытой смены нет — сначала отметь приход.', False, None
+        return 'Открытой смены нет — сначала отметь приход.', False, None, False
     line, r = live
     hours = round((mins(now) - mins(r[3])) / 60, 2)
     if hours < 0:
@@ -132,7 +136,7 @@ def mark_shift(direction, day, point, who, lat, lon, plan=None, photo='',
     msg = f'✅ Уход отмечен: <b>{now}</b>\nСмена: <b>{hours} ч</b>'
     if far:
         msg += f'\n📍 {geo}'
-    return msg, far, line
+    return msg, far, line, True
 
 
 def mins(hhmm):

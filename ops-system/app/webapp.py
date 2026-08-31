@@ -351,8 +351,13 @@ def init_payload(who):
              'dept': (cl.get('dept') if isinstance(cl.get('dept'), str)
                       else ', '.join(cl.get('dept') or [])) or '',
              'stage': cl.get('stage', '')}
-            for k, cl in sorted(C.checklists().items(),
-                                key=lambda x: x[1]['title'])]
+            for k, cl in sorted(
+                C.checklists().items(),
+                # Внутри места этапы идут по ходу дня, а не по алфавиту:
+                # по алфавиту первым вставало «Закрытие». Правка Азиза 31.08.
+                key=lambda x: (x[1]['title'].split(' · ')[0],
+                               STAGE_ORDER.get(x[1].get('stage', ''), 9),
+                               x[1]['title']))]
     # Операционная минута сервера. Просрочку считает приложение: только оно
     # знает, какую точку человек сейчас смотрит. А время берёт отсюда —
     # часы на телефоне бывают сбиты, и тогда просрочка врёт.
@@ -522,6 +527,10 @@ def handover_notify(kind, day, point, who, to, ok, tot, fails, comment,
                  + (f'\nЧто не так: {comment}' if comment else ''))
 
 
+# Порядок этапов по ходу дня — им сортируется каталог «Все чек-листы».
+STAGE_ORDER = {'open': 0, 'give': 1, 'take': 2, 'close': 3}
+
+
 def part_of(day, who, said=''):
     """Смена дня человека: сначала из явки, потом со слов приложения.
 
@@ -617,9 +626,13 @@ def shift(who, body):
         plan = RS.start_of(C.today(), who[0], plan)
     except Exception as e:
         print('состав:', e)
-    msg, flag, line = F.mark_shift(d, C.day_str(), point, who[0], lat, lon,
-                                   plan=plan,
-                                   part=str(body.get('part') or ''))
+    msg, flag, line, saved = F.mark_shift(d, C.day_str(), point, who[0],
+                                          lat, lon, plan=plan,
+                                          part=str(body.get('part') or ''))
+    # Отметку не записали (второй приход подряд, уход без прихода) — значит
+    # ни отрезков, ни баллов: последствия бывают только у записанной отметки.
+    if not saved:
+        return {'ok': False, 'error': msg.replace('<b>', '').replace('</b>', '')}
     if d == 'out':
         # Ушёл — рабочее место освободилось, а отрезок закрылся с минутами.
         # Без этого место числится занятым до конца суток, и следующая
