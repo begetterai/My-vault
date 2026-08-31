@@ -100,6 +100,23 @@ def check_forms():
         if len(ty) > 1:
             bad.append(f'вкладка «{t}» делится типами {ty}')
 
+    # Один код документа — один файл. 31.08 нашлись два файла на 04-POL-02
+    # и 05-SOP-02: старый закрытый и новый открытый. Чек-листы ссылались
+    # на закрытый, и человек упирался в «нет доступа» прямо из пункта.
+    import re as _re
+    by_code = collections.defaultdict(set)
+    for k, cl in D.items():
+        for d in [cl.get('doc')] + [b.get('doc') for b in (cl.get('blocks') or [])]:
+            if not (d and d.get('url')):
+                continue
+            m = _re.search(r'/d/([A-Za-z0-9_-]{20,})', d['url'])
+            if m and d.get('code'):
+                by_code[d['code']].add(m.group(1))
+    for code, ids in sorted(by_code.items()):
+        if len(ids) > 1:
+            bad.append(f'код {code}: {len(ids)} разных документа — '
+                       f'человек попадёт не в тот')
+
     groups = collections.defaultdict(dict)
     for k, cl in C.checklists().items():
         if cl.get('stage'):
