@@ -398,6 +398,18 @@ def close_stations():
                         'Если человек ушёл раньше — поправь в «Станциях».', point)
 
 
+def point_close(point):
+    """Во сколько точка гасит свет: самый поздний срок листов закрытия.
+
+    ЗБ — 00:30, ОВИР — 03:30. Дольше этого человек работать не мог,
+    значит это и есть честный потолок для несделанной отметки.
+    """
+    times = [t for t in (C.deadline_for(cl, point)
+                         for cl in C.checklists().values()
+                         if cl.get('stage') == 'close') if t]
+    return max(times, key=C.op_minute) if times else '00:00'
+
+
 def close_open_shifts(day):
     """Явки без ухода: проставить уход, часы и пометку. → строки для письма.
 
@@ -430,7 +442,7 @@ def close_open_shifts(day):
         # строки сегодняшний отрезок — чужое время.
         end = ends.get(who) if r[0].strip() == day else ''
         if not end:
-            end = C.deadline_for({}, point) or '00:00'
+            end = point_close(point)
         line = i + 2
         hours = round((F.mins(end) - F.mins(r[3])) / 60, 2)
         if hours < 0:
