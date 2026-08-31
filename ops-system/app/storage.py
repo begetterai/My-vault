@@ -31,6 +31,13 @@ PART_OLD = {'открывающая': 'open', 'закрывающая': 'close',
 # Бумажный лист ознакомления умирает в папке — здесь видно, кто и когда.
 READ_COLS = ['Дата', 'Время', 'Точка', 'Кто', 'Код', 'Документ', 'Ссылка']
 
+# Кто и когда появился, поменял точку или роль, ушёл из системы. Правка
+# Азиза 31.08.2026: людей заводят и правят трое, руками и через бота,
+# и остальные узнают об этом случайно. Журнал ведётся сам — сравнением
+# «Команды» с прошлым состоянием, поэтому в него попадает и правка,
+# сделанная прямо в таблице.
+PEOPLE_COLS = ['Дата', 'Время', 'Что', 'Кто', 'Точка', 'Роль', 'Отдел', 'Было']
+
 # Работа на местах — журнал отрезков, а не отметка «где стоит сейчас».
 # Человек за день бывает на двух местах: отработал саладетту в первую смену,
 # сдал её и принял бар во вторую. Для зарплаты нужны именно отрезки —
@@ -258,6 +265,7 @@ def ensure_structure():
             C.TABS['tasks']: TSK.TASK_COLS,
             C.TABS['equip']: EQ.EQUIP_COLS,
             'Ознакомление': READ_COLS,
+            'Люди — журнал': PEOPLE_COLS,
             'Станции': STATION_COLS}
     for key, cl in C.forms().items():
         cols = F.cols_for(cl)
@@ -819,6 +827,24 @@ def add_member(chat_id, name, point, role, dept=''):
                [[str(chat_id), name, point, role, 'да', dept, '', '']])
     team(force=True)
     return True
+
+
+def log_person(what, name, point, role, dept='', was=''):
+    """Строка в «Люди — журнал»."""
+    append('Люди — журнал', [[C.day_str(), C.now().strftime('%H:%M'),
+                              what, name, point, role, dept, was]])
+
+
+def people_log(limit=20):
+    """Последние изменения по людям — для приложения. Новые сверху."""
+    rows = get('Люди — журнал', 'A2:H500')
+    out = []
+    for r in rows[-limit:]:
+        r = list(r) + [''] * (8 - len(r))
+        out.append({'day': r[0], 'at': r[1], 'what': r[2], 'who': r[3],
+                    'point': r[4], 'role': r[5], 'dept': r[6], 'was': r[7]})
+    out.reverse()
+    return out
 
 
 def save_fix(who, form, block, n, text, comment, doc=''):

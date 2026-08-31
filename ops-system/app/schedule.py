@@ -511,6 +511,13 @@ def tick():
                 if minute >= dead and once(f'over:{key}:{point}'):
                     overdue(key, cl, point)
 
+    # Кто появился, сменил точку или ушёл — руководству, каждую минуту.
+    # Состав и так читается кэшем на минуту, лишнего обращения нет.
+    try:
+        team_watch()
+    except Exception as e:
+        print('изменения по людям:', e)
+
     # Непринятая передача — раз в пять минут. Чаще незачем: порог всё равно
     # четверть часа, а каждый проход — четыре чтения таблицы.
     if now.minute % 5 == 0:
@@ -582,6 +589,48 @@ def tick():
     if day.day == 1 and minute >= hhmm(C.WEEKLY_AT) and once('monthly'):
         monthly()
         review_month()
+
+
+_PEOPLE = {}          # chat_id → (имя, точка, роль, отдел) на прошлой минуте
+
+
+def team_watch():
+    """Изменения в «Команде» → руководству и в журнал.
+
+    Правка Азиза 31.08.2026: людей заводят и правят трое — он, Владимир
+    и Дилчу, — часть через бота, часть руками в таблице. Раньше об этом
+    знал только тот, кто правил. Сравниваем состав с прошлой минутой:
+    так в журнал попадает любая правка, откуда бы она ни пришла.
+
+    На первом проходе после запуска только запоминаем состав и молчим —
+    иначе каждый перезапуск сервера выглядел бы как «добавили всех сразу».
+    """
+    global _PEOPLE
+    cur = {str(cid): (v[0], v[1], v[2], v[3]) for cid, v in S.team().items()}
+    if not cur:                       # пустой ответ таблицы — не потеря людей
+        return
+    if not _PEOPLE:
+        _PEOPLE = cur
+        return
+    lines = []
+    for cid, v in cur.items():
+        old = _PEOPLE.get(cid)
+        tail = ' · '.join(x for x in v[1:] if x)
+        if old is None:
+            lines.append(f'➕ <b>{v[0]}</b> — {tail}')
+            S.log_person('добавлен', v[0], v[1], v[2], v[3])
+        elif old != v:
+            was = ' · '.join(x for x in old if x)
+            lines.append(f'✏️ <b>{v[0]}</b> — {tail}\nбыло: {was}')
+            S.log_person('изменён', v[0], v[1], v[2], v[3], was)
+    for cid, old in _PEOPLE.items():
+        if cid not in cur:
+            lines.append(f'➖ <b>{old[0]}</b> — больше не в системе '
+                         f'({" · ".join(x for x in old[1:] if x)})')
+            S.log_person('убран', old[0], old[1], old[2], old[3])
+    _PEOPLE = cur
+    if lines:
+        BOT.admin('👥 <b>Изменения по людям</b>\n\n' + '\n\n'.join(lines))
 
 
 def deepclean_reminder():

@@ -731,6 +731,14 @@
       </div>
     </div>
 
+    <div id="peopleBox" class="hidden">
+      <h2>Изменения по людям</h2>
+      <div id="peopleLog"></div>
+      <div class="hint">Кто появился, сменил точку или роль, ушёл из системы.
+        Пишется само — и когда человека завели через бота, и когда
+        поправили прямо в таблице.</div>
+    </div>
+
     </details>
 
     <details class="blk" id="blkEquip">
@@ -833,7 +841,7 @@
   <button class="send" id="send" disabled>Отправить</button>
 </div>
 <script>
-const BUILD = 'v31.08 споры и порядок листов';
+const BUILD = 'v31.08 люди, чужая точка, deep clean';
 // Заполняются на старте: скрипт телеграма грузится отложенно, и на момент
 // разбора этой строки window.Telegram может ещё не существовать.
 let tg = null, initData = '';
@@ -1188,6 +1196,7 @@ async function boot(){
       ['журналы', renderJournals], ['бланки', renderForms],
       ['обучение', renderQuizzes], ['баллы', renderScore],
       ['споры', renderDisputes], ['начисления', renderAwards],
+      ['люди', renderPeopleLog],
       ['черновики', draftSweep], ['шаги', stages],
     ];
     const broken = [];
@@ -3138,8 +3147,9 @@ function renderRosterBoss(box){
     // Подставляем того, кого в составе ещё нет: иначе один человек попадает
     // в смену дважды и состав смены врёт.
     const busy = new Set(ROSTER.people.map(x => x.who));
-    const free = (ROSTER.team || []).find(n => !busy.has(n));
-    if(!free) return note('Все люди точки уже в составе.', 'warn');
+    const free = (ROSTER.team || []).find(n => !busy.has(n))
+              || (ROSTER.guests || []).find(n => !busy.has(n));
+    if(!free) return note('Все люди уже в составе.', 'warn');
     ROSTER.people.push({who: free, dept: 'кухня',
                         start: ROSTER.starts['кухня'] || '', instead: ''});
     ROSTER.dirty = true;
@@ -3162,16 +3172,29 @@ function renderRosterBoss(box){
   box.appendChild(hint);
 }
 
+/* Люди точки — сверху, с соседней точки — отдельной группой. Человек
+   выходит на чужую точку каждую неделю: подмена, запара, обучение. */
+function rosterNames(sel, skip){
+  const opt = n => '<option' + (n === sel ? ' selected' : '') + '>' + n + '</option>';
+  const own = (ROSTER.team || []).filter(n => n !== skip);
+  const alien = (ROSTER.guests || []).filter(n => n !== skip);
+  let html = own.map(opt).join('');
+  if(alien.length)
+    html += '<optgroup label="С другой точки">' + alien.map(opt).join('') + '</optgroup>';
+  return html;
+}
+
 function rosterRow(p, i){
   const d = document.createElement('div');
   d.className = 'card'; d.style.marginBottom = '10px';
   const st = p.confirm === 'буду' ? '✅' : p.confirm === 'не смогу' ? '❌' : '⏳';
+  const alien = (ROSTER.guests || []).indexOf(p.who) >= 0;
   d.innerHTML = '<div class="kv"><span>' + st + ' ' + (p.who || '—')
-    + '</span><b>' + (p.dept || '—') + '</b></div>';
+    + '</span><b>' + (p.dept || '—') + '</b></div>'
+    + (alien ? '<div class="hint">📍 С другой точки — ему уйдёт адрес.</div>' : '');
 
   const who = document.createElement('select');
-  who.innerHTML = (ROSTER.team || []).map(n =>
-    '<option' + (n === p.who ? ' selected' : '') + '>' + n + '</option>').join('');
+  who.innerHTML = rosterNames(p.who);
   who.onchange = () => {
     p.who = who.value; ROSTER.dirty = true;
     // Сам себя человек заменить не может — убираем его из списка замен.
@@ -3197,8 +3220,7 @@ function rosterRow(p, i){
   // система не свяжет с человеком, и замена потеряется.
   const instead = document.createElement('select');
   instead.innerHTML = '<option value="">— не замена —</option>'
-    + (ROSTER.team || []).filter(n => n !== p.who).map(n =>
-        '<option' + (n === p.instead ? ' selected' : '') + '>' + n + '</option>').join('');
+    + rosterNames(p.instead, p.who);
   instead.onchange = () => { p.instead = instead.value; ROSTER.dirty = true; };
 
   const rm = document.createElement('button');
@@ -3294,6 +3316,29 @@ function renderAwards(){
     '<option value="' + k.event + '">' + k.why + ' · +' + k.pts + '</option>').join('');
   $('#awGo').onclick = sendAward;
   $('#awardBox').classList.remove('hidden');
+}
+
+const PEOPLE_ICON = {'добавлен':'➕','изменён':'✏️','убран':'➖'};
+
+function renderPeopleLog(){
+  const rows = DATA.people_log || [];
+  if(!rows.length) return;
+  const box = $('#peopleLog'); box.innerHTML = '';
+  rows.forEach(x => {
+    const d = document.createElement('div');
+    d.className = 'card';
+    const tail = [x.point, x.role, x.dept].filter(Boolean).join(' · ');
+    const head = document.createElement('b');
+    head.textContent = (PEOPLE_ICON[x.what] || '•') + ' ' + x.who;
+    d.appendChild(head);
+    [tail, x.was ? 'было: ' + x.was : '', x.day + ' ' + x.at]
+      .filter(Boolean).forEach(t => {
+        const h = document.createElement('div');
+        h.className = 'hint'; h.textContent = t; d.appendChild(h);
+      });
+    box.appendChild(d);
+  });
+  $('#peopleBox').classList.remove('hidden');
 }
 
 async function sendAward(){

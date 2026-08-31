@@ -73,17 +73,32 @@ def init_payload(who):
     dept = S.dept_of(who)
     # Позиция на сегодня берётся из состава: человек может сегодня стоять
     # на кассе, а завтра в зале — и чек-листы должны открыться те, что нужно.
+    # Точка на сегодня — тоже из состава: поставили на чужую точку, значит
+    # и открываться приложение должно на ней, иначе человек отмечает приход
+    # по адресу, где его сегодня нет.
+    work = who[1]
     try:
         from . import roster as RS
         dept = RS.dept_of(C.today(), who[0], dept)
+        r = RS.for_person(C.today(), who[0])
+        if role not in ('manager', 'coo') and r and r['point'] in S.points():
+            work = r['point']
     except Exception as e:
         print('позиция из состава:', e)
-    # руководитель работает по обеим точкам — даём выбор; линейный закреплён
-    pts = ([{'code': p, 'label': S.point_label(p)} for p in S.points()]
-           if role in ('manager', 'coo') else
-           [{'code': who[1], 'label': S.point_label(who[1])}])
-    out = {'company': C.COMPANY, 'name': who[0], 'point': who[1],
-           'point_label': S.point_label(who[1]), 'points': pts,
+    # Открытая явка главнее состава: где человек отметил приход, там он
+    # и работает — что бы ни было записано в «Команде» и в составе.
+    try:
+        live = F.open_shift(C.day_str(), who[0])
+        if live and live[1][1].strip() in S.points():
+            work = live[1][1].strip()
+    except Exception as e:
+        print('точка по явке:', e)
+    # Точку выбирают все: линейный сотрудник тоже выходит на соседнюю —
+    # подмена, запара, обучение. Права это не даёт: приход на чужой точке
+    # проходит только если телефон подтверждает, что человек там стоит.
+    pts = [{'code': p, 'label': S.point_label(p)} for p in S.points()]
+    out = {'company': C.COMPANY, 'name': who[0], 'point': work,
+           'point_label': S.point_label(work), 'points': pts,
            'role': role, 'dept': dept, 'day': C.day_str(), 'lists': {},
            'build': page_build(), 'v': ver}
     # Поэтапный запуск: пока роль не в ROLLOUT, человек видит одно сообщение
@@ -96,7 +111,7 @@ def init_payload(who):
     out['journals'] = [{'key': k, 'title': cl['title'], 'code': cl['code'],
                         'icon': cl.get('icon', '📌'), 'doc': cl.get('doc'),
                         'fields': cl.get('fields', [])}
-                       for k, cl in C.visible(role, 'journal', dept, who[1]).items()]
+                       for k, cl in C.visible(role, 'journal', dept, work).items()]
     # Форма с требованием тренинга открывается только тому, кто его сдал:
     # не пускать к операции, которой человек не владеет, полезнее, чем
     # наказывать за необучение.
@@ -108,7 +123,7 @@ def init_payload(who):
                                 and not quiz_passed(cl['requires'], who[0])),
                      'requires': (C.form(cl['requires'])['title']
                                   if cl.get('requires') else '')}
-                    for k, cl in C.visible(role, 'form', dept, who[1]).items()]
+                    for k, cl in C.visible(role, 'form', dept, work).items()]
     # Правильные ответы наружу не уходят: страница открыта в браузере,
     # оттуда её видно целиком. Проверяет сервер.
     try:
@@ -126,12 +141,12 @@ def init_payload(who):
                        'passed': quiz_passed(k, who[0]),
                        'questions': [{'q': q['q'], 'options': q['options']}
                                      for q in cl.get('questions', [])]}
-                      for k, cl in C.visible(role, 'quiz', dept, who[1]).items()]
+                      for k, cl in C.visible(role, 'quiz', dept, work).items()]
     # Новичок: пока не сдал тренинги своей позиции, ему открыты приход
     # и обучение. Чек-листы и бланки появятся после — человек не должен
     # работать по правилам, которых не знает.
     try:
-        left = F.training_left(role, dept, who[1], who[0]) \
+        left = F.training_left(role, dept, work, who[0]) \
             if role not in ('manager', 'coo') else []
     except Exception as e:
         print('обучение новичка:', e)
@@ -140,17 +155,12 @@ def init_payload(who):
     if left:
         out['journals'], out['forms'] = [], []
     # Смену передали ему лично — значит место его, чей бы отдел там ни был.
-    # Если передали на другой точке, эта точка появляется в выборе.
     try:
         given, src = assigned(who[0])
     except Exception as e:
         print('назначения:', e)
         given, src = {}, {}
     out['assigned'] = {k: v[0] for k, v in src.items()}
-    have = {p['code'] for p in pts}
-    for p in given:
-        if p not in have:
-            pts.append({'code': p, 'label': S.point_label(p)})
     out['points'] = pts
     if role == 'coo':
         # Кем сейчас ведётся каждая точка: пусто — своим управляющим.
@@ -173,7 +183,7 @@ def init_payload(who):
         for st in C.stations().values()
         # Станция, которой на этой точке нет, в выборе не показывается:
         # цех есть только на ЗБ.
-        if (not st['points'] or who[1] in st['points'])
+        if (not st['points'] or work in st['points'])
         and (st['key'] == pinned if pinned
              else (not dept or not st['dept']
                    or st['dept'].lower() == (dept or '').lower()))]
@@ -181,8 +191,8 @@ def init_payload(who):
     # Смену человек выбирает в приложении, серверу она на этом шаге ещё
     # не известна — отдаём все три, приложение возьмёт свою.
     try:
-        out['taken'] = S.stations_taken(C.day_str(), who[1])
-        out['my_station'] = S.station_of(C.day_str(), who[1], who[0])
+        out['taken'] = S.stations_taken(C.day_str(), work)
+        out['my_station'] = S.station_of(C.day_str(), work, who[0])
     except Exception as e:
         print('станции:', e)
         out['taken'], out['my_station'] = {}, ''
@@ -270,6 +280,13 @@ def init_payload(who):
         except Exception as e:
             print('баллы для руководителя:', e)
             out['disputes'], out['awards'], out['team'] = [], [], []
+        # Кто появился, сменил точку или ушёл. Правка Азиза 31.08: людей
+        # заводят трое, и остальные узнавали об этом случайно.
+        try:
+            out['people_log'] = S.people_log()
+        except Exception as e:
+            print('журнал людей:', e)
+            out['people_log'] = []
     if role in ('manager', 'coo'):
         try:
             from . import kpi as K
@@ -295,7 +312,7 @@ def init_payload(who):
                  'fails': x['fails'], 'comment': x['comment'],
                  'minutes': x['minutes'], 'fast': x['fast'],
                  'age': (C.today() - x['date']).days}
-                for x in RP.pending(who[1]) if x['who'] == who[0]]
+                for x in RP.pending(work) if x['who'] == who[0]]
         except Exception as e:
             print('свои заполнения:', e)
             out['pending'] = []
@@ -304,7 +321,7 @@ def init_payload(who):
                                if x.get('who') == who[0]]
         except Exception:
             out['disputes'] = []
-    mine = dict(C.for_role(role, dept, who[1])) if not left else {}
+    mine = dict(C.for_role(role, dept, work)) if not left else {}
     for p, keys in (given.items() if not left else []):
         for k in keys:
             mine[k] = C.checklists()[k]
@@ -313,7 +330,7 @@ def init_payload(who):
         random.shuffle(photos)
         out['lists'][key] = {
             'title': cl['title'], 'code': cl['code'], 'ask_time': cl['ask_time'],
-            'deadline': C.deadline_for(cl, who[1]),
+            'deadline': C.deadline_for(cl, work),
             # Срок по точкам: ОВИР закрывается на три часа позже. Отдаём
             # приложению целиком, чтобы при переключении точки оно
             # показывало её срок, а не срок домашней точки человека.
@@ -332,7 +349,7 @@ def init_payload(who):
     # Что уже сдано сегодня на точке: приём не открывают, пока предыдущая
     # смена не сдала передачу.
     try:
-        out['filled'] = S.filled_today(C.day_str(), who[1], list(out['lists']))
+        out['filled'] = S.filled_today(C.day_str(), work, list(out['lists']))
     except Exception as e:
         print('что сдано:', e)
         out['filled'] = {}
@@ -347,7 +364,7 @@ def init_payload(who):
     if role in ('manager', 'coo'):
         out['catalog'] = [
             {'key': k, 'title': cl['title'], 'code': cl['code'],
-             'items': cl['total'], 'deadline': C.deadline_for(cl, who[1]),
+             'items': cl['total'], 'deadline': C.deadline_for(cl, work),
              'dept': (cl.get('dept') if isinstance(cl.get('dept'), str)
                       else ', '.join(cl.get('dept') or [])) or '',
              'stage': cl.get('stage', '')}
@@ -618,6 +635,22 @@ def shift(who, body):
         return {'ok': False, 'error': 'Не вижу, где ты. Разреши доступ '
                                       'к геолокации и нажми ещё раз.'}
     point = pick_point(who, body)
+    want = str(body.get('point') or '').strip()
+    if want != point and want in S.points():
+        # Человек выбрал не свою точку. Пускаем, если он там физически
+        # стоит: геометка — и есть разрешение, а не запись в «Команде».
+        # Правка Азиза 31.08.2026: раньше приложение молча возвращало его
+        # на домашнюю точку, приход уходил не туда, и человек, вышедший
+        # утром на соседнюю точку, отметиться не мог вовсе.
+        if F.geo_check(want, lat, lon)[1]:
+            return {'ok': False,
+                    'error': f'Ты выбрал {S.point_label(want)}, а стоишь '
+                             f'не там. Выбери точку, на которой ты сейчас.'}
+        point = want
+        if d == 'in':
+            BOT.admin(f'📍 <b>{who[0]}</b> отметил приход на точке '
+                      f'{S.point_label(point)} — это не его точка '
+                      f'({S.point_label(who[1])}).', point=point)
     # Время начала берём из состава: у повара цеха смена в 07:00, у кассира
     # в 09:30 — считать опоздание всем от одного часа неправильно.
     plan = body.get('plan')
@@ -812,9 +845,34 @@ def _num(x):
         return 0.0
 
 
+def allowed_points(who):
+    """Где человек сегодня вправе работать: своя точка и всё, куда его позвали.
+
+    Правка Азиза 31.08.2026: человек выходит утром на чужую точку — подмена,
+    запара, обучение. Раньше приложение возвращало его на домашнюю точку,
+    и приход не проходил: геометка не сходилась с адресом. Право даёт не
+    прописка в «Команде», а состав смены или переданная ему смена.
+    """
+    out = {who[1]}
+    if S.role_of(who) in ('manager', 'coo'):
+        return out | set(S.points())
+    try:
+        from . import roster as RS
+        r = RS.for_person(C.today(), who[0])
+        if r and r['point']:
+            out.add(r['point'])
+    except Exception as e:
+        print('точка из состава:', e)
+    try:
+        out |= set(assigned(who[0])[0])
+    except Exception as e:
+        print('точка из назначения:', e)
+    return out
+
+
 def pick_point(who, body):
     p = str(body.get('point') or '').strip() or who[1]
-    if p != who[1] and S.role_of(who) not in ('manager', 'coo'):
+    if p != who[1] and p not in allowed_points(who):
         return who[1]
     return p if p in S.points() else who[1]
 
@@ -1289,6 +1347,12 @@ def roster(who, body):
         # а проверяет тех, кто вышел.
         out['team'] = sorted({v[0] for v in S.team().values()
                               if v[1] == point and S.role_of(v) != 'coo'})
+        # Люди с соседней точки — отдельным списком. Подмена, запара
+        # и обучение случаются каждую неделю, а поставить такого человека
+        # в состав было нельзя, и он выходил мимо системы: ни смены,
+        # ни явки, ни часов. Правка Азиза 31.08.2026.
+        out['guests'] = sorted({f'{v[0]}' for v in S.team().values()
+                                if v[1] != point and S.role_of(v) != 'coo'})
         out['depts'] = list(RS.START)
         out['starts'] = RS.START
     return out
@@ -1307,10 +1371,21 @@ def roster_save(who, body):
         return {'ok': False, 'error': 'В составе никого нет'}
     if len(people) > 60:
         return {'ok': False, 'error': 'Слишком много строк'}
-    names = {v[0]: cid for cid, v in S.team().items() if v[1] == point}
+    # Ставить можно любого из команды, не только «прописанного» на точке:
+    # человек выходит на соседнюю точку — это обычный день, а не исключение.
+    names = {v[0]: cid for cid, v in S.team().items()}
+    home = {v[0]: v[1] for v in S.team().values()}
     for p in people:
         if p['who'] not in names:
-            return {'ok': False, 'error': f'{p["who"]} не числится на этой точке'}
+            return {'ok': False, 'error': f'{p["who"]} не числится в команде'}
+    # Но не на две точки сразу: иначе обе смены считают его своим,
+    # а он физически стоит на одной.
+    other = {r['who']: r['point'] for r in RS.rows(day) if r['point'] != point}
+    for p in people:
+        if p['who'] in other:
+            return {'ok': False,
+                    'error': f'{p["who"]} уже стоит в составе точки '
+                             f'{other[p["who"]]} на этот день'}
     ask = RS.save(day, point, people, who[0])
     sent = 0
     for p in people:
@@ -1321,6 +1396,10 @@ def roster_save(who, body):
             continue
         line = (f'📅 <b>Завтра, {RS.day_str(day)}</b>\n'
                 f'{p.get("dept", "—")} · с {p.get("start") or "—"}')
+        # Не своя точка — говорим об этом первой строкой и называем адрес:
+        # человек должен ехать в другое место, а не на привычное.
+        if home.get(p['who']) != point:
+            line += (f'\n📍 <b>Другая точка: {S.point_label(point)}</b>')
         if p.get('instead'):
             line += f'\nЗамена: вместо {p["instead"]}'
         BOT.say(cid, line + '\n\nПодтверди до 21:30.',
@@ -1328,6 +1407,14 @@ def roster_save(who, body):
                     {'text': '✅ Буду', 'callback_data': 'rs:y'},
                     {'text': '❌ Не смогу', 'callback_data': 'rs:n'}]]})
         sent += 1
+    # Забрали человека с соседней точки — её управляющий должен знать:
+    # завтра он на него не рассчитывает.
+    guests = [p['who'] for p in people if home.get(p['who']) != point]
+    for g in guests:
+        for cid in S.managers_of(home.get(g, '')):
+            BOT.say(cid, f'📅 <b>Завтра, {RS.day_str(day)}</b>\n{g} стоит '
+                         f'в составе точки {S.point_label(point)} — '
+                         f'поставил {who[0]}.')
     return {'ok': True, 'sent': sent, 'total': len(people)}
 
 
