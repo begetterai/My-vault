@@ -263,7 +263,7 @@ def stations():
         if not st or st in out:
             continue
         out[st] = {'key': st, 'title': cl['title'].split(' · ')[0],
-                   'dept': cl.get('dept', '')}
+                   'dept': cl.get('dept', ''), 'points': cl.get('points') or []}
     return out
 
 

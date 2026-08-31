@@ -171,9 +171,12 @@ def init_payload(who):
         {'key': st['key'], 'title': st['title'],
          'group': GROUPS.get(st['dept'] or '', 'Прочее')}
         for st in C.stations().values()
-        if (st['key'] == pinned if pinned
-            else (not dept or not st['dept']
-                  or st['dept'].lower() == (dept or '').lower()))]
+        # Станция, которой на этой точке нет, в выборе не показывается:
+        # цех есть только на ЗБ.
+        if (not st['points'] or who[1] in st['points'])
+        and (st['key'] == pinned if pinned
+             else (not dept or not st['dept']
+                   or st['dept'].lower() == (dept or '').lower()))]
     # Занятые станции: два человека не встают на одно место в одну смену.
     # Смену человек выбирает в приложении, серверу она на этом шаге ещё
     # не известна — отдаём все три, приложение возьмёт свою.

@@ -136,6 +136,10 @@ def build(code, zone, who):
             form['deadline_point'] = dict(by)
         if key not in ('shift_ssk', 'shift_upr'):
             form['station'] = key
+        # Цех есть только на ЗБ. Без привязки к точке человек с отделом
+        # «цех» на ОВИР видел листы «Цех ЗБ» — зоны, которой там нет.
+        if code.startswith('Ц-'):
+            form['points'] = ['ЗБ']
         if dept:
             form['dept'] = dept
         if roles:

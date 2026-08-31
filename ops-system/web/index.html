@@ -833,7 +833,7 @@
   <button class="send" id="send" disabled>Отправить</button>
 </div>
 <script>
-const BUILD = 'v30.08 приветствие и цех';
+const BUILD = 'v31.08 разбор системы';
 // Заполняются на старте: скрипт телеграма грузится отложенно, и на момент
 // разбора этой строки window.Telegram может ещё не существовать.
 let tg = null, initData = '';
@@ -2276,6 +2276,10 @@ function renderStations(){
   // думает, что всё ещё стоит там, а система место уже отдала. Ровно это
   // и выглядело как «смена у него до сих пор висит».
   if(!server && loadStation()) saveStation('');
+  // Место закреплено за ролью — выбирать нечего. Занимаем сразу: человеку
+  // в приветствии сказано «зона закреплена», и лишнее нажатие ради одной
+  // кнопки выглядит как недоделка. Касается заготовщиков цеха.
+  if(list.length === 1 && !loadStation()) saveStation(list[0].key);
   const saved = loadStation();
   list.forEach(x => {
     const busy = taken[x.key] && taken[x.key] !== DATA.name;
