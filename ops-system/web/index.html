@@ -833,7 +833,7 @@
   <button class="send" id="send" disabled>Отправить</button>
 </div>
 <script>
-const BUILD = 'v30.08 геометка на уходе и замещение';
+const BUILD = 'v30.08 приветствие и цех';
 // Заполняются на старте: скрипт телеграма грузится отложенно, и на момент
 // разбора этой строки window.Telegram может ещё не существовать.
 let tg = null, initData = '';
@@ -2227,9 +2227,10 @@ function renderParts(){
   const box = $('#partSeg');
   if(!box) return;
   box.innerHTML = '';
-  // Управляющий и директор смену дня не выбирают: на точке он один
-  // и отвечает за весь день. Ответ был бы один и тот же каждое утро.
-  if(['manager', 'coo'].includes(DATA.role)){
+  // Управляющий, директор и цех смену дня не выбирают: каждый из них
+  // на точке один и отвечает за весь день. У цеха вдобавок нет передачи
+  // и приёма — заготовщик сам открывает зону и сам закрывает её.
+  if(['manager', 'coo'].includes(DATA.role) || DATA.dept === 'цех'){
     PART = 'one';
     savePart('one');
     $('#partBox').classList.add('hidden');
