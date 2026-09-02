@@ -631,6 +631,9 @@
 
       <div class="hint" id="shiftHint">Отметка ставит время и подтверждает
         место: без геолокации приход не записывается.</div>
+      <!-- Отдельно от подсказки: её переписывает каждое тихое обновление,
+           и кнопка «Я на месте» исчезала через секунды после появления. -->
+      <div id="geoAsk"></div>
     </div>
 
     <div id="partBox" class="hidden">
@@ -841,7 +844,7 @@
   <button class="send" id="send" disabled>Отправить</button>
 </div>
 <script>
-const BUILD = 'v01.09 геоблок, точка листа, замок';
+const BUILD = 'v02.09 смена разблокирована';
 // Заполняются на старте: скрипт телеграма грузится отложенно, и на момент
 // разбора этой строки window.Telegram может ещё не существовать.
 let tg = null, initData = '';
@@ -1128,6 +1131,13 @@ async function boot(){
       if(want && j.points.some(p => p.code === want)){
         point = want; pointOK = true;
       }
+      // Линейному сотруднику точку определил сервер: та, где открыта явка,
+      // иначе из состава смены, иначе своя. Она и выбрана — список нужен
+      // ему только чтобы переключиться на соседнюю. Без этого 01–02.09
+      // смена два дня не могла отметить приход: с появлением второй точки
+      // шаг «Заведение» перестал засчитываться сам, а без него карточка
+      // смены заперта и кнопка «Пришёл» не нажимается.
+      else if(!['manager', 'coo'].includes(j.role)) pointOK = true;
       const seg = $('#pointSeg'); seg.innerHTML = '';
       j.points.forEach(p => {
         const b = document.createElement('button');
@@ -1244,7 +1254,9 @@ function stages(){
   // Одна точка — выбирать нечего. Во всех остальных случаях порядок строгий
   // для всех: без точки не откроется приход, без прихода — рабочее место,
   // без места — чек-листы. Иначе отметки повисают в воздухе.
-  if(!many) pointOK = true;
+  // Руководитель выбирает точку сам: он ходит по обеим и должен сказать,
+  // за какую смотрит. Линейному она уже проставлена сервером.
+  if(!many || !['manager', 'coo'].includes(DATA.role)) pointOK = true;
   const sh = DATA.shift || {};
   const came = !!sh.in;
   // Руководитель работает по обеим точкам и проверяет смену из дома —
@@ -1340,8 +1352,8 @@ function renderShift(){
    просит управляющего разрешить: он один знает, стоит человек на месте
    или нет. Его имя уходит в таблицу рядом с отметкой. */
 function askGeo(direction, g){
-  const box = $('#shiftHint');
-  box.textContent = '';
+  const box = $('#geoAsk');
+  box.innerHTML = '';
   const b = document.createElement('button');
   b.className = 'note';
   b.textContent = '📍 Я на месте — попросить управляющего';
@@ -1355,7 +1367,10 @@ function askGeo(direction, g){
       const j = await r.json();
       note(j.ok ? j.message : (j.error || 'Не ушло.'), j.ok ? 'good' : 'err');
     }catch(e){ note('Не ушло: ' + (e.message || 'ошибка'), 'err'); }
-    b.remove();
+    // Кнопку не убираем: управляющий может не увидеть запрос сразу,
+    // и человеку нужно, чем попросить ещё раз.
+    b.disabled = false;
+    b.textContent = '📍 Попросить управляющего ещё раз';
   };
   box.appendChild(b);
 }
@@ -1384,6 +1399,7 @@ async function mark2(direction){
       return false;
     }
     if(j.shift){ DATA.shift = j.shift; }
+    $('#geoAsk').innerHTML = '';       // отметка прошла — просить больше нечего
     renderShift(); stages();
     note((j.message || 'Готово').replace(/<[^>]+>/g, ''), 'good');
     tg?.HapticFeedback?.notificationOccurred?.('success');

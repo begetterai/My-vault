@@ -664,7 +664,6 @@ def geo_ask(who, body):
                                    'нажми «Пришёл» ещё раз.'}
 
 
-@S.serial
 def shift(who, body):
     d = 'out' if body.get('direction') == 'out' else 'in'
     lat, lon = body.get('lat'), body.get('lon')
@@ -952,7 +951,6 @@ def photo_bytes(data_url):
         return b''
 
 
-@S.serial
 def submit(who, body):
     kind = body.get('kind')
     if kind not in C.checklists():
@@ -994,54 +992,59 @@ def submit(who, body):
     comment = str(body.get('comment', ''))[:300]
     part = str(body.get('part') or '') or None
     to = str(body.get('to') or '').strip()[:60]
-    dup = S.already_filled(kind, day, point)
-    # Названный должен существовать. Отдел и роль не проверяем: право принять
-    # даёт назначение — так человек и переходит на другое место или точку.
-    stage_now = C.checklists()[kind].get('stage')
-    if stage_now == 'give' and to:
-        if not any(v[0] == to for v in S.team().values()):
-            return {'ok': False, 'error': f'«{to}» нет в системе. '
-                                          f'Выбери человека из списка.'}
-        if to == who[0]:
-            return {'ok': False, 'error': 'Себе смену не сдают. Выбери того, '
-                                          'кто заступает после тебя.'}
-    # Приём проверяем на сервере, а не только в приложении. Раньше запрет
-    # жил в телефоне: список просто не открывался. Но телефон может видеть
-    # устаревшую картину — а подпись за чужую работу должна быть невозможна,
-    # а не «неудобна».
-    if stage_now == 'take':
-        gk = kind[:-len('_take')] + '_give'
-        try:
-            src = S.filled_today(day, point, [gk]).get(gk)
-        except Exception as e:
-            print('проверка передачи:', e)
-            return {'ok': False, 'error': 'Не удалось проверить передачу. '
-                                          'Попробуй ещё раз через минуту.'}
-        if not src:
-            return {'ok': False, 'error': 'Смену на этом месте ещё не сдали — '
-                                          'принимать нечего. Лист приёма '
-                                          'откроется, когда сдадут передачу.'}
-        if src.get('to') and src['to'] != who[0] \
-                and S.role_of(who) not in ('manager', 'coo'):
-            return {'ok': False, 'error': f'Эту смену передали не тебе, '
-                                          f'а {src["to"]}. Принять может он.'}
-    # Закрытие — последний этап, и порядок до него тоже держит сервер.
-    # Чем закрытие сложнее приёма: закрывают по-разному. Кто работает один,
-    # идёт открытие → закрытие; кто заступил второй сменой — приём →
-    # закрытие. Смену дня система знает из явки, а не со слов телефона.
-    if stage_now == 'close':
-        need = close_blocked(kind, day, point, who, part)
-        if need:
-            return {'ok': False, 'error': need}
-    # Этап дня сдаётся один раз. Событийный лист — собеседование, тайный
-    # гость — можно и дважды за день, там каждый раз новый случай.
-    if dup and C.checklists()[kind].get('stage'):
-        return {'ok': False, 'error': f'Этот лист уже сдан сегодня: {dup}. '
-                                      f'Повторно его не заполняют — если '
-                                      f'что-то не так, скажи управляющему.'}
-    ok, tot, fails, line = S.save_fill(
-        kind, day, point, who[0], marks, measured, photos, hhmm, comment, sec,
-        part, to)
+    # Под замком — только проверки и запись: два быстрых нажатия успевали
+    # пройти одну и ту же проверку до того, как первое запишется. Фото
+    # уже загружены выше, сообщения уйдут ниже — держать их в очереди
+    # незачем.
+    with S.WRITE_LOCK:
+        dup = S.already_filled(kind, day, point)
+        # Названный должен существовать. Отдел и роль не проверяем: право принять
+        # даёт назначение — так человек и переходит на другое место или точку.
+        stage_now = C.checklists()[kind].get('stage')
+        if stage_now == 'give' and to:
+            if not any(v[0] == to for v in S.team().values()):
+                return {'ok': False, 'error': f'«{to}» нет в системе. '
+                                              f'Выбери человека из списка.'}
+            if to == who[0]:
+                return {'ok': False, 'error': 'Себе смену не сдают. Выбери того, '
+                                              'кто заступает после тебя.'}
+        # Приём проверяем на сервере, а не только в приложении. Раньше запрет
+        # жил в телефоне: список просто не открывался. Но телефон может видеть
+        # устаревшую картину — а подпись за чужую работу должна быть невозможна,
+        # а не «неудобна».
+        if stage_now == 'take':
+            gk = kind[:-len('_take')] + '_give'
+            try:
+                src = S.filled_today(day, point, [gk]).get(gk)
+            except Exception as e:
+                print('проверка передачи:', e)
+                return {'ok': False, 'error': 'Не удалось проверить передачу. '
+                                              'Попробуй ещё раз через минуту.'}
+            if not src:
+                return {'ok': False, 'error': 'Смену на этом месте ещё не сдали — '
+                                              'принимать нечего. Лист приёма '
+                                              'откроется, когда сдадут передачу.'}
+            if src.get('to') and src['to'] != who[0] \
+                    and S.role_of(who) not in ('manager', 'coo'):
+                return {'ok': False, 'error': f'Эту смену передали не тебе, '
+                                              f'а {src["to"]}. Принять может он.'}
+        # Закрытие — последний этап, и порядок до него тоже держит сервер.
+        # Чем закрытие сложнее приёма: закрывают по-разному. Кто работает один,
+        # идёт открытие → закрытие; кто заступил второй сменой — приём →
+        # закрытие. Смену дня система знает из явки, а не со слов телефона.
+        if stage_now == 'close':
+            need = close_blocked(kind, day, point, who, part)
+            if need:
+                return {'ok': False, 'error': need}
+        # Этап дня сдаётся один раз. Событийный лист — собеседование, тайный
+        # гость — можно и дважды за день, там каждый раз новый случай.
+        if dup and C.checklists()[kind].get('stage'):
+            return {'ok': False, 'error': f'Этот лист уже сдан сегодня: {dup}. '
+                                          f'Повторно его не заполняют — если '
+                                          f'что-то не так, скажи управляющему.'}
+        ok, tot, fails, line = S.save_fill(
+            kind, day, point, who[0], marks, measured, photos, hhmm, comment, sec,
+            part, to)
     try:
         handover_notify(kind, day, point, who[0], to, ok, tot, fails, comment,
                         part or '')
@@ -1168,7 +1171,6 @@ def shift_people(key, day, point, filler=''):
     return one, two
 
 
-@S.serial
 def check(who, body):
     """Второй круг: подтвердить заполнение либо описать расхождение."""
     if S.role_of(who) not in ('manager', 'coo'):
@@ -1181,56 +1183,59 @@ def check(who, body):
         return {'ok': False, 'error': 'не та запись'}
     if verdict == 'bad' and len(note_txt.split()) < 2:
         return {'ok': False, 'error': 'Опиши, что именно не сошлось'}
-    # Второе нажатие по той же строке начисляло баллы ещё раз и слало второй
-    # итог. 29.08 так вышло два «+5» Насибе за один лист.
-    try:
-        done = S.get(C.checklists()[key]['tab'], f'N{line}:N{line}')
-        if done and done[0] and str(done[0][0]).strip():
-            return {'ok': False,
-                    'error': f'Уже подтвердил {done[0][0]}'}
-    except Exception as e:
-        print('повторная проверка:', e)
-    # Чужая точка — не его дело. В список ему такой лист не попадёт, но
-    # запрос до 31.08 принимали: право проверять держалось только тем,
-    # что кнопки не видно.
-    try:
-        r = S.get(C.checklists()[key]['tab'], f'B{line}:B{line}')
-        pt = str(r[0][0]).strip() if r and r[0] else ''
-        if (pt and S.role_of(who) != 'coo' and pt != who[1]
-                and S.standin_of(pt) != who[0]):
-            return {'ok': False, 'error': f'Это лист точки {S.point_label(pt)}. '
-                                          f'Его проверяет её управляющий.'}
-    except Exception as e:
-        print('точка заполнения:', e)
-    # Свой лист не подтверждает никто. Управляющий так закрыл четыре
-    # собственных заполнения 29–30.08 — проверки по факту не было.
-    try:
-        r = S.get(C.checklists()[key]['tab'], f'C{line}:C{line}')
-        if r and r[0] and str(r[0][0]).strip() == who[0]:
-            return {'ok': False, 'error': 'Свой лист подтверждает тот, кто '
-                                          'выше: управляющего — директор.'}
-    except Exception as e:
-        print('автор заполнения:', e)
-    # Невыполненные пункты нельзя оставить неразобранными. Иначе честный «✕»
-    # повисает: он записан, но за него ни минуса смене, ни задачи на починку —
-    # и человеку выгоднее нарисовать галочку, чем сказать правду.
-    try:
-        row = S.get(C.checklists()[key]['tab'], f'I{line}:I{line}')
-        fails = re.findall(r'\d+', str(row[0][0]) if row and row[0] else '')
-    except Exception as e:
-        print('невыполненные пункты:', e)
-        fails = []
-    if fails:
-        got = {str(x) for x in (body.get('first') or body.get('guilty') or [])} \
-            | {str(x) for x in (body.get('second') or [])} \
-            | {str(x) for x in (body.get('external') or [])}
-        left = [n for n in fails if n not in got]
-        if left:
-            return {'ok': False, 'error':
-                    'Сначала разбери невыполненные пункты: '
-                    + ', '.join(left)
-                    + '. По каждому скажи, вина смены или задача на починку.'}
-    S.save_check(key, line, who[0], verdict, note_txt)
+    # Под замком — только проверки и запись. Начисления, задачи и отчёты
+    # уходят ниже: держать в очереди отправку в телеграм незачем.
+    with S.WRITE_LOCK:
+        # Второе нажатие по той же строке начисляло баллы ещё раз и слало второй
+        # итог. 29.08 так вышло два «+5» Насибе за один лист.
+        try:
+            done = S.get(C.checklists()[key]['tab'], f'N{line}:N{line}')
+            if done and done[0] and str(done[0][0]).strip():
+                return {'ok': False,
+                        'error': f'Уже подтвердил {done[0][0]}'}
+        except Exception as e:
+            print('повторная проверка:', e)
+        # Чужая точка — не его дело. В список ему такой лист не попадёт, но
+        # запрос до 31.08 принимали: право проверять держалось только тем,
+        # что кнопки не видно.
+        try:
+            r = S.get(C.checklists()[key]['tab'], f'B{line}:B{line}')
+            pt = str(r[0][0]).strip() if r and r[0] else ''
+            if (pt and S.role_of(who) != 'coo' and pt != who[1]
+                    and S.standin_of(pt) != who[0]):
+                return {'ok': False, 'error': f'Это лист точки {S.point_label(pt)}. '
+                                              f'Его проверяет её управляющий.'}
+        except Exception as e:
+            print('точка заполнения:', e)
+        # Свой лист не подтверждает никто. Управляющий так закрыл четыре
+        # собственных заполнения 29–30.08 — проверки по факту не было.
+        try:
+            r = S.get(C.checklists()[key]['tab'], f'C{line}:C{line}')
+            if r and r[0] and str(r[0][0]).strip() == who[0]:
+                return {'ok': False, 'error': 'Свой лист подтверждает тот, кто '
+                                              'выше: управляющего — директор.'}
+        except Exception as e:
+            print('автор заполнения:', e)
+        # Невыполненные пункты нельзя оставить неразобранными. Иначе честный «✕»
+        # повисает: он записан, но за него ни минуса смене, ни задачи на починку —
+        # и человеку выгоднее нарисовать галочку, чем сказать правду.
+        try:
+            row = S.get(C.checklists()[key]['tab'], f'I{line}:I{line}')
+            fails = re.findall(r'\d+', str(row[0][0]) if row and row[0] else '')
+        except Exception as e:
+            print('невыполненные пункты:', e)
+            fails = []
+        if fails:
+            got = {str(x) for x in (body.get('first') or body.get('guilty') or [])} \
+                | {str(x) for x in (body.get('second') or [])} \
+                | {str(x) for x in (body.get('external') or [])}
+            left = [n for n in fails if n not in got]
+            if left:
+                return {'ok': False, 'error':
+                        'Сначала разбери невыполненные пункты: '
+                        + ', '.join(left)
+                        + '. По каждому скажи, вина смены или задача на починку.'}
+        S.save_check(key, line, who[0], verdict, note_txt)
     faults(key, line, who, body)
     if verdict == 'bad':
         try:
