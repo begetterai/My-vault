@@ -844,7 +844,7 @@
   <button class="send" id="send" disabled>Отправить</button>
 </div>
 <script>
-const BUILD = 'v02.09 смена разблокирована';
+const BUILD = 'v02.09 геолокация вернулась';
 // Заполняются на старте: скрипт телеграма грузится отложенно, и на момент
 // разбора этой строки window.Telegram может ещё не существовать.
 let tg = null, initData = '';
@@ -1351,7 +1351,7 @@ function renderShift(){
 /* Отметка не прошла, потому что телефон показывает не ту точку. Кнопка
    просит управляющего разрешить: он один знает, стоит человек на месте
    или нет. Его имя уходит в таблицу рядом с отметкой. */
-function askGeo(direction, g){
+function geoPermitButton(direction, g){
   const box = $('#geoAsk');
   box.innerHTML = '';
   const b = document.createElement('button');
@@ -1395,7 +1395,7 @@ async function mark2(direction){
       note(j.error || 'Не записалось. Попробуй ещё раз.', 'err');
       // Не на точке. Телефон иногда врёт на сотни метров — даём попросить
       // разрешение, а не оставляем человека без смены.
-      if(j.far) askGeo(direction, g);
+      if(j.far) geoPermitButton(direction, g);
       return false;
     }
     if(j.shift){ DATA.shift = j.shift; }
