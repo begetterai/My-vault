@@ -87,9 +87,14 @@ def tg(method, **kw):
         return {'ok': False, 'description': f'{type(e).__name__}: {e}'}
 
 
-def send(text):
+def send(text, **kw):
+    # Когда черновик ждёт категорию, к любому сообщению цепляем кнопки:
+    # выбрать нажатием быстрее, чем набирать название, а у бота одна
+    # переписка — путаницы, к какому вопросу кнопки, быть не может.
+    if 'reply_markup' not in kw and (DRAFT.get(ALLOWED) or {}).get('need') == 'category':
+        kw['reply_markup'] = cat_keyboard()
     tg('sendMessage', chat_id=ALLOWED, text=text, parse_mode='HTML',
-       disable_web_page_preview=True)
+       disable_web_page_preview=True, **kw)
 
 
 def typing():
@@ -692,7 +697,25 @@ DENY = {'нет', 'не', 'отмена', 'отмени', 'отменить', 'n
 DRAFT = {}          # chat_id → {kind, category, amount, comment, date, raw, need, queue}
 LAST = {}           # что записали последним — для «отмени» и «поправь»
 ASK = {'amount': 'Сколько? Ответь числом.',
-       'comment': 'На что? Ответь одним словом.'}
+       'comment': 'На что? Ответь одним словом.',
+       'category': 'Категорию не понял — выбери кнопкой ниже.'}
+
+# Порядок кнопок фиксирован: положение категории не должно прыгать
+# от раза к разу, иначе рука не запоминает, куда жать.
+CAT_LIST = sorted(BUDGET_CATS) + sorted(SAVINGS_CATS) + sorted(INCOME_CATS)
+
+
+def cat_keyboard():
+    """Кнопки категорий — по две в ряд, чтобы названия помещались."""
+    rows, row = [], []
+    for i, c in enumerate(CAT_LIST):
+        row.append({'text': c, 'callback_data': f'c:{i}'})
+        if len(row) == 2:
+            rows.append(row)
+            row = []
+    if row:
+        rows.append(row)
+    return {'inline_keyboard': rows}
 
 
 def pend_add(acts):
@@ -716,13 +739,18 @@ def pend_add(acts):
 
 
 def draft_need(d):
-    """Чего не хватает черновику. Категорию не спрашиваем: не разобрали —
-    пишем в «Прочее» с пометкой, поправить можно одной командой. Лишний
-    вопрос у кассы стоит дороже, чем неточная категория в журнале."""
+    """Чего не хватает черновику: сумма, пояснение, категория.
+
+    Категорию спрашиваем кнопками — правка Азиза 04.09.2026: «чтобы я мог
+    выбрать сам, в какую категорию его вписать». Раньше непонятое молча
+    уходило в «Прочее», и разгребать приходилось потом.
+    """
     if not d.get('amount'):
         return 'amount'
     if not str(d.get('comment') or '').strip():
         return 'comment'
+    if not d.get('category'):
+        return 'category'
     return ''
 
 
@@ -751,8 +779,7 @@ def draft_ask(d, prefix=''):
     need = draft_need(d)
     if not need:
         DRAFT.pop(ALLOWED, None)
-        guessed = not d.get('category')
-        args = {'amount': d['amount'], 'category': d.get('category') or 'Прочее',
+        args = {'amount': d['amount'], 'category': d['category'],
                 'kind': d.get('kind') or 'расход', 'comment': d['comment']}
         if d.get('date'):
             args['date'] = d['date']
@@ -760,9 +787,7 @@ def draft_ask(d, prefix=''):
         out = pend_add([('add_entry', args)])
         if queue:
             DRAFT[ALLOWED] = {'queue': queue}      # очередь переживает подтверждение
-        mark = ('\n⚠️ Категорию не понял — пишу в «Прочее». '
-                'Потом можно «поправь категорию Кафе».\n') if guessed else ''
-        return prefix + mark + out
+        return prefix + out
     d['need'] = need
     DRAFT[ALLOWED] = d
     have = []
@@ -799,6 +824,12 @@ def draft_fill(d, text):
             hit = QUICK_CATS.get(com.lower().replace('ё', 'е'))
             if hit:
                 d['kind'], d['category'] = hit
+    elif need == 'category':
+        # Кнопкой быстрее, но набрать название тоже можно.
+        hit = QUICK_CATS.get(t.lower().replace('ё', 'е'))
+        if not hit:
+            return 'Не нашёл такой категории. Нажми кнопку ниже.'
+        d['kind'], d['category'] = hit
     return draft_ask(d)
 
 
@@ -1142,7 +1173,8 @@ HELP = (
     '<code>поправь комментарий вода</code>\n\n'
     '<b>Если не понял</b> — не выбрасываю, а спрашиваю недостающее: '
     '«Сколько?» или «На что?». Отвечаешь одним словом или числом, '
-    'фразу целиком набирать не надо. Не нужно — ответь «отмена».\n\n'
+    'фразу целиком набирать не надо. Категорию покажу кнопками — '
+    'выбираешь сам. Не нужно — ответь «отмена».\n\n'
     'Дата: 18.08.2026 · 18.08.26 · 18.08 · 2026-08-18. Без даты — сегодня.\n'
     'Валюту (см, сом, с) можно писать — отбрасывается.\n'
     'Голосовое расшифрую. Фото чека прочитаю и предложу запись.\n'
@@ -1382,6 +1414,36 @@ def handle(msg):
     audit(kind, text, reply)
 
 
+def on_callback(cq):
+    """Нажата кнопка категории."""
+    tg('answerCallbackQuery', callback_query_id=cq.get('id'))
+    if str((cq.get('from') or {}).get('id', '')) != ALLOWED:
+        return
+    data = str(cq.get('data') or '')
+    msg = cq.get('message') or {}
+    if msg.get('message_id'):
+        # Убираем кнопки со старого сообщения, чтобы по ним нельзя было
+        # нажать второй раз и попасть в уже закрытый вопрос.
+        tg('editMessageReplyMarkup', chat_id=ALLOWED,
+           message_id=msg['message_id'], reply_markup={'inline_keyboard': []})
+    if not data.startswith('c:'):
+        return
+    try:
+        cat = CAT_LIST[int(data[2:])]
+    except (ValueError, IndexError):
+        return
+    d = DRAFT.get(ALLOWED)
+    if not d or d.get('need') != 'category':
+        send(f'Этот вопрос уже закрыт. Если нужно поправить последнюю запись — '
+             f'«поправь категорию {cat}».')
+        return
+    d['kind'], d['category'] = QUICK_CATS.get(
+        cat.lower().replace('ё', 'е'), ('расход', cat))
+    out = draft_ask(d)
+    send(out)
+    audit('категория кнопкой', cat, out[:200])
+
+
 def run():
     for need, name in ((TG_TOKEN, 'TELEGRAM_BOT_TOKEN'), (ALLOWED, 'TELEGRAM_CHAT_ID')):
         if not need:
@@ -1405,7 +1467,7 @@ def run():
     while True:
         try:
             res = tg('getUpdates', offset=offset, timeout=25,
-                     allowed_updates=['message'])
+                     allowed_updates=['message', 'callback_query'])
             if not res.get('ok'):
                 bad += 1
                 if bad in (1, 10, 100):
@@ -1420,15 +1482,17 @@ def run():
                 # заново. 04.09.2026 так вышло: пачка из 12 трат обработалась
                 # трижды, и 11 операций записались дважды.
                 save_offset(offset)
-                if 'message' in upd:
-                    try:
+                try:
+                    if 'message' in upd:
                         handle(upd['message'])
-                    except Exception as e:
-                        log.error('обработка: %s', e)
-                        try:
-                            send(f'⚠️ Ошибка: {e}')
-                        except Exception:
-                            pass
+                    elif 'callback_query' in upd:
+                        on_callback(upd['callback_query'])
+                except Exception as e:
+                    log.error('обработка: %s', e)
+                    try:
+                        send(f'⚠️ Ошибка: {e}')
+                    except Exception:
+                        pass
         except requests.RequestException as e:
             log.warning('сеть: %s', e)
             time.sleep(5)
