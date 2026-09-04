@@ -438,30 +438,48 @@ def limits_report():
     return '\n'.join(out)
 
 
+# Как каждый тип двигает деньги на руках. Погашение и накопление уменьшают
+# кэш ровно так же, как расход: денег на руках после них меньше.
+CASH_SIGN = {'Доход': 1, 'Расход': -1, 'Накопление': -1, 'Погашение': -1}
+
+
 def month_report():
-    """Итог месяца: расходы, доходы, накопления."""
+    """Итог месяца: результат месяца и остаток на руках.
+
+    Раньше здесь была одна строка «Остаток» — доходы минус всё остальное
+    ЗА МЕСЯЦ. Но в таблице строка «Остаток (кэш)» включает переходящий
+    остаток с прошлых месяцев, и за август бот говорил −6082,51, а таблица
+    +2005,39. Одно слово, два числа. Теперь считаем обе величины и обе
+    называем своими именами; «Остаток (кэш)» сходится с таблицей.
+    """
     ym = now_local().strftime('%Y-%m')
     r = SHEETS.get(API + BUDGET_SS + '/values/' + _q('Operations!A2:E'),
                    params={'valueRenderOption': 'UNFORMATTED_VALUE'}, timeout=60)
-    by = {}
+    by, carry = {}, 0.0
     for row in (r.json().get('values', []) if r.ok else []):
         row = list(row) + ['', '', '', '', '']
         d = _row_date(row[0])
-        if not d or d.strftime('%Y-%m') != ym:
+        if not d:
             continue
         try:
             amount = float(str(row[3]).replace(',', '.'))
         except (ValueError, TypeError):
             continue
-        by[str(row[1]).strip()] = by.get(str(row[1]).strip(), 0.0) + amount
+        kind = str(row[1]).strip()
+        key = d.strftime('%Y-%m')
+        if key < ym:
+            carry += CASH_SIGN.get(kind, 0) * amount
+        elif key == ym:
+            by[kind] = by.get(kind, 0.0) + amount
     out = [f'📅 <b>Итог {now_local().strftime("%m.%Y")}</b>', '']
     for t in ('Доход', 'Расход', 'Накопление', 'Погашение'):
         if by.get(t):
             out.append(f'{t}: <b>{_money(by[t])}</b> с')
-    saldo = by.get('Доход', 0) - by.get('Расход', 0) - by.get('Накопление', 0) \
-        - by.get('Погашение', 0)
+    month = sum(CASH_SIGN[t] * by.get(t, 0.0) for t in CASH_SIGN)
     out.append('')
-    out.append(f'Остаток: <b>{_money(saldo)}</b> с')
+    out.append(f'За месяц: <b>{_money(month)}</b> с')
+    out.append(f'С прошлых месяцев: {_money(carry)} с')
+    out.append(f'<b>Остаток (кэш): {_money(carry + month)} с</b>')
     return '\n'.join(out)
 
 

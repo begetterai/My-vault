@@ -79,6 +79,15 @@ for label,kind,opcat in SAV_STRUCT:
     rr=add(label, [sif(m,kind,opcat) for m in range(1,13)], ''); rows[-1][-1]=f'=SUM(B{rr}:M{rr})'; sav_row[label]=rr
 sav_end=len(rows); r_cushion=sav_row['Накопления / Подушка']
 r_sav = add('Итого — сбережения и долг', [f'=SUM({col}{sav_start}:{col}{sav_end})' for col in COLS], f'=SUM(N{sav_start}:N{sav_end})')
+# Норма сбережений считается только от накоплений. Погашение кредита —
+# это возврат чужих денег, а не отложенное себе: в августе 2026 при нулевой
+# подушке дашборд показывал «норма сбережений 13,9 %», потому что в неё
+# попали 974 сомони погашения. Число говорило, что человек сберегает,
+# когда он не сберегает. Строка вне SUM(sav_start:sav_end) — итог не меняется.
+r_pay=sav_row['Погашение кредита']
+r_savonly = add('Итого — накопления (без погашения долга)',
+                [f'={col}{r_cushion}+{col}{sav_row["Инвестиции"]}' for col in COLS],
+                f'=N{r_cushion}+N{sav_row["Инвестиции"]}')
 
 add('', ['']*12, '')
 # Остаток (кэш) = все поступления − расходы − отложено; переходит на след. месяц
@@ -153,7 +162,8 @@ d('')
 h_kpi=d('ИТОГИ МЕСЯЦА')
 kpi_lbl=d('Заработано','Потрачено','Отложено + долг','Остаток (кэш)','Чистый без кредитов','Норма сбереж.')
 kr=len(D)+1
-kpi_val=d(pref(r_earn),pref(r_exp),pref(r_sav),pref(r_bal),pref(r_net),f'=IFERROR(C{kr}/A{kr},0)')
+kpi_val=d(pref(r_earn),pref(r_exp),pref(r_sav),pref(r_bal),pref(r_net),
+          f'=IFERROR({pref(r_savonly)[1:]}/A{kr},0)')
 d('')
 # 3) План / факт по категориям
 h_pf=d('ПЛАН / ФАКТ ПО КАТЕГОРИЯМ')
@@ -183,8 +193,11 @@ h_dyn2=d('Показатель','Янв','Фев','Мар','Апр','Май','И
 dyn_first=len(D)+1
 def dynrow(label,r): d(label,*[f'=PnL!{col}{r}' for col in COLS],f'=PnL!N{r}')
 dynrow('Заработано',r_earn); dynrow('Потрачено',r_exp); dynrow('Отложено + долг',r_sav); dynrow('Остаток (кэш)',r_bal)
-r_dnorm=d('Норма сбережений',*[f'=IFERROR(PnL!{col}{r_sav}/PnL!{col}{r_earn},0)' for col in COLS],
-          f'=IFERROR(PnL!N{r_sav}/PnL!N{r_earn},0)')
+# Накопления и погашение долга — двумя строками, чтобы деньги не пропали
+# из виду после того, как погашение убрано из нормы сбережений.
+dynrow('Отложено себе',r_savonly); dynrow('Погашение долга',r_pay)
+r_dnorm=d('Норма сбережений',*[f'=IFERROR(PnL!{col}{r_savonly}/PnL!{col}{r_earn},0)' for col in COLS],
+          f'=IFERROR(PnL!N{r_savonly}/PnL!N{r_earn},0)')
 d('')
 # 6) Легенда
 h_leg=d('ЛЕГЕНДА КАТЕГОРИЙ')
