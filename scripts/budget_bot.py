@@ -183,6 +183,36 @@ CURRENCY = {'см','сом','сомони','смн','tjs','с','c'}
 # Слова, после которых строка — не трата, а вопрос или задача
 NOT_SPEND = ('напомн','покаж','скольк','выручк','задач','отчет','сделай','добав',
              'проверь','посчитай','что ','когда','почему','сводк','остаток')
+# Полная дата где угодно в остатке строки: «Такси 11 - 23.08.2026»,
+# «Машины - 24.08.2026». До 04.09.2026 дата искалась только в самом начале
+# остатка, и тире перед ней всё ломало: 21 трата задним числом легла
+# сегодняшним днём, а настоящая дата осталась в комментарии.
+# Короткую форму «20.08» здесь не ищем — иначе «2.5 кг» станет 2 мая.
+DATE_ANY = re.compile(r'(?<!\d)(\d{4}-\d{2}-\d{2}|\d{1,2}[./,]\d{1,2}[./,]\d{2,4})(?!\d)')
+
+
+UNITS = {'кг', 'г', 'гр', 'л', 'мл', 'шт', 'км', 'м', 'м2', '%'}
+
+
+def _pull_date(rest):
+    """Вынуть полную дату из строки. → (ISO или None, остаток)."""
+    m = DATE_ANY.search(rest or '')
+    if not m:
+        return None, rest
+    s = m.group(1)
+    try:
+        if '-' in s:
+            iso = str(datetime.date.fromisoformat(s))
+        else:
+            dd, mm, yy = re.split(r'[./,]', s)
+            year = int(yy) + 2000 if len(yy) == 2 else int(yy)
+            iso = str(datetime.date(year, int(mm), int(dd)))
+    except ValueError:
+        return None, rest
+    left = (rest[:m.start()] + ' ' + rest[m.end():]).strip()
+    return iso, re.sub(r'\s+', ' ', left).strip(' ,;:-–—.')
+
+
 def _strip_currency(s):
     """Убирает хвост-валюту: «вода см» → «вода», «см» → «»."""
     w = [x for x in str(s).split() if x.lower().replace('ё','е').strip('.,;:') not in CURRENCY]
@@ -207,19 +237,17 @@ def _parse_quick(text):
     before=rest[:m.start()].strip(' ,;:-')      # текст между категорией и суммой → в комментарий
     amount=float(m.group(1).replace(',','.'))
     rest=rest[m.end():].strip()
-    # дата: 20.08.2026 / 20.08.26 / 20.08 / 2026-08-20, разделитель . / ,
-    iso=None
-    dm=re.match(r'^(\d{4}-\d{2}-\d{2})\b\s*(.*)$', rest, re.S)
-    if dm:
-        iso=dm.group(1); rest=dm.group(2).strip()
-    else:
-        dm=re.match(r'^(\d{1,2})[./,](\d{1,2})(?:[./,](\d{2,4}))?\b\s*(.*)$', rest, re.S)
+    # дата: полная — где угодно в остатке; короткая «20.08» — только в начале
+    iso, rest = _pull_date(rest)
+    if not iso:
+        dm=re.match(r'^(\d{1,2})[./,](\d{1,2})\b\s*(.*)$', rest, re.S)
+        # «2.5 кг» — это вес, а не 2 мая: за единицей измерения даты не бывает
+        if dm and dm.group(3).split()[:1] and dm.group(3).split()[0].lower() in UNITS:
+            dm=None
         if dm:
             dd,mm=int(dm.group(1)),int(dm.group(2))
-            yy=dm.group(3); year=today_local().year
-            if yy: year=int(yy)+2000 if len(yy)==2 else int(yy)
             try:
-                iso=str(datetime.date(year,mm,dd)); rest=dm.group(4).strip()
+                iso=str(datetime.date(today_local().year,mm,dd)); rest=dm.group(3).strip()
             except ValueError: return None
     # комментарий: текст до суммы + хвост после даты, без мусора
     com=" ".join(x for x in (before, rest) if x).strip(' ,;:-.')
@@ -240,17 +268,15 @@ def _parse_quick_loose(text):
     if not re.fullmatch(r'[^\d]+', before): return None
     amount=float(m.group(1).replace(',','.'))
     rest=t[m.end():].strip()
-    iso=None
-    dm=re.match(r'^(\d{4}-\d{2}-\d{2})\b\s*(.*)$', rest, re.S)
-    if dm:
-        iso=dm.group(1); rest=dm.group(2).strip()
-    else:
-        dm=re.match(r'^(\d{1,2})[./,](\d{1,2})(?:[./,](\d{2,4}))?\b\s*(.*)$', rest, re.S)
+    iso, rest = _pull_date(rest)
+    if not iso:
+        dm=re.match(r'^(\d{1,2})[./,](\d{1,2})\b\s*(.*)$', rest, re.S)
+        # «2.5 кг» — это вес, а не 2 мая: за единицей измерения даты не бывает
+        if dm and dm.group(3).split()[:1] and dm.group(3).split()[0].lower() in UNITS:
+            dm=None
         if dm:
             dd,mm=int(dm.group(1)),int(dm.group(2))
-            yy=dm.group(3); year=today_local().year
-            if yy: year=int(yy)+2000 if len(yy)==2 else int(yy)
-            try: iso=str(datetime.date(year,mm,dd)); rest=dm.group(4).strip()
+            try: iso=str(datetime.date(today_local().year,mm,dd)); rest=dm.group(3).strip()
             except ValueError: return None
     # после суммы и даты не должно остаться НИЧЕГО, кроме валюты:
     # «Напомни завтра в 10 позвонить в банк» — это не трата, а задача
@@ -484,6 +510,28 @@ def month_report():
 
 
 # ── Запись ───────────────────────────────────────────────────────────────────
+def _row_exists(d, typ, cat, amount, com):
+    """Есть ли уже точно такая строка в журнале."""
+    try:
+        r = SHEETS.get(API + BUDGET_SS + '/values/' + _q('Operations!A2:E'),
+                       params={'valueRenderOption': 'UNFORMATTED_VALUE'},
+                       timeout=60)
+        for row in (r.json().get('values', []) if r.ok else []):
+            row = list(row) + [''] * 5
+            dd = _row_date(row[0])
+            if (dd and str(dd) == d and str(row[1]).strip() == typ
+                    and str(row[2]).strip() == cat
+                    and str(row[4]).strip() == com):
+                try:
+                    if abs(float(row[3]) - amount) < 0.005:
+                        return True
+                except (ValueError, TypeError):
+                    pass
+    except Exception as e:
+        log.warning('проверка дубля: %s', e)
+    return False
+
+
 def add_entry(amount, category='Прочее', kind='расход', comment='', date=None, **_):
     """Строка в лист Operations. Тип нормализуется, комментарий с заглавной."""
     k = str(kind).lower()
@@ -500,6 +548,13 @@ def add_entry(amount, category='Прочее', kind='расход', comment='', 
         cat = category if category in BUDGET_CATS else 'Прочее'
     d, _m = _resolve_date(date)
     com = _cap((comment or '').strip())
+    # Вторая опора против дублей: даже если сообщение придёт дважды,
+    # одинаковая строка в журнал не ляжет второй раз.
+    if _row_exists(d, typ, cat, float(amount), com):
+        return (f'⚠️ Уже записано: {typ} {_money(amount)} с · {cat}'
+                + (f' · {com}' if com else '')
+                + '\nВторой раз не пишу. Если трата и правда повторилась — '
+                  'добавь пояснение в комментарий.')
     _budget_append('Operations!A:E', [d, typ, cat, float(amount), com])
     # Запоминаем СОДЕРЖИМОЕ, а не номер строки: _budget_append сразу
     # сортирует журнал по дате, и номер протухает в тот же миг.
@@ -1031,6 +1086,31 @@ def audit(kind, text, result):
         log.warning('аудит: %s', e)
 
 
+# Номер последнего обработанного сообщения. В памяти он не переживает
+# перезапуск, а Railway перезапускает контейнер на каждой выкатке —
+# телеграм в этот момент присылает неподтверждённые сообщения заново.
+OFFSET_CELL = f'{AUDIT_TAB}!F1'
+
+
+def load_offset():
+    try:
+        v = SHEETS.get(API + BUDGET_SS + '/values/' + _q(OFFSET_CELL),
+                       timeout=30).json().get('values') or []
+        return int(v[0][0]) if v and v[0] else 0
+    except Exception as e:
+        log.warning('offset: %s', e)
+        return 0
+
+
+def save_offset(n):
+    try:
+        SHEETS.put(API + BUDGET_SS + '/values/' + _q(OFFSET_CELL),
+                   params={'valueInputOption': 'RAW'},
+                   json={'values': [[str(n)]]}, timeout=20)
+    except Exception as e:
+        log.warning('offset: %s', e)
+
+
 def ensure_audit_tab():
     meta = SHEETS.get(API + BUDGET_SS, params={'fields': 'sheets.properties'},
                       timeout=30).json()
@@ -1321,7 +1401,7 @@ def run():
         log.warning('подготовка таблицы: %s', e)
     log.info('💰 Бюджетный бот запущен')
 
-    offset, bad = 0, 0
+    offset, bad = load_offset(), 0
     while True:
         try:
             res = tg('getUpdates', offset=offset, timeout=25,
@@ -1335,6 +1415,11 @@ def run():
             bad = 0
             for upd in res.get('result') or []:
                 offset = upd['update_id'] + 1
+                # Запоминаем ДО обработки: контейнер могут перезапустить
+                # посреди записи, и тогда телеграм пришлёт то же сообщение
+                # заново. 04.09.2026 так вышло: пачка из 12 трат обработалась
+                # трижды, и 11 операций записались дважды.
+                save_offset(offset)
                 if 'message' in upd:
                     try:
                         handle(upd['message'])
