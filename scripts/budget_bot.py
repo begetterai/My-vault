@@ -640,6 +640,26 @@ ASK = {'amount': 'Сколько? Ответь числом.',
        'comment': 'На что? Ответь одним словом.'}
 
 
+def pend_add(acts):
+    """Добавить операции к ожидающим подтверждения. → текст для человека.
+
+    Раньше новая операция ЗАТИРАЛА предыдущую: три траты подряд тремя
+    сообщениями — записывалась одна последняя, две пропадали с сообщением
+    «предыдущая запись НЕ сохранена». Теперь они копятся, и одно «да»
+    записывает все.
+    """
+    cur = (PENDING.get(ALLOWED) or []) + list(acts)
+    PENDING[ALLOWED] = cur
+    if len(cur) == 1:
+        fn, a = cur[0]
+        return (describe(fn, a) + f' · {a.get("date") or "сегодня"}'
+                + '\n\nЗаписать? (да/нет)')
+    lines = [f'{i}. ' + describe(fn, a) + f' · {a.get("date") or "сегодня"}'
+             for i, (fn, a) in enumerate(cur, 1)]
+    return (f'❓ Ждут записи — {len(cur)}:\n\n' + '\n'.join(lines)
+            + '\n\n«да» — запишу все, «нет» — отменю.')
+
+
 def draft_need(d):
     """Чего не хватает черновику. Категорию не спрашиваем: не разобрали —
     пишем в «Прочее» с пометкой, поправить можно одной командой. Лишний
@@ -651,10 +671,10 @@ def draft_need(d):
     return ''
 
 
-def draft_start(text, **known):
+def draft_start(text, queue=None, **known):
     """Завести черновик из того, что известно, и спросить недостающее."""
     d = {'kind': 'расход', 'category': '', 'amount': None, 'comment': '',
-         'date': None, 'raw': str(text or '').strip(), 'queue': []}
+         'date': None, 'raw': str(text or '').strip(), 'queue': list(queue or [])}
     d.update({k: v for k, v in known.items() if v not in (None, '')})
     # Сумма могла остаться в сырой фразе — вытаскиваем, чтобы не спрашивать зря.
     if not d['amount'] and d['raw']:
@@ -682,13 +702,12 @@ def draft_ask(d, prefix=''):
         if d.get('date'):
             args['date'] = d['date']
         queue = d.get('queue') or []
-        PENDING[ALLOWED] = [('add_entry', args)]
+        out = pend_add([('add_entry', args)])
         if queue:
             DRAFT[ALLOWED] = {'queue': queue}      # очередь переживает подтверждение
-        mark = '\n⚠️ Категорию не понял — пишу в «Прочее». ' \
-               'Потом можно «поправь категорию Кафе».' if guessed else ''
-        return (prefix + describe('add_entry', args)
-                + f' · {d.get("date") or "сегодня"}{mark}\n\nЗаписать? (да/нет)')
+        mark = ('\n⚠️ Категорию не понял — пишу в «Прочее». '
+                'Потом можно «поправь категорию Кафе».\n') if guessed else ''
+        return prefix + mark + out
     d['need'] = need
     DRAFT[ALLOWED] = d
     have = []
@@ -737,10 +756,24 @@ def draft_next(prefix=''):
         return ''
     line = queue.pop(0)
     left = f' (осталось разобрать: {len(queue)})' if queue else ''
-    out = draft_start(line)
-    cur = DRAFT.get(ALLOWED)
-    if cur is not None:
-        cur['queue'] = queue
+    # Строка могла быть понятной сама по себе — тогда вопрос лишний.
+    q = _parse_quick(line) or _parse_quick_loose(line)
+    if not q:
+        sw = _amount_first(line)
+        if sw:
+            q = _parse_quick(sw) or _parse_quick_loose(sw)
+    if q:
+        # Разобралась — записываем как обычную операцию, без вопросов.
+        # Спрашивать про неё комментарий значило бы вести себя иначе, чем
+        # с той же строкой, присланной отдельным сообщением.
+        k2, cat, amount, iso, com, _l = q
+        a = {'amount': amount, 'category': cat, 'kind': k2, 'comment': com}
+        if iso:
+            a['date'] = iso
+        out = pend_add([('add_entry', a)])
+        DRAFT[ALLOWED] = {'queue': queue}
+    else:
+        out = draft_start(line, queue=queue)
     return f'{prefix}📋 Строка «{line[:60]}»{left}\n{out}'
 
 TOOLS_SPEC = [
@@ -899,9 +932,7 @@ def run_calls(calls):
                 reads.append(f'⚠️ Ошибка «{fn}»: {e}')
     out = list(reads)
     if writes:
-        PENDING[ALLOWED] = writes
-        out.append('❓ Подтверди:\n' + '\n'.join(describe(f, a) for f, a in writes)
-                   + '\n\nОтветь «да» или «нет».')
+        out.append(pend_add(writes))
     return '\n'.join(out) if out else 'Не понял, повтори иначе.'
 
 
@@ -1081,9 +1112,7 @@ def handle(msg):
             cat = rc.get('category') if rc.get('category') in BUDGET_CATS else 'Прочее'
             com = _cap((rc.get('merchant') or rc.get('summary') or 'чек').strip())
             args = {'amount': total, 'category': cat, 'kind': 'расход', 'comment': com}
-            PENDING[ALLOWED] = [('add_entry', args)]
-            send('🧾 Чек прочитан.\n❓ Подтверди:\n' + describe('add_entry', args)
-                 + '\n\nОтветь «да» или «нет».')
+            send('🧾 Чек прочитан.\n' + pend_add([('add_entry', args)]))
         except Exception as e:
             send(f'⚠️ Не смог прочитать чек: {e}')
         return
@@ -1124,28 +1153,38 @@ def handle(msg):
             DRAFT.pop(ALLOWED, None)
             send('Отменил, ничего не записал.')
             return
-        # Сообщение не «да» и не «нет». Раньше запись здесь молча пропадала.
-        # Теперь она ждёт: сбросить её может только «нет» или новая операция,
-        # которую мы действительно разобрали.
-        if not (_parse_quick(text) or _parse_quick_lines(text)[0]
-                or _amount_first(text)):
-            send('Жду ответа: <b>да</b> — записать, <b>нет</b> — отменить.')
-            return
-        dropped = PENDING.pop(ALLOWED, None)
-        if dropped:
-            send(f'⚠️ Предыдущая запись НЕ сохранена — не было «да». '
-                 f'Отменено: {len(dropped)}.')
-
-    # Ответ на доспрос по черновику
+    # Ответ на доспрос по черновику — РАНЬШЕ, чем «жду да/нет»: когда висят
+    # и вопрос, и подтверждение, короткий ответ вроде «15» относится
+    # к вопросу, иначе бот отвечал «жду да/нет» и вопрос было не закрыть.
     d = DRAFT.get(ALLOWED)
     if d and d.get('need'):
         if low in DENY:
             DRAFT.pop(ALLOWED, None)
             send('Убрал черновик.' + draft_next('\n\n'))
             return
+        # Пришла законченная операция, а не ответ на вопрос: следующая трата
+        # не должна съедать черновик. Записываем её отдельно и переспрашиваем.
+        whole = _parse_quick(text)
+        if not whole:
+            sw = _amount_first(text)
+            whole = _parse_quick(sw) if sw else None
+        if whole:
+            k2, cat, amount, iso, com, _l = whole
+            a = {'amount': amount, 'category': cat, 'kind': k2, 'comment': com}
+            if iso:
+                a['date'] = iso
+            send(pend_add([('add_entry', a)]) + '\n\n' + draft_ask(d))
+            return
         out = draft_fill(d, text)
         send(out)
         audit('черновик', text, out[:200])
+        return
+
+    # Подтверждение висит, а сообщение — не операция: не теряем его, ждём.
+    if PENDING.get(ALLOWED) and not (
+            _parse_quick(text) or _parse_quick_lines(text)[0]
+            or _amount_first(text) or len(text.strip().splitlines()) > 1):
+        send('Жду ответа: <b>да</b> — записать, <b>нет</b> — отменить.')
         return
 
     if low in HELP_WORDS:
@@ -1199,24 +1238,34 @@ def handle(msg):
     # Пачка операций
     multi, bad = _parse_quick_lines(text)
     if multi:
-        acts, lines = [], []
-        for k2, cat, amount, iso, com, loose in multi:
+        acts = []
+        for k2, cat, amount, iso, com, _loose in multi:
             amt = str(int(amount)) if float(amount).is_integer() else str(amount)
             a = {'amount': amt, 'category': cat, 'kind': k2, 'comment': com}
             if iso:
                 a['date'] = iso
             acts.append(('add_entry', a))
-            mark = ' ⚠️ категорию не понял → Прочее' if loose else ''
-            lines.append(f'{describe("add_entry", a)} · {iso or "сегодня"}{mark}')
-        PENDING[ALLOWED] = acts
-        out = f'❓ Подтверди — {len(acts)} операц.:\n\n' + '\n'.join(lines)
+        out = pend_add(acts)
         if bad:
             # Не выбрасываем: после «да» пройдём по ним по одной и доспросим.
             DRAFT[ALLOWED] = {'queue': list(bad)}
             out += ('\n\n📋 Не разобрал сам, спрошу после «да»:\n'
                     + '\n'.join('· ' + b[:60] for b in bad))
-        send(out + '\n\nОтветь «да» или «нет».')
+        send(out)
         audit('пачка', text, f'ожидает подтверждения: {len(acts)}')
+        return
+
+    # Несколько строк, но пачкой не признано: разобралось меньше половины.
+    # Раньше такой блок уходил в модель ОДНИМ куском, и бот спрашивал про
+    # три траты как про одну — две пропадали. Ставим строки в очередь
+    # и разбираем по одной.
+    raw_lines = [l.strip() for l in text.strip().splitlines() if l.strip()]
+    if len(raw_lines) > 1 and '?' not in text \
+            and not any(w in low for w in NOT_SPEND):
+        DRAFT[ALLOWED] = {'queue': raw_lines}
+        out = draft_next()
+        send(out)
+        audit('очередь строк', text, out[:200])
         return
 
     # Одиночная операция
@@ -1231,9 +1280,7 @@ def handle(msg):
         args = {'amount': amt, 'category': cat, 'kind': k2, 'comment': com}
         if iso:
             args['date'] = iso
-        PENDING[ALLOWED] = [('add_entry', args)]
-        send(f'{describe("add_entry", args)} · {iso or "сегодня"}\n\n'
-             'Записать? (да/нет)')
+        send(pend_add([('add_entry', args)]))
         audit('быстрый ввод', text, 'ожидает подтверждения')
         return
 
