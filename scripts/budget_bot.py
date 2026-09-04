@@ -501,6 +501,9 @@ def add_entry(amount, category='Прочее', kind='расход', comment='', 
     d, _m = _resolve_date(date)
     com = _cap((comment or '').strip())
     _budget_append('Operations!A:E', [d, typ, cat, float(amount), com])
+    # Запоминаем СОДЕРЖИМОЕ, а не номер строки: _budget_append сразу
+    # сортирует журнал по дате, и номер протухает в тот же миг.
+    LAST['data'] = [d, typ, cat, float(amount), com]
     when = '' if d == str(today_local()) else f' ({d})'
     line = f'💵 {typ}: {_money(amount)} с · {cat}{when}'
     if com:
@@ -512,6 +515,84 @@ def add_entry(amount, category='Прочее', kind='расход', comment='', 
         except Exception as e:
             log.warning('остаток: %s', e)
     return line
+
+
+def _find_last_row():
+    """Номер строки последней записи — поиском по её содержимому.
+
+    Журнал пересортировывается после каждой записи, поэтому позицию
+    не запоминаем, а находим заново. Совпасть должно всё: дата, тип,
+    категория, сумма и комментарий.
+    """
+    want = LAST.get('data')
+    if not want:
+        return 0
+    r = SHEETS.get(API + BUDGET_SS + '/values/' + _q('Operations!A2:E'),
+                   params={'valueRenderOption': 'UNFORMATTED_VALUE'}, timeout=60)
+    rows = r.json().get('values', []) if r.ok else []
+    for i in range(len(rows) - 1, -1, -1):
+        row = list(rows[i]) + [''] * 5
+        d = _row_date(row[0])
+        try:
+            same = (d and str(d) == want[0]
+                    and str(row[1]).strip() == want[1]
+                    and str(row[2]).strip() == want[2]
+                    and abs(float(row[3]) - want[3]) < 0.005
+                    and str(row[4]).strip() == want[4])
+        except (ValueError, TypeError):
+            same = False
+        if same:
+            return i + 2
+    return 0
+
+
+def undo_last():
+    """Убрать последнюю записанную операцию."""
+    line = _find_last_row()
+    if not line:
+        return ('Нечего отменять — не помню последнюю запись. '
+                'Поправь в таблице.')
+    SHEETS.post(API + BUDGET_SS + ':batchUpdate', json={'requests': [
+        {'deleteDimension': {'range': {'sheetId': 0, 'dimension': 'ROWS',
+                                       'startIndex': line - 1,
+                                       'endIndex': line}}}]},
+        timeout=60).raise_for_status()
+    was = LAST.pop('data')
+    return (f'🗑 Убрал: {was[1]} {_money(was[3])} с · {was[2]}'
+            + (f' · {was[4]}' if was[4] else ''))
+
+
+FIX_FIELD = {'категор': (2, 'C'), 'сумм': (3, 'D'), 'коммент': (4, 'E')}
+
+
+def fix_last(what, value):
+    """Поправить поле последней записи: категорию, сумму или комментарий."""
+    key = next((k for k in FIX_FIELD if what.startswith(k)), '')
+    if not key:
+        return 'Поправить можно категорию, сумму или комментарий.'
+    idx, col = FIX_FIELD[key]
+    line = _find_last_row()
+    if not line:
+        return 'Нечего править — не помню последнюю запись.'
+    if key == 'сумм':
+        m = re.search(r'(\d+(?:[.,]\d+)?)', value)
+        if not m:
+            return 'Нужно число.'
+        new = float(m.group(1).replace(',', '.'))
+    elif key == 'категор':
+        hit = QUICK_CATS.get(value.strip().lower().replace('ё', 'е'))
+        if not hit:
+            return 'Такой категории нет. Напиши название из списка.'
+        new = hit[1]
+    else:
+        new = _cap(value.strip())[:80]
+    SHEETS.put(API + BUDGET_SS + '/values/' + _q(f'Operations!{col}{line}'),
+               params={'valueInputOption': 'USER_ENTERED'},
+               json={'values': [[new]]}, timeout=60).raise_for_status()
+    LAST['data'][idx] = new
+    was = LAST['data']
+    return (f'✏️ Поправил: {was[1]} {_money(was[3])} с · {was[2]}'
+            + (f' · {was[4]}' if was[4] else ''))
 
 
 def add_credit(amount, kind='получен', name='', comment='', date=None, **_):
@@ -546,6 +627,121 @@ AFFIRM = {'да', 'ага', 'угу', 'подтверждаю', 'ок', 'оке�
           'давай', 'верно', 'точно', 'да.', 'ок.'}
 DENY = {'нет', 'не', 'отмена', 'отмени', 'отменить', 'no', 'неверно',
         'не надо', 'нет.'}
+
+# ── Черновик: незаконченная запись ───────────────────────────────────────────
+# До 04.09.2026 всё, что бот не разобрал целиком, выбрасывалось: «Не понял,
+# повтори иначе», «Комментарий обязателен», «НЕ РАСПОЗНАЛ (не запишу)».
+# Трата при этом уже случилась, и человек набирал её заново — а на ходу,
+# у кассы, это значит «запишу потом» и не записать никогда.
+# Теперь известное сохраняется, и бот спрашивает ровно то, чего не хватает.
+DRAFT = {}          # chat_id → {kind, category, amount, comment, date, raw, need, queue}
+LAST = {}           # что записали последним — для «отмени» и «поправь»
+ASK = {'amount': 'Сколько? Ответь числом.',
+       'comment': 'На что? Ответь одним словом.'}
+
+
+def draft_need(d):
+    """Чего не хватает черновику. Категорию не спрашиваем: не разобрали —
+    пишем в «Прочее» с пометкой, поправить можно одной командой. Лишний
+    вопрос у кассы стоит дороже, чем неточная категория в журнале."""
+    if not d.get('amount'):
+        return 'amount'
+    if not str(d.get('comment') or '').strip():
+        return 'comment'
+    return ''
+
+
+def draft_start(text, **known):
+    """Завести черновик из того, что известно, и спросить недостающее."""
+    d = {'kind': 'расход', 'category': '', 'amount': None, 'comment': '',
+         'date': None, 'raw': str(text or '').strip(), 'queue': []}
+    d.update({k: v for k, v in known.items() if v not in (None, '')})
+    # Сумма могла остаться в сырой фразе — вытаскиваем, чтобы не спрашивать зря.
+    if not d['amount'] and d['raw']:
+        m = re.search(r'(\d+(?:[.,]\d+)?)', d['raw'])
+        if m:
+            d['amount'] = float(m.group(1).replace(',', '.'))
+            # то, что осталось от фразы, — готовый комментарий
+            left = _strip_currency((d['raw'][:m.start()] + ' '
+                                    + d['raw'][m.end():]).strip())
+            if not d['comment'] and left:
+                d['comment'] = re.sub(r'^\W+|\W+$', '', left)[:80]
+    if not d['comment'] and d['raw'] and not re.fullmatch(r'[\d.,\s]+', d['raw']):
+        d['comment'] = re.sub(r'^\W+|\W+$', '', _strip_currency(d['raw']))[:80]
+    return draft_ask(d)
+
+
+def draft_ask(d, prefix=''):
+    """Показать вопрос по черновику либо перейти к подтверждению."""
+    need = draft_need(d)
+    if not need:
+        DRAFT.pop(ALLOWED, None)
+        guessed = not d.get('category')
+        args = {'amount': d['amount'], 'category': d.get('category') or 'Прочее',
+                'kind': d.get('kind') or 'расход', 'comment': d['comment']}
+        if d.get('date'):
+            args['date'] = d['date']
+        queue = d.get('queue') or []
+        PENDING[ALLOWED] = [('add_entry', args)]
+        if queue:
+            DRAFT[ALLOWED] = {'queue': queue}      # очередь переживает подтверждение
+        mark = '\n⚠️ Категорию не понял — пишу в «Прочее». ' \
+               'Потом можно «поправь категорию Кафе».' if guessed else ''
+        return (prefix + describe('add_entry', args)
+                + f' · {d.get("date") or "сегодня"}{mark}\n\nЗаписать? (да/нет)')
+    d['need'] = need
+    DRAFT[ALLOWED] = d
+    have = []
+    if d.get('amount'):
+        have.append(f'{_money(d["amount"])} с')
+    if d.get('comment'):
+        have.append(d['comment'])
+    if d.get('category'):
+        have.append(d['category'])
+    seen = ' · '.join(have)
+    return (prefix + (f'📝 Записал пока: {seen}\n' if seen else '')
+            + ASK[need] + '\n<i>Не нужно — ответь «отмена».</i>')
+
+
+def draft_fill(d, text):
+    """Ответ на доспрос достраивает черновик. → текст для человека."""
+    t = ' '.join(str(text).strip().split())
+    need = d.get('need')
+    if need == 'amount':
+        m = re.search(r'(\d+(?:[.,]\d+)?)', t)
+        if not m:
+            return 'Нужно число. Сколько?'
+        d['amount'] = float(m.group(1).replace(',', '.'))
+        rest = _strip_currency((t[:m.start()] + ' ' + t[m.end():]).strip())
+        if rest and not d.get('comment'):
+            d['comment'] = re.sub(r'^\W+|\W+$', '', rest)[:80]
+    elif need == 'comment':
+        com = re.sub(r'^\W+|\W+$', '', _strip_currency(t))[:80]
+        if not com:
+            return 'Напиши словом, на что.'
+        d['comment'] = com
+        # Ответ мог заодно назвать категорию: «кафе» → и комментарий, и она.
+        if not d.get('category'):
+            hit = QUICK_CATS.get(com.lower().replace('ё', 'е'))
+            if hit:
+                d['kind'], d['category'] = hit
+    return draft_ask(d)
+
+
+def draft_next(prefix=''):
+    """Взять следующую нераспознанную строку пачки, если очередь не пуста."""
+    d = DRAFT.get(ALLOWED) or {}
+    queue = d.get('queue') or []
+    if not queue:
+        DRAFT.pop(ALLOWED, None)
+        return ''
+    line = queue.pop(0)
+    left = f' (осталось разобрать: {len(queue)})' if queue else ''
+    out = draft_start(line)
+    cur = DRAFT.get(ALLOWED)
+    if cur is not None:
+        cur['queue'] = queue
+    return f'{prefix}📋 Строка «{line[:60]}»{left}\n{out}'
 
 TOOLS_SPEC = [
     {'type': 'function', 'function': {
@@ -688,8 +884,12 @@ def run_calls(calls):
     reads, writes = [], []
     for fn, args in calls:
         if fn == 'add_entry' and not str(args.get('comment', '')).strip():
-            return (f'✍️ На что именно {_money(args.get("amount", 0))} с? '
-                    'Комментарий обязателен.')
+            # Сумму и категорию модель уже поняла — выбрасывать их из-за
+            # отсутствующего комментария значит заставить набрать всё заново.
+            return draft_start('', amount=args.get('amount'),
+                               category=args.get('category'),
+                               kind=args.get('kind') or 'расход',
+                               date=args.get('date'))
         if fn in WRITE_TOOLS:
             writes.append((fn, args))
         elif fn in TOOLS:
@@ -825,7 +1025,13 @@ HELP = (
     '<b>Пачкой</b> — каждая операция своей строкой, подтверждение одно.\n\n'
     '<b>Команды</b>\n'
     '<code>лимиты</code> — сколько осталось по каждой категории\n'
-    '<code>месяц</code> — итог месяца: доходы, расходы, остаток\n\n'
+    '<code>месяц</code> — итог месяца: доходы, расходы, остаток\n'
+    '<code>отмени последнюю</code> — убрать последнюю запись\n'
+    '<code>поправь категорию Кафе</code> · <code>поправь сумму 120</code> · '
+    '<code>поправь комментарий вода</code>\n\n'
+    '<b>Если не понял</b> — не выбрасываю, а спрашиваю недостающее: '
+    '«Сколько?» или «На что?». Отвечаешь одним словом или числом, '
+    'фразу целиком набирать не надо. Не нужно — ответь «отмена».\n\n'
     'Дата: 18.08.2026 · 18.08.26 · 18.08 · 2026-08-18. Без даты — сегодня.\n'
     'Валюту (см, сом, с) можно писать — отбрасывается.\n'
     'Голосовое расшифрую. Фото чека прочитаю и предложу запись.\n'
@@ -835,6 +1041,8 @@ MODEL_WORDS = ('модель', '/модель', 'какая модель')
 LIMIT_WORDS = ('лимиты', 'лимит', '/лимиты', 'остаток', 'остатки', 'сколько осталось')
 MONTH_WORDS = ('месяц', '/месяц', 'итог месяца', 'итоги месяца')
 HELP_WORDS = ('/start', '/help', '/помощь', 'помощь', 'что умеешь')
+UNDO_WORDS = ('отмени последнюю', 'отмени запись', 'удали последнюю',
+              'убери последнюю', '/отмена')
 
 
 def handle(msg):
@@ -862,7 +1070,13 @@ def handle(msg):
             rc = read_receipt(content)
             total = float(rc.get('total') or 0)
             if total <= 0:
-                send('🧾 Сумму на чеке не разобрал. Напиши текстом.')
+                # Магазин с чека обычно читается, даже когда сумма — нет.
+                # Держим его как комментарий и спрашиваем только сумму.
+                shop = _cap((rc.get('merchant') or rc.get('summary') or '').strip())
+                send('🧾 Сумму на чеке не разобрал.\n'
+                     + draft_start('', comment=shop,
+                                   category=rc.get('category')
+                                   if rc.get('category') in BUDGET_CATS else ''))
                 return
             cat = rc.get('category') if rc.get('category') in BUDGET_CATS else 'Прочее'
             com = _cap((rc.get('merchant') or rc.get('summary') or 'чек').strip())
@@ -900,17 +1114,39 @@ def handle(msg):
                 except Exception as e:
                     res.append(f'⚠️ Ошибка «{fn}»: {e}')
             out = '\n'.join(res)
-            send(out)
+            # Нераспознанные строки пачки — по одной, пока не кончатся.
+            nxt = draft_next('\n\n')
+            send(out + nxt)
             audit('confirm', text, out)
             return
         if low in DENY:
             PENDING.pop(ALLOWED, None)
+            DRAFT.pop(ALLOWED, None)
             send('Отменил, ничего не записал.')
+            return
+        # Сообщение не «да» и не «нет». Раньше запись здесь молча пропадала.
+        # Теперь она ждёт: сбросить её может только «нет» или новая операция,
+        # которую мы действительно разобрали.
+        if not (_parse_quick(text) or _parse_quick_lines(text)[0]
+                or _amount_first(text)):
+            send('Жду ответа: <b>да</b> — записать, <b>нет</b> — отменить.')
             return
         dropped = PENDING.pop(ALLOWED, None)
         if dropped:
             send(f'⚠️ Предыдущая запись НЕ сохранена — не было «да». '
                  f'Отменено: {len(dropped)}.')
+
+    # Ответ на доспрос по черновику
+    d = DRAFT.get(ALLOWED)
+    if d and d.get('need'):
+        if low in DENY:
+            DRAFT.pop(ALLOWED, None)
+            send('Убрал черновик.' + draft_next('\n\n'))
+            return
+        out = draft_fill(d, text)
+        send(out)
+        audit('черновик', text, out[:200])
+        return
 
     if low in HELP_WORDS:
         send(HELP)
@@ -923,6 +1159,28 @@ def handle(msg):
              + ('\n\nЗапасной провайдер: Claude ' + CLAUDE_MODEL
                 if ANTHRO_KEY else '\n\nЗапасного провайдера нет — '
                                    'не задан ANTHROPIC_API_KEY'))
+        return
+
+    # Отмена и правка последней записи. Стоят до разбора операций: «отмени» —
+    # это команда, а не трата.
+    if low in UNDO_WORDS:
+        typing()
+        try:
+            out = undo_last()
+        except Exception as e:
+            out = f'⚠️ Не смог отменить: {e}'
+        send(out)
+        audit('отмена', text, out[:200])
+        return
+    m_fix = re.match(r'^поправь\s+(\S+)\s+(.+)$', low)
+    if m_fix:
+        typing()
+        try:
+            out = fix_last(m_fix.group(1), text.split(None, 2)[2])
+        except Exception as e:
+            out = f'⚠️ Не смог поправить: {e}'
+        send(out)
+        audit('правка', text, out[:200])
         return
 
     if low in LIMIT_WORDS:
@@ -953,8 +1211,10 @@ def handle(msg):
         PENDING[ALLOWED] = acts
         out = f'❓ Подтверди — {len(acts)} операц.:\n\n' + '\n'.join(lines)
         if bad:
-            out += '\n\n⚠️ НЕ РАСПОЗНАЛ (не запишу):\n' + '\n'.join(
-                '· ' + b[:60] for b in bad)
+            # Не выбрасываем: после «да» пройдём по ним по одной и доспросим.
+            DRAFT[ALLOWED] = {'queue': list(bad)}
+            out += ('\n\n📋 Не разобрал сам, спрошу после «да»:\n'
+                    + '\n'.join('· ' + b[:60] for b in bad))
         send(out + '\n\nОтветь «да» или «нет».')
         audit('пачка', text, f'ожидает подтверждения: {len(acts)}')
         return
@@ -983,6 +1243,14 @@ def handle(msg):
         reply = brain(text)
     except Exception as e:
         reply = f'⚠️ Сбой: {e}'
+    # Модель не записала операцию и не ответила по делу, а в сообщении есть
+    # число — почти наверняка это трата, которую иначе пришлось бы набирать
+    # заново. Заводим черновик и доспрашиваем.
+    low_t = text.lower().replace('ё', 'е')
+    lost = reply.startswith(('Не понял', '⚠️ Ни одна модель', '⚠️ Сбой'))
+    if (lost and not PENDING.get(ALLOWED) and not DRAFT.get(ALLOWED)
+            and '?' not in text and not any(w in low_t for w in NOT_SPEND)):
+        reply = draft_start(text)
     send(reply)
     audit(kind, text, reply)
 
