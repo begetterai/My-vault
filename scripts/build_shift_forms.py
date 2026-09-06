@@ -119,7 +119,10 @@ def build(code, zone, who):
             continue
         blocks = []
         for gname, rows in groups_for(code, stage):
-            items = [{'text': clean(text), 'norm': norm, 'photo': photo == 'фото'}
+            # Снимок обязателен там, где результат виден глазами: правило
+            # одно на все листы, живёт в M.needs_photo рядом с данными.
+            items = [{'text': clean(text), 'norm': norm,
+                      'photo': photo == 'фото' or M.needs_photo(gname, clean(text))}
                      for text, norm, photo in rows]
             if items:
                 blocks.append({'name': gname, 'items': items})

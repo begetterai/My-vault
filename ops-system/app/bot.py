@@ -3,7 +3,7 @@
 
 Всё, что бот знает о компании, приходит из конфига и листа «Команда».
 """
-import datetime, random, re, time, requests
+import datetime, re, time, requests
 
 from . import config as C
 from . import storage as S
@@ -197,13 +197,14 @@ def point_kb(kind):
 
 
 def begin(chat_id, mid, kind, who, point):
+    # Все фото-пункты и в порядке листа — так же, как в приложении.
+    # Выборка из двух случайных снята 06.09.2026 вместе с правкой Владимира.
     photos = C.photo_items(kind)
-    random.shuffle(photos)
     STATE[chat_id] = {
         'kind': kind, 'day': C.day_str(), 'point': point, 'who': who[0],
         'i': 0, 'marks': {}, 'stage': 'blocks', 'started': C.now(),
         'measures_left': list(C.checklists()[kind]['measures'].keys()),
-        'measured': {}, 'photos_left': photos[:C.PHOTOS_PER_RUN],
+        'measured': {}, 'photos_left': photos,
         'photos_done': [], 'done_measures': [], 'done_photos': []}
     txt, kb = block_screen(STATE[chat_id])
     tg('editMessageText', chat_id=chat_id, message_id=mid, text=txt,

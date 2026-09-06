@@ -844,7 +844,7 @@
   <button class="send" id="send" disabled>Отправить</button>
 </div>
 <script>
-const BUILD = 'v02.09 геолокация вернулась';
+const BUILD = 'v06.09 фотофиксация, только камера';
 // Заполняются на старте: скрипт телеграма грузится отложенно, и на момент
 // разбора этой строки window.Telegram может ещё не существовать.
 let tg = null, initData = '';
@@ -3652,29 +3652,15 @@ function photoRow(p){
   d.innerHTML = '<div><b>' + p.text + ' — обязательно</b></div>' +
     '<div class="hint">Снимай сейчас. Нужен хотя бы один снимок, можно '
     + 'добавить ещё — по кадру на нажатие.</div>';
-  const inp = document.createElement('input');
-  inp.type = 'file';
-  // Запасное поле. capture задаём атрибутом и без multiple — только так
-  // телефон вообще может открыть камеру вместо галереи. Гарантии нет,
-  // поэтому снимок ещё проверяется на свежесть.
-  inp.setAttribute('accept', 'image/*');
-  inp.setAttribute('capture', 'environment');
-  inp.style.display = 'none';
   const strip = document.createElement('div'); strip.className = 'shots';
   const lab = document.createElement('span');
   lab.className = 'shoot';
-  // Снимаем камерой внутри приложения. Атрибуту capture у файлового поля
-  // верить нельзя: часть телефонов его не слушает и открывает галерею,
-  // а туда можно подставить вчерашний снимок.
-  //
-  // Запасной путь — то же файловое поле, но по ОТДЕЛЬНОМУ нажатию. Право
-  // открыть его телефон даёт только по живому касанию и всего на несколько
-  // секунд: открыть после неудачной попытки камеры уже нельзя — право
-  // сгорело, пока ждали. Поэтому кнопка просто меняет надпись, и следующее
-  // нажатие открывает выбор файла.
-  let byFile = false;
+  // Только камера внутри приложения. Запасной путь через выбор файла снят
+  // 06.09.2026 по правке Владимира: «без возможности загрузить фотографию
+  // с памяти своего устройства». Файловому полю всё равно нельзя было
+  // верить — часть телефонов игнорирует capture и открывает галерею,
+  // а туда подставляется вчерашний снимок.
   lab.onclick = async () => {
-    if(byFile) return inp.click();
     const r = await openCamera('environment', data => {
       photos[p.n].push(data); draw(); paint();
     });
@@ -3686,10 +3672,9 @@ function photoRow(p){
          + 'телефона — снимок для чек-листа делается только на месте.', 'err');
       return;
     }
-    byFile = true;
-    lab.textContent = '📷 Выбрать снимок';
-    note('Камера в приложении недоступна. Нажми ещё раз — откроется камера '
-       + 'телефона. Снимок должен быть свежий, старый система не примет.', 'err');
+    note('Камера недоступна на этом телефоне, а снимок для чек-листа '
+       + 'делается только на месте. Скажи управляющему — лист сдать нечем.',
+       'err');
   };
   photos[p.n] = photos[p.n] || [];
 
@@ -3705,29 +3690,10 @@ function photoRow(p){
       w.append(im, x); strip.appendChild(w);
     });
     const n = (photos[p.n] || []).length;
-    if(!byFile) lab.textContent = n ? '📷 Добавить ещё' : '📷 Сфотографировать';
-  };
-
-  inp.onchange = async () => {
-    const files = [...inp.files];
-    inp.value = '';
-    if(!files.length) return;
-    // Телефон открыл галерею вместо камеры — значит можно подставить
-    // вчерашний снимок. Проверяем по времени файла: чек-лист про то,
-    // что на точке сейчас, старая фотография его не подтверждает.
-    const stale = files.filter(f => f.lastModified
-                                 && Date.now() - f.lastModified > 10 * 60000);
-    if(stale.length){
-      draw();
-      return note('Этот снимок сделан раньше — нужен сегодняшний, с этой '
-        + 'смены. Сфотографируй сейчас.', 'err');
-    }
-    lab.textContent = 'Обрабатываю…';
-    for(const f of files) photos[p.n].push(await shrink(f));
-    draw(); paint();
+    lab.textContent = n ? '📷 Добавить ещё' : '📷 Сфотографировать';
   };
   draw();
-  d.append(strip, lab, inp);
+  d.append(strip, lab);
   return d;
 }
 

@@ -3,7 +3,7 @@
 
 Личность приходит от телеграма подписанной — паролей нет, подделать нельзя.
 """
-import os, re, json, hmac, hashlib, base64, random, time, datetime, threading, urllib.parse
+import os, re, json, hmac, hashlib, base64, time, datetime, threading, urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from . import config as C
@@ -326,8 +326,11 @@ def init_payload(who):
         for k in keys:
             mine[k] = C.checklists()[k]
     for key, cl in mine.items():
+        # Все пункты, где нужен снимок, и в порядке листа — человек идёт
+        # сверху вниз. До 06.09.2026 отсюда брались два случайных, и правка
+        # Владимира «фотографировать все убранные поверхности» не работала бы:
+        # из 27 помеченных пунктов бара спросили бы два наугад.
         photos = C.photo_items(key)
-        random.shuffle(photos)
         out['lists'][key] = {
             'title': cl['title'], 'code': cl['code'], 'ask_time': cl['ask_time'],
             'deadline': C.deadline_for(cl, work),
@@ -344,7 +347,7 @@ def init_payload(who):
                           'min': m.get('min'), 'max': m.get('max'),
                           'ok_min': m.get('ok_min'), 'ok_max': m.get('ok_max')}
                          for n, m in cl['measures'].items()],
-            'photos': [{'n': n, 'text': t} for n, t in photos[:C.PHOTOS_PER_RUN]],
+            'photos': [{'n': n, 'text': t} for n, t in photos],
         }
     # Что уже сдано сегодня на точке: приём не открывают, пока предыдущая
     # смена не сдала передачу.

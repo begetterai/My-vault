@@ -65,7 +65,6 @@ def now_minute():
     return (n.hour * 60 + n.minute - int(DAY_ENDS * 60)) % 1440
 
 # ── поведение ────────────────────────────────────────────────────────────────
-PHOTOS_PER_RUN = int(ENV('PHOTOS_PER_RUN', '2'))
 MIN_SECONDS = int(ENV('MIN_SECONDS', '180'))        # быстрее — формальное заполнение
 MIN_GAP = float(ENV('MIN_GAP', '2.0'))              # секунд между отметками; меньше — тыкал не глядя
 REPEAT_FAIL = int(ENV('REPEAT_FAIL', '3'))          # столько провалов = сломан процесс
