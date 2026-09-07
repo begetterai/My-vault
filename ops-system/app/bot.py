@@ -1117,6 +1117,23 @@ def on_callback(cq):
             f'разрешение действует 30 минут.')
         return ack('Разрешил') or True
 
+    # Сменщик не принял передачу, а человеку надо домой. Разрешение именное
+    # и на один уход: имя разрешившего уходит в таблицу рядом с отметкой.
+    if data.startswith('cl:leave:'):
+        if S.role_of(who or ('', '', '')) not in ('manager', 'coo'):
+            return ack('Разрешает руководитель') or True
+        target = S.team().get(data.split(':', 2)[2])
+        if not target:
+            return ack('Не нашёл этого человека') or True
+        from . import webapp as W
+        W.LEAVE_OK[target[0]] = (who[0], time.time() + W.LEAVE_TTL)
+        tg('editMessageText', chat_id=chat_id, message_id=mid,
+           text=cq['message'].get('text', '') + f'\n\n✅ Разрешил: {who[0]}')
+        say(data.split(':', 2)[2],
+            f'✅ {who[0]} разрешил уход без приёма. Нажми «Ушёл» ещё раз — '
+            f'разрешение действует 30 минут.')
+        return ack('Разрешил') or True
+
     if data.startswith('cl:go:'):
         kind = data.split(':')[2]
         if kind not in C.checklists():

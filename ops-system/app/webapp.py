@@ -703,6 +703,81 @@ def part_of(day, who, said=''):
     return said or ''
 
 
+# Кому разрешено уйти, не дождавшись приёма: имя → (кто разрешил, до когда).
+# Как с отметкой вне точки: разрешение живёт минуты и умирает вместе
+# с уходом. Держать его в таблице незачем — оно на один раз.
+LEAVE_OK = {}
+LEAVE_TTL = 30 * 60
+
+
+def leave_allowed(name):
+    """Кто разрешил этому человеку уйти без приёма, либо пусто."""
+    v = LEAVE_OK.get(name)
+    if not v or v[1] < time.time():
+        LEAVE_OK.pop(name, None)
+        return ''
+    return v[0]
+
+
+def my_zone(who, point):
+    """Рабочее место человека на сегодня. У цеха оно закреплено за ролью,
+    у остальных — то, на котором он стоит сейчас."""
+    zone = C.station_for(who[2] if len(who) > 2 else '')
+    if zone:
+        return zone
+    try:
+        return S.station_of(C.day_str(), point, who[0]) or ''
+    except Exception as e:
+        print('место человека:', e)
+        return ''
+
+
+def leave_blocked(who, point):
+    """Почему уходить рано. → (текст либо пусто, ждём ли приёма).
+
+    Правило Азиза 07.09.2026: первая смена уходит, когда передачу приняли;
+    вторая и тот, кто работает один, — когда сдали закрытие. Смена, брошенная
+    без передачи, оставляет место ничьим: следующий не знает, что принял,
+    а спросить уже не с кого.
+
+    Управляющий под правило не попадает — его день устроен иначе, он уходит
+    и возвращается среди дня.
+    """
+    if S.role_of(who) in ('manager', 'coo'):
+        return '', False
+    zone = my_zone(who, point)
+    if not zone:
+        return '', False        # места не занимал — нечего и сдавать
+    day = C.day_str()
+    part = part_of(day, who[0])
+    keys = ([f'{zone}_give', f'{zone}_take'] if part == 'open'
+            else [f'{zone}_close'])
+    keys = [k for k in keys if k in C.checklists()]
+    if not keys:
+        return '', False
+    try:
+        have = S.filled_today(day, point, keys)
+    except Exception as e:
+        # Не смогли проверить — не держим человека на точке из-за сбоя связи.
+        print('проверка ухода:', e)
+        return '', False
+    left = [k for k in keys if k not in have]
+    if not left:
+        return '', False
+    title = C.checklists()[left[0]]['title']
+    # Передачу сдал, а сменщик её не принял — единственный случай, когда
+    # человек зависит не от себя. Только здесь даём просить управляющего.
+    waiting = (part == 'open' and left == [f'{zone}_take'])
+    if waiting:
+        if leave_allowed(who[0]):
+            return '', False
+        return ('Смену ещё не приняли. Пока сменщик не прошёл «Приём», '
+                'место числится за тобой. Если он не выходит на связь — '
+                'попроси управляющего разрешить уход.'), True
+    return (f'Сначала сдай «{title}» — уход отмечается после того, '
+            f'как место сдано.'), False
+
+
 def close_blocked(kind, day, point, who, said=''):
     """Почему закрытие сдавать рано. Пусто — можно.
 
@@ -800,6 +875,35 @@ def geo_ask(who, body):
                                    'нажми «Пришёл» ещё раз.'}
 
 
+def leave_ask(who, body):
+    """«Сменщик не принимает» — запрос управляющему на уход без приёма."""
+    point = pick_point(who, body)
+    stop, waiting = leave_blocked(who, point)
+    if not stop:
+        return {'ok': True, 'message': 'Уже можно уходить — нажми «Ушёл».'}
+    if not waiting:
+        # Свой собственный лист разрешением не закрывается: иди и сдай.
+        return {'ok': False, 'error': stop}
+    zone = my_zone(who, point)
+    place = C.checklists().get(f'{zone}_take', {}).get('title', zone)
+    cid = next((c for c, v in S.team().items() if v[0] == who[0]), '')
+    txt = (f'🔔 <b>Просит разрешить уход</b>\n{who[0]} · {S.point_label(point)}'
+           f'\nПередачу сдал, но её не приняли: {place}.\n\n'
+           f'Разрешай, только если сменщика правда нет — место останется '
+           f'ничьим, и твоё имя будет в таблице рядом с отметкой.')
+    sent = 0
+    for m in S.managers_of(point):
+        BOT.say(m, txt, reply_markup={'inline_keyboard': [[
+            {'text': f'✅ Разрешить уход · {who[0]}',
+             'callback_data': f'cl:leave:{cid}'}]]})
+        sent += 1
+    if not sent:
+        return {'ok': False, 'error': 'Некому разрешить — управляющего нет '
+                                      'в системе. Позвони ему.'}
+    return {'ok': True, 'message': 'Запрос ушёл управляющему. Как разрешит — '
+                                   'нажми «Ушёл» ещё раз.'}
+
+
 def shift(who, body):
     d = 'out' if body.get('direction') == 'out' else 'in'
     lat, lon = body.get('lat'), body.get('lon')
@@ -843,20 +947,16 @@ def shift(who, body):
     # и порядок такой: закрыл зону — сдал лист — ушёл. Решение Азиза
     # 07.09.2026. Уход без сданного листа закрытия не записываем: иначе
     # лист висит до ночи, а спросить уже не с кого.
+    left_note = ''
     if d == 'out':
-        zone = C.station_for(who[2] if len(who) > 2 else '')
-        key_close = f'{zone}_close' if zone else ''
-        if key_close in C.checklists():
-            try:
-                if key_close not in S.filled_today(C.day_str(), point,
-                                                   [key_close]):
-                    title = C.checklists()[key_close]['title']
-                    return {'ok': False,
-                            'error': f'Сначала сдай «{title}» — уход '
-                                     f'отмечается после того, как зона '
-                                     f'закрыта и лист сдан.'}
-            except Exception as e:
-                print('лист закрытия зоны:', e)
+        stop, waiting = leave_blocked(who, point)
+        if stop:
+            return {'ok': False, 'error': stop, 'wait_take': waiting}
+        # Ушёл, не дождавшись приёма, с разрешения управляющего — пишем это
+        # рядом с местом, иначе в таблице не видно, кто пустил.
+        by = leave_allowed(who[0])
+        if by:
+            left_note = f'ушёл без приёма, разрешил {by}'
     # Время начала берём из состава: у повара цеха смена в 07:00, у кассира
     # в 09:30 — считать опоздание всем от одного часа неправильно.
     plan = body.get('plan')
@@ -868,8 +968,11 @@ def shift(who, body):
     msg, flag, line, saved = F.mark_shift(d, C.day_str(), point, who[0],
                                           lat, lon, plan=plan,
                                           part=str(body.get('part') or ''),
-                                          geo_note=(f'разрешил {allow}'
-                                                    if far and allow else ''))
+                                          geo_note=' · '.join(
+                                              x for x in (
+                                                  f'разрешил {allow}'
+                                                  if far and allow else '',
+                                                  left_note) if x))
     # Отметку не записали (второй приход подряд, уход без прихода) — значит
     # ни отрезков, ни баллов: последствия бывают только у записанной отметки.
     if not saved:
@@ -877,6 +980,8 @@ def shift(who, body):
     # Разрешение одноразовое: оно давалось под эту отметку, а не на полдня.
     if far and allow:
         GEO_OK.pop(who[0], None)
+    if left_note:
+        LEAVE_OK.pop(who[0], None)
     if d == 'out':
         # Ушёл — рабочее место освободилось, а отрезок закрылся с минутами.
         # Без этого место числится занятым до конца суток, и следующая
@@ -1924,6 +2029,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, set_geo(who, body))
             if p == '/api/password':
                 return self._send(200, password_reset(who, body))
+            if p == '/api/leave_ask':
+                return self._send(200, leave_ask(who, body))
             if p == '/api/geo_ask':
                 return self._send(200, geo_ask(who, body))
             if p == '/api/standin':
