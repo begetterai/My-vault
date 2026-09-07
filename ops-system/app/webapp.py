@@ -143,9 +143,12 @@ def password_reset(who, body):
         login = S.login_of(cid) or make_login(target, set(S.logins()))
         password = make_password()
         if not S.set_login(cid, login, password):
-            return {'ok': False, 'error': 'Не нашёл строку в «Команде»'}
+            return {'ok': False, 'error': 'Не нашёл этого человека в «Команде». Проверь, '
+                                 'что он там есть и активен.'}
     except Exception as e:
-        return {'ok': False, 'error': f'Не записалось: {e}'}
+        print('выдача пароля:', e)
+        return {'ok': False, 'error': 'Не записалось — таблица не ответила. '
+                                      'Попробуй ещё раз через минуту.'}
     S.team(force=True)
     BOT.admin(f'🔑 <b>Пароль выдан</b>\n{target} · логин <code>{login}</code>\n'
               f'Выдал: {who[0]}', point=team[cid][1])
@@ -559,13 +562,15 @@ def station(who, body):
     key = str(body.get('station', '')).strip()
     part = str(body.get('part', '')).strip()
     if key not in C.stations():
-        return {'ok': False, 'error': 'неизвестное рабочее место'}
+        return {'ok': False, 'error': 'Такого рабочего места нет. Закрой приложение и открой заново — '
+                                 'список мест обновится.'}
     point = pick_point(who, body)
     try:
         ok, holder = S.take_station(C.day_str(), point, part, key, who[0])
     except Exception as e:
         print('занять станцию:', e)
-        return {'ok': False, 'error': 'не сохранилось, попробуй ещё раз'}
+        return {'ok': False, 'error': 'Не записалось — связь с таблицей пропала. Подожди '
+                                 'несколько секунд и нажми ещё раз.'}
     if not ok:
         return {'ok': False, 'error': f'На этом месте сейчас работает '
                                       f'{holder}. Он освободит его, когда '
@@ -592,19 +597,22 @@ def read_doc(who, body):
     """
     code = str(body.get('code', '')).strip()[:20]
     if not code:
-        return {'ok': False, 'error': 'не указан документ'}
+        return {'ok': False, 'error': 'Не понял, какой регламент. Открой его из пункта '
+                                 'чек-листа или из раздела «Обучение».'}
     point = pick_point(who, body)
     role, dept = S.role_of(who), S.dept_of(who)
     doc = next(((cl.get('doc') or {}) for cl in
                 C.visible(role, 'quiz', dept, who[1]).values()
                 if (cl.get('doc') or {}).get('code') == code), None)
     if not doc or not doc.get('url'):
-        return {'ok': False, 'error': 'этот регламент тебе не открыт'}
+        return {'ok': False, 'error': 'Этот регламент не для твоей позиции. Если он нужен '
+                                 'для работы — скажи управляющему.'}
     try:
         S.save_read(point, who[0], code, doc.get('title', ''), doc['url'])
     except Exception as e:
         print('ознакомление:', e)
-        return {'ok': False, 'error': 'не сохранилось, попробуй ещё раз'}
+        return {'ok': False, 'error': 'Не записалось — связь с таблицей пропала. Подожди '
+                                 'несколько секунд и нажми ещё раз.'}
     return {'ok': True, 'code': code}
 
 
@@ -1032,7 +1040,8 @@ def quiz(who, body):
     key = body.get('key')
     cl = C.forms().get(key)
     if not cl or cl['type'] != 'quiz':
-        return {'ok': False, 'error': 'неизвестный тренинг'}
+        return {'ok': False, 'error': 'Такого тренинга нет. Закрой приложение и открой '
+                                 'заново — список обновится.'}
     qs = cl.get('questions', [])
     given = body.get('answers') or []
     if len(given) != len(qs):
@@ -1079,7 +1088,8 @@ def journal(who, body):
     key = body.get('key')
     cl = C.forms().get(key)
     if not cl or cl['type'] != 'journal':
-        return {'ok': False, 'error': 'неизвестная форма'}
+        return {'ok': False, 'error': 'Такой формы нет. Закрой приложение и открой заново — '
+                                 'список обновится.'}
     vals = {f['key']: str((body.get('values') or {}).get(f['key'], ''))[:400]
             for f in cl.get('fields', [])}
     for f in cl.get('fields', []):
@@ -1123,7 +1133,8 @@ def blank(who, body):
     key = body.get('key')
     cl = C.forms().get(key)
     if not cl or cl['type'] != 'form':
-        return {'ok': False, 'error': 'неизвестная форма'}
+        return {'ok': False, 'error': 'Такой формы нет. Закрой приложение и открой заново — '
+                                 'список обновится.'}
     need = cl.get('requires')
     if need and not quiz_passed(need, who[0]):
         return {'ok': False, 'error': f'Сначала сдай тренинг '
@@ -1213,11 +1224,18 @@ def photo_bytes(data_url):
 def submit(who, body):
     kind = body.get('kind')
     if kind not in C.checklists():
-        return {'ok': False, 'error': 'неизвестный чек-лист'}
+        return {'ok': False, 'error': 'Такого чек-листа нет. Закрой приложение и открой '
+                                 'заново — список обновится.'}
     day = C.day_str()
     marks = {int(k): bool(v) for k, v in (body.get('marks') or {}).items()}
     if len(marks) < C.total(kind):
-        return {'ok': False, 'error': 'отмечены не все пункты'}
+        # Сколько именно осталось: «отмечены не все» человек читает как
+        # «где-то что-то», листает лист сверху вниз и не находит.
+        gap = C.total(kind) - len(marks)
+        return {'ok': False,
+                'error': f'Отмечено {len(marks)} из {C.total(kind)} — '
+                         f'осталось {gap}. Пролистай лист: неотмеченные '
+                         f'пункты подсвечены.'}
     measured = {}
     for k, v in (body.get('measures') or {}).items():
         m = C.checklists()[kind]['measures'].get(int(k))
@@ -1439,7 +1457,8 @@ def check(who, body):
     verdict = 'ok' if body.get('verdict') == 'ok' else 'bad'
     note_txt = str(body.get('note', '')).strip()[:300]
     if key not in C.checklists() or not line.isdigit():
-        return {'ok': False, 'error': 'не та запись'}
+        return {'ok': False, 'error': 'Эта запись не найдена. Обнови список — возможно, '
+                                 'её уже разобрали.'}
     if verdict == 'bad' and len(note_txt.split()) < 2:
         return {'ok': False, 'error': 'Опиши, что именно не сошлось'}
     # Под замком — только проверки и запись. Начисления, задачи и отчёты
@@ -1546,7 +1565,7 @@ def standin(who, body):
         return {'ok': False, 'error': 'Замещение включает директор'}
     point = str(body.get('point', '')).strip()
     if point not in S.points():
-        return {'ok': False, 'error': 'не та точка'}
+        return {'ok': False, 'error': 'Такой точки нет. Выбери заведение из списка.'}
     on = bool(body.get('on'))
     cur = S.standin_of(point)
     if on and cur and cur != who[0]:
@@ -1624,7 +1643,8 @@ def equip(who, body):
         line = str(body.get('line', ''))
         st = body.get('status')
         if not line.isdigit() or st not in (EQ.ACTIVE, EQ.BROKEN, EQ.OFF):
-            return {'ok': False, 'error': 'не та запись'}
+            return {'ok': False, 'error': 'Эта запись не найдена. Обнови список — возможно, '
+                                 'её уже разобрали.'}
         EQ.set_status(line, st, who[0], str(body.get('note', '')))
         return {'ok': True}
     point = pick_point(who, body)
@@ -1655,7 +1675,8 @@ def task_done(who, body):
         return {'ok': True}
     line = str(body.get('line', ''))
     if not line.isdigit():
-        return {'ok': False, 'error': 'не та задача'}
+        return {'ok': False, 'error': 'Эта задача не найдена. Обнови список — возможно, '
+                                 'её уже закрыли.'}
     verdict = TSK.DROP if body.get('verdict') == 'drop' else TSK.DONE
     TSK.close(line, who[0], verdict, str(body.get('comment', '')))
     return {'ok': True}
@@ -1796,7 +1817,8 @@ def award(who, body):
     event = str(body.get('event', ''))
     name = str(body.get('to', '')).strip()
     if event not in SC.AWARDABLE:
-        return {'ok': False, 'error': 'неизвестное начисление'}
+        return {'ok': False, 'error': 'Такого основания для начисления нет. Обнови '
+                                 'приложение и выбери из списка.'}
     point = pick_point(who, body)
     if name not in {v[0] for v in S.team().values() if v[1] == point}:
         return {'ok': False, 'error': 'Такого человека нет на этой точке'}
@@ -1829,7 +1851,8 @@ def dispute(who, body):
     if len(text.split()) < 2:
         return {'ok': False, 'error': 'Напиши фразой, с чем именно не согласен'}
     if not SC.dispute(line, who[0], text):
-        return {'ok': False, 'error': 'Не нашёл это списание'}
+        return {'ok': False, 'error': 'Не нашёл это списание. Обнови баллы — возможно, '
+                                      'его уже сняли.'}
     txt = (f'⚖️ <b>Спор по баллам</b> · {who[1]} · {who[0]}\n«{text[:250]}»\n'
            f'Строка {line} в листе «{C.TABS["score"]}»')
     for cid in S.managers_of(who[1]):
@@ -1855,7 +1878,8 @@ def dispute_resolve(who, body):
     except Exception as e:
         print('точка списания:', e)
     if not SC.resolve(line, verdict, str(body.get('note', ''))):
-        return {'ok': False, 'error': 'не та строка'}
+        return {'ok': False, 'error': 'Это списание не найдено. Обнови баллы — возможно, '
+                                 'спор уже разобрали.'}
     return {'ok': True}
 
 
@@ -1908,7 +1932,7 @@ class Handler(BaseHTTPRequestHandler):
                 with open(os.path.join(WEB, p.path.lstrip('/')), 'rb') as f:
                     return self._send(200, f.read(), STATIC[p.path])
             except FileNotFoundError:
-                return self._send(404, {'error': 'not found'})
+                return self._send(404, {'error': 'Страница не найдена'})
         if p.path in ('/', '/index.html', '/app'):
             try:
                 return self._send(200, open(PAGE, 'rb').read(), 'text/html; charset=utf-8')
@@ -1944,7 +1968,7 @@ class Handler(BaseHTTPRequestHandler):
             key = q.get('key', [''])[0]
             cl = C.checklists().get(key)
             if not cl:
-                return self._send(404, {'error': 'нет такого чек-листа'})
+                return self._send(404, {'error': 'Такого чек-листа нет'})
             try:
                 fixes = S.fixes_for(cl['title'])
             except Exception as e:
@@ -1984,7 +2008,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(403, {'error': 'Тебя ещё нет в системе.',
                                         'chat_id': cid})
             return self._send(200, init_payload(who))
-        self._send(404, {'error': 'not found'})
+        self._send(404, {'error': 'Страница не найдена'})
 
     def do_POST(self):
         p = urllib.parse.urlparse(self.path).path
@@ -1995,7 +2019,8 @@ class Handler(BaseHTTPRequestHandler):
                                                  'Попробуй переснять фото.'})
             body = json.loads(self.rfile.read(n) or b'{}')
         except Exception:
-            return self._send(400, {'error': 'плохой запрос'})
+            return self._send(400, {'error': 'Запрос не разобрался. Закрой приложение и открой '
+                                     'заново — ничего из сделанного не потерялось.'})
 
         # Вход и выход — до проверки, кто пришёл: человек как раз и приходит
         # сюда неопознанным.
@@ -2082,7 +2107,7 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as e:
             print(f'{p}: {type(e).__name__}: {e}')
             return self._send(500, {'ok': False, 'error': str(e)})
-        self._send(404, {'error': 'not found'})
+        self._send(404, {'error': 'Страница не найдена'})
 
 
 def serve_in_background(port=None):
