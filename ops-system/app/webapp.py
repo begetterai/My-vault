@@ -764,18 +764,20 @@ def leave_blocked(who, point):
     left = [k for k in keys if k not in have]
     if not left:
         return '', False
+    # Разрешение управляющего снимает блок при ЛЮБОЙ причине. Решение Азиза
+    # 07.09.2026: телефон садится, камера не открывается — и человек, который
+    # физически не может сдать лист, оказывался заперт на точке до ночи.
+    # Запертый человек хуже несданного листа: лист можно досдать, а рабочий
+    # день ему уже не вернуть.
+    if leave_allowed(who[0]):
+        return '', False
     title = C.checklists()[left[0]]['title']
-    # Передачу сдал, а сменщик её не принял — единственный случай, когда
-    # человек зависит не от себя. Только здесь даём просить управляющего.
-    waiting = (part == 'open' and left == [f'{zone}_take'])
-    if waiting:
-        if leave_allowed(who[0]):
-            return '', False
+    if part == 'open' and left == [f'{zone}_take']:
         return ('Смену ещё не приняли. Пока сменщик не прошёл «Приём», '
                 'место числится за тобой. Если он не выходит на связь — '
                 'попроси управляющего разрешить уход.'), True
     return (f'Сначала сдай «{title}» — уход отмечается после того, '
-            f'как место сдано.'), False
+            f'как место сдано. Не получается сдать — попроси управляющего.'), True
 
 
 def close_blocked(kind, day, point, who, said=''):
@@ -878,19 +880,17 @@ def geo_ask(who, body):
 def leave_ask(who, body):
     """«Сменщик не принимает» — запрос управляющему на уход без приёма."""
     point = pick_point(who, body)
-    stop, waiting = leave_blocked(who, point)
+    stop, can_ask = leave_blocked(who, point)
     if not stop:
         return {'ok': True, 'message': 'Уже можно уходить — нажми «Ушёл».'}
-    if not waiting:
-        # Свой собственный лист разрешением не закрывается: иди и сдай.
-        return {'ok': False, 'error': stop}
-    zone = my_zone(who, point)
-    place = C.checklists().get(f'{zone}_take', {}).get('title', zone)
     cid = next((c for c, v in S.team().items() if v[0] == who[0]), '')
+    # Причину называем прямо: управляющий должен видеть, что именно
+    # не сдано, и решать со знанием, а не вслепую.
     txt = (f'🔔 <b>Просит разрешить уход</b>\n{who[0]} · {S.point_label(point)}'
-           f'\nПередачу сдал, но её не приняли: {place}.\n\n'
-           f'Разрешай, только если сменщика правда нет — место останется '
-           f'ничьим, и твоё имя будет в таблице рядом с отметкой.')
+           f'\n{stop}\n\n'
+           f'Разрешай, только если человек правда не может сдать лист — '
+           f'место останется несданным, и твоё имя будет в таблице '
+           f'рядом с отметкой.')
     sent = 0
     for m in S.managers_of(point):
         BOT.say(m, txt, reply_markup={'inline_keyboard': [[
@@ -949,14 +949,14 @@ def shift(who, body):
     # лист висит до ночи, а спросить уже не с кого.
     left_note = ''
     if d == 'out':
-        stop, waiting = leave_blocked(who, point)
+        stop, can_ask = leave_blocked(who, point)
         if stop:
-            return {'ok': False, 'error': stop, 'wait_take': waiting}
+            return {'ok': False, 'error': stop, 'can_ask': can_ask}
         # Ушёл, не дождавшись приёма, с разрешения управляющего — пишем это
         # рядом с местом, иначе в таблице не видно, кто пустил.
         by = leave_allowed(who[0])
         if by:
-            left_note = f'ушёл без приёма, разрешил {by}'
+            left_note = f'уход разрешил {by}'
     # Время начала берём из состава: у повара цеха смена в 07:00, у кассира
     # в 09:30 — считать опоздание всем от одного часа неправильно.
     plan = body.get('plan')
