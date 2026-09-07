@@ -111,6 +111,40 @@ def remind(key, cl, point, left):
                                          S.dept_of(v) if v else '', point))
 
 
+def person_due(key, cl, point, before, minute):
+    """Напоминание и просрочка по листу с личным сроком.
+
+    Пока человек не отметил приход, срока у него нет — не напоминаем
+    и просроченным не считаем: неотмеченный приход разбирается отдельно.
+    """
+    from . import forms as F
+    for cid in ready_workers(point, cl):
+        v = S.team().get(str(cid))
+        if not v:
+            continue
+        try:
+            dead = F.deadline_person(cl, point, v[0])
+        except Exception as e:
+            print('личный срок:', e)
+            continue
+        if not dead:
+            continue
+        d = hhmm(dead)
+        if d - before <= minute < d and once(f'rem:{key}:{point}:{cid}'):
+            BOT.say(cid, f'⏰ <b>{cl["title"]}</b> · {point}\n'
+                         f'До срока <b>{d - minute} мин</b> (до {dead}). '
+                         f'Срок считается от твоей отметки прихода.')
+        if minute >= d and once(f'over:{key}:{point}:{cid}'):
+            txt = (f'🚨 <b>Просрочено</b> · {point}\n'
+                   f'{cl["title"].lower()} не заполнен к {dead} · {v[0]}')
+            sent = set()
+            for m in S.managers_of(point):
+                BOT.say(m, txt)
+                sent.add(str(m))
+            BOT.say(cid, txt)
+            BOT.admin(txt, point, skip=sent | {str(cid)})
+
+
 def overdue(key, cl, point):
     if not C.REMINDERS:
         return
@@ -596,6 +630,12 @@ def tick():
             filled = S.filled_today(dstr, point, [k for k, _, _ in work])
             for key, cl, before in work:
                 if key in filled:
+                    continue
+                # У цеха срок свой на каждого — он считается от отметки
+                # прихода. Поэтому такие листы разбираем по людям, а не
+                # по точке: у двух заготовщиков сроки разойдутся на часы.
+                if cl.get('deadline_from'):
+                    person_due(key, cl, point, before, minute)
                     continue
                 # Срок закрытия у точек разный: ЗБ гасит свет в 00:30,
                 # ОВИР работает до 03:30.

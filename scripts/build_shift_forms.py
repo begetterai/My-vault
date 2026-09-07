@@ -43,7 +43,7 @@ STAGES = [
 # Сроки этапов. Заданы Азизом 24.08.2026. Закрытие разное по точкам:
 # ЗБ гасит свет в 00:30, ОВИР работает до 03:30 — вторая смена там
 # дорабатывает до конца.
-DEADLINE = {'open': '09:30', 'give': '17:30', 'take': '17:30',
+DEADLINE = {'open': '09:30', 'give': '17:00', 'take': '17:00',
             'close': '00:30'}
 BY_POINT = {'close': {'ОВИР': '03:30'}}
 
@@ -137,6 +137,15 @@ def build(code, zone, who):
         by = (BY_POINT_UPR if key == 'shift_upr' else BY_POINT).get(stage)
         if by:
             form['deadline_point'] = dict(by)
+        # У цеха график плавающий: заготовщик выходит, когда есть объём.
+        # Срок считается от его собственной отметки, а не от часов точки —
+        # решение Азиза 07.09.2026. Открытие: пришёл плюс полчаса.
+        # Закрытие: сдать до того, как отметит уход.
+        if code.startswith('Ц-'):
+            if stage == 'open':
+                form['deadline_from'], form['deadline_plus'] = 'in', 30
+            elif stage == 'close':
+                form['deadline_from'] = 'out'
         if key not in ('shift_ssk', 'shift_upr'):
             form['station'] = key
         # Цех есть только на ЗБ. Без привязки к точке человек с отделом

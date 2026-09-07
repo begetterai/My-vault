@@ -402,7 +402,7 @@ def finish(chat_id, st):
         say(chat_id, f'♻️ Сегодня этот чек-лист уже заполнял {dup}. '
                      'Записал обе версии.')
     try:
-        award_fill(st, ok, tot, fails, fast, is_late(st['kind']))
+        award_fill(st, ok, tot, fails, fast, is_late(st['kind'], st['point'], st['who']))
     except Exception as e:
         print('баллы:', e)
     notify_check(st, ok, tot, fails, line, st.get('comment', ''), fast, bool(dup))
@@ -444,9 +444,13 @@ def award_fill(st, ok, tot, fails, fast, late):
     # управляющим: иначе достаточно наставить ✕, чтобы набрать баллов.
 
 
-def is_late(kind, point=None):
+def is_late(kind, point=None, who=''):
+    """Сдан ли лист позже срока. У цеха срок свой на каждого — см.
+    forms.deadline_person: он считается от отметки прихода, а не от часов
+    точки. Пусто — срока ещё нет, значит и просрочки быть не может."""
+    from . import forms as F
     cl = C.checklists()[kind]
-    dead = C.deadline_for(cl, point)
+    dead = F.deadline_person(cl, point, who) if who else C.deadline_for(cl, point)
     if not dead:
         return False
     return C.now_minute() > C.op_minute(dead)

@@ -233,7 +233,7 @@ def check_score():
 
 def check_time():
     from app import config as C
-    order = ['09:30', '09:50', '17:30', '00:30', '03:30']
+    order = ['09:30', '10:30', '17:00', '00:30', '03:30']
     mins = [C.op_minute(t) for t in order]
     if mins != sorted(mins):
         bad.append(f'сроки этапов идут не по порядку суток: {list(zip(order, mins))}')

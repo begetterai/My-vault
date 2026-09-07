@@ -87,6 +87,37 @@ def open_shift(day, who):
     return shift_row(day, None, who, only_open=True)
 
 
+def deadline_person(cl, point, who, day=None):
+    """Срок листа для конкретного человека. Пусто — срока пока нет.
+
+    У цеха график плавающий: заготовщик приходит, когда есть объём, и общий
+    срок 09:30 объявлял его лист просроченным ещё до выхода на работу.
+    Решение Азиза 07.09.2026: считать от фактической отметки — пришёл
+    в 17:00, лист до 17:30. Пока приход не отмечен, срока нет вовсе:
+    неотмеченный приход разбирается отдельно, а не через просрочку листа.
+
+    У обычных листов признака нет, и функция отдаёт тот же срок, что и был.
+    """
+    src = cl.get('deadline_from')
+    if not src:
+        return C.deadline_for(cl, point)
+    try:
+        row = shift_row(day or C.day_str(), None, who)
+    except Exception as e:
+        # Чтение явки строгое: оно бросает ошибку, а не врёт пустотой.
+        # Но срок — не то, ради чего стоит ронять человеку всё приложение:
+        # на сбое отдаём общий срок листа и идём дальше.
+        print('личный срок:', e)
+        return C.deadline_for(cl, point)
+    if not row:
+        return ''
+    t = str(row[1][3] if src == 'in' else row[1][4]).strip()
+    if not t:
+        return ''
+    m = mins(t) + int(cl.get('deadline_plus', 0))
+    return f'{(m // 60) % 24:02d}:{m % 60:02d}'
+
+
 @S.serial
 def mark_shift(direction, day, point, who, lat, lon, plan=None, photo='',
                part='', at=None, geo_note=''):

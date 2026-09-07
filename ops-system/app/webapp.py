@@ -462,11 +462,15 @@ def init_payload(who):
         photos = C.photo_items(key)
         out['lists'][key] = {
             'title': cl['title'], 'code': cl['code'], 'ask_time': cl['ask_time'],
-            'deadline': C.deadline_for(cl, work),
+            # Срок личный: у цеха он считается от отметки прихода, а не
+            # от часов точки. Пока приход не отмечен — срока нет, и лист
+            # не показывается просроченным.
+            'deadline': F.deadline_person(cl, work, who[0]),
             # Срок по точкам: ОВИР закрывается на три часа позже. Отдаём
             # приложению целиком, чтобы при переключении точки оно
             # показывало её срок, а не срок домашней точки человека.
-            'deadline_by': cl.get('deadline_point') or {},
+            'deadline_by': ({} if cl.get('deadline_from')
+                            else cl.get('deadline_point') or {}),
             'station': cl.get('station', ''), 'stage': cl.get('stage', ''),
             'part': cl.get('part') or [], 'when': cl.get('when', ''),
             'blocks': [{'name': b['name'], 'doc': b.get('doc'), 'items': [
@@ -835,6 +839,24 @@ def shift(who, body):
                 'error': f'Ты не на точке: {geo_txt}. Отметиться отсюда '
                          f'нельзя. Если ты на месте, а телефон врёт — '
                          f'попроси управляющего разрешить.'}
+    # Цех закрывает зону по выполнению объёма, а не по часам точки. Значит
+    # и порядок такой: закрыл зону — сдал лист — ушёл. Решение Азиза
+    # 07.09.2026. Уход без сданного листа закрытия не записываем: иначе
+    # лист висит до ночи, а спросить уже не с кого.
+    if d == 'out':
+        zone = C.station_for(who[2] if len(who) > 2 else '')
+        key_close = f'{zone}_close' if zone else ''
+        if key_close in C.checklists():
+            try:
+                if key_close not in S.filled_today(C.day_str(), point,
+                                                   [key_close]):
+                    title = C.checklists()[key_close]['title']
+                    return {'ok': False,
+                            'error': f'Сначала сдай «{title}» — уход '
+                                     f'отмечается после того, как зона '
+                                     f'закрыта и лист сдан.'}
+            except Exception as e:
+                print('лист закрытия зоны:', e)
     # Время начала берём из состава: у повара цеха смена в 07:00, у кассира
     # в 09:30 — считать опоздание всем от одного часа неправильно.
     plan = body.get('plan')
@@ -1202,7 +1224,7 @@ def submit(who, body):
     try:
         fast = sec < C.MIN_SECONDS or (tempo is not None and tempo < C.MIN_GAP)
         BOT.notify_check(st, ok, tot, fails, line, comment, fast, bool(dup))
-        BOT.award_fill(st, ok, tot, fails, fast, BOT.is_late(kind, point))
+        BOT.award_fill(st, ok, tot, fails, fast, BOT.is_late(kind, point, who[0]))
     except Exception:
         pass
     if V.enabled():
