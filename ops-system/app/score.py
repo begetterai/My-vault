@@ -263,9 +263,12 @@ def close_day(d=None):
         Событийные листы со сроком (санитарный) тоже должны быть сданы.
         """
         if point not in seen:
+            # Сменные листы берём все, даже без срока: у закрытия
+            # управляющего его нет намеренно, а без этой строки его лист
+            # выпадал бы из запроса — и день не закрывался бы никогда.
             seen[point] = S.filled_today(
                 day, point, [k for k, cl in C.checklists().items()
-                             if cl.get('deadline')])
+                             if cl.get('deadline') or cl.get('stage')])
         got = seen[point]
         if not got:
             return False

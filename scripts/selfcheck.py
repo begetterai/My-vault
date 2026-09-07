@@ -154,7 +154,9 @@ def check_forms():
         for s_, cl in st.items():
             if cl.get('part') != WANT[s_]:
                 bad.append(f'{g}_{s_}: смены {cl.get("part")}')
-            if not cl.get('deadline'):
+            # У закрытия управляющего срока нет намеренно: он часто
+            # задерживается, и час в этом листе всегда был бы неверным.
+            if not cl.get('deadline') and g != 'shift_upr':
                 bad.append(f'{g}_{s_}: нет срока')
 
     for k, cl in D.items():

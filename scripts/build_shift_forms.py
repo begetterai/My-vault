@@ -50,7 +50,10 @@ BY_POINT = {'close': {'ОВИР': '03:30'}}
 # У управляющего свой день, короче дня точки: он приходит после открытия
 # и уходит до закрытия. ЗБ — 10:00–21:00, ОВИР — 12:00–21:00. Сроки его
 # листов считаются от этого, иначе оба просрочены каждый день.
-DEADLINE_UPR = {'open': '10:30', 'close': '21:30'}
+# Закрытие управляющего — без срока. Решение Азиза 07.09.2026: он часто
+# задерживается, и любой поставленный час делал бы лист просроченным
+# в те дни, когда управляющий как раз и работает дольше обычного.
+DEADLINE_UPR = {'open': '10:30', 'close': ''}
 BY_POINT_UPR = {'open': {'ОВИР': '12:30'}}
 
 
@@ -128,8 +131,8 @@ def build(code, zone, who):
                 blocks.append({'name': gname, 'items': items})
         if not blocks:
             continue
-        dead = (DEADLINE_UPR.get(stage) if key == 'shift_upr' else None) \
-            or DEADLINE[stage]
+        dead = (DEADLINE_UPR.get(stage, DEADLINE[stage]) if key == 'shift_upr'
+                else DEADLINE[stage])
         form = {'title': f'{zone} · {name}', 'code': f'03-CL-01/{code}-{letter}',
                 'type': 'checklist', 'ask_time': 'Во сколько закрыли этап?',
                 'stage': stage, 'part': parts, 'when': when,
