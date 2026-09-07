@@ -4,6 +4,16 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Чек-лист смены</title>
+<!-- Иконка на домашний экран и полный экран без адресной строки. Для iPhone
+     нужны отдельные метки: Apple манифест читает не полностью, а иконку
+     и режим берёт из своих. Без установки на экран на iPhone не работают
+     и уведомления — это ограничение Apple, обойти нельзя. -->
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#1f6feb">
+<link rel="apple-touch-icon" href="/icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Ромашка">
 <!-- defer: скрипт телеграма больше не держит показ страницы. На плохой связи
      человек видит интерфейс сразу, а не белый экран до конца загрузки. -->
 <script defer src="https://telegram.org/js/telegram-web-app.js"></script>
@@ -580,6 +590,22 @@
 </header>
 
 <main>
+  <!-- Вход на сайт. В Telegram он не показывается никогда: там личность
+       подтверждает сам Telegram. Появляется только когда приложение открыто
+       по своему адресу и сессии ещё нет. -->
+  <div id="loginBox" class="card hidden" style="margin-top:20px">
+    <h2 style="margin-top:0">Вход</h2>
+    <label>Логин</label>
+    <input id="logName" type="text" autocomplete="username"
+           autocapitalize="none" spellcheck="false" placeholder="например, bozorova">
+    <label>Пароль</label>
+    <input id="logPass" type="password" autocomplete="current-password"
+           placeholder="выдал управляющий">
+    <button class="send" id="logGo">Войти</button>
+    <div class="hint">Логин и пароль выдаёт управляющий. Забыл — скажи ему,
+      он выдаст новый. Войти нужно один раз: телефон запомнит на месяц.</div>
+  </div>
+
   <div id="wait" class="card hidden" style="margin-top:20px">
     <h2 style="margin-top:0">Скоро подключим</h2>
     <p style="color:var(--ink-2);line-height:1.5">Приложение запускается
@@ -734,6 +760,18 @@
       </div>
     </div>
 
+    <div id="pwdBox" class="hidden">
+      <h2>Пароль для входа на сайт</h2>
+      <div class="card">
+        <label>Кому</label>
+        <select id="pwdTo"></select>
+        <button class="send" id="pwdGo">Выдать новый пароль</button>
+        <div id="pwdOut" class="hint"></div>
+        <div class="hint">Пароль показывается один раз — запиши и передай
+          человеку. Старый после этого перестаёт работать.</div>
+      </div>
+    </div>
+
     <div id="peopleBox" class="hidden">
       <h2>Изменения по людям</h2>
       <div id="peopleLog"></div>
@@ -844,7 +882,7 @@
   <button class="send" id="send" disabled>Отправить</button>
 </div>
 <script>
-const BUILD = 'v06.09 фотофиксация, только камера';
+const BUILD = 'v07.09 вход по паролю, иконка на экран';
 // Заполняются на старте: скрипт телеграма грузится отложенно, и на момент
 // разбора этой строки window.Telegram может ещё не существовать.
 let tg = null, initData = '';
@@ -877,6 +915,34 @@ function hideNote(){
 }
 
 const fail = m => { note(m, 'err'); $('#err').textContent = m; $('#err').classList.remove('hidden'); };
+
+/* Экран входа. Живёт только на своём сайте: в Telegram личность
+   подтверждает сам Telegram, и спрашивать пароль там незачем. */
+function showLogin(){
+  $('#who').textContent = 'Вход';
+  $('#loginBox').classList.remove('hidden');
+  $('#pick').classList.add('hidden');
+  const go = $('#logGo');
+  go.onclick = async () => {
+    const login = $('#logName').value.trim();
+    const pass = $('#logPass').value;
+    if(!login || !pass) return note('Введи логин и пароль.', 'err');
+    go.disabled = true; go.textContent = 'Проверяю…';
+    try{
+      const r = await fetch('/api/login', {method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({login, password: pass})});
+      const j = await r.json();
+      if(!j.ok){ note(j.error || 'Не вышло.', 'err'); return; }
+      $('#logPass').value = '';
+      $('#loginBox').classList.add('hidden');
+      QUIET = true;
+      await boot();
+    }catch(e){ note('Не вышло: ' + (e.message || 'ошибка'), 'err'); }
+    finally{ go.disabled = false; go.textContent = 'Войти'; }
+  };
+  $('#logPass').onkeydown = e => { if(e.key === 'Enter') go.click(); };
+}
 
 /* Сбой внутри обработчика ничего не показывает: кнопка просто перестаёт
    отвечать, и человек думает, что «не нажимается». Показываем — но не
@@ -1091,11 +1157,15 @@ async function boot(){
     const r = await fetch('/api/init?initData=' + encodeURIComponent(initData));
     const j = await r.json();
     if(!r.ok){
+      // На сайте «ещё не вошёл» — не ошибка, а обычное начало: показываем
+      // вход, а не красную полосу. В Telegram этого экрана не бывает.
+      if(j.login_required){ showLogin(); return; }
       $('#who').textContent = 'Нет доступа';
       return fail((j.error || '') + (j.chat_id
         ? '\n\nТвой ID: ' + j.chat_id + '\nПередай его руководителю — он добавит тебя.'
         : ''));
     }
+    $('#loginBox').classList.add('hidden');
     // Телеграм держит мини-апп открытым и не перезапрашивает страницу:
     // человек может полдня работать в старой версии. Сервер говорит, какая
     // сборка лежит у него — не сходится, перезагружаемся сами. Один раз:
@@ -1206,7 +1276,7 @@ async function boot(){
       ['журналы', renderJournals], ['бланки', renderForms],
       ['обучение', renderQuizzes], ['баллы', renderScore],
       ['споры', renderDisputes], ['начисления', renderAwards],
-      ['люди', renderPeopleLog],
+      ['люди', renderPeopleLog], ['пароли', renderPasswords],
       ['черновики', draftSweep], ['шаги', stages],
     ];
     const broken = [];
@@ -3363,6 +3433,36 @@ function renderAwards(){
 
 const PEOPLE_ICON = {'добавлен':'➕','изменён':'✏️','убран':'➖'};
 
+/* Выдача пароля. Показываем один раз и не храним нигде: в таблице лежит
+   только хеш, восстановить пароль нельзя — можно лишь выдать новый. */
+function renderPasswords(){
+  const people = DATA.team || [];
+  if(!people.length) return;
+  $('#pwdTo').innerHTML = people.map(p => '<option>' + p + '</option>').join('');
+  const go = $('#pwdGo');
+  go.onclick = async () => {
+    const to = $('#pwdTo').value;
+    go.disabled = true; go.textContent = 'Выдаю…';
+    try{
+      const r = await fetch('/api/password', {method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({initData, who: to})});
+      const j = await r.json();
+      if(!j.ok){ note(j.error || 'Не вышло.', 'err'); }
+      else{
+        const box = $('#pwdOut');
+        box.textContent = '';
+        const b = document.createElement('b');
+        b.textContent = j.who + ' — логин ' + j.login + ', пароль ' + j.password;
+        box.appendChild(b);
+        note('Пароль выдан. Запиши — второй раз не покажу.', 'good');
+      }
+    }catch(e){ note('Не вышло: ' + (e.message || 'ошибка'), 'err'); }
+    finally{ go.disabled = false; go.textContent = 'Выдать новый пароль'; }
+  };
+  $('#pwdBox').classList.remove('hidden');
+}
+
 function renderPeopleLog(){
   const rows = DATA.people_log || [];
   if(!rows.length) return;
@@ -4009,6 +4109,18 @@ function refresh(force){
   lastBoot = Date.now();
   QUIET = true;
   return boot();
+}
+
+/* Обвязка приложения: иконка на экране и работа при пропавшей связи.
+   Ставится тихо и в стороне от запуска — если она не установится, работа
+   продолжается как обычным сайтом, просто без офлайна.
+   Внутри Telegram не регистрируем: там своя оболочка, свой кэш, и второй
+   слой поверх неё только мешает. */
+if('serviceWorker' in navigator && !window.Telegram?.WebApp?.initData){
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch(e =>
+      console.warn('офлайн-режим не включился:', e));
+  });
 }
 
 if(document.readyState === 'loading'){

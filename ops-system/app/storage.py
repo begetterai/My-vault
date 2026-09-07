@@ -4,7 +4,7 @@
 Структура таблицы создаётся автоматически при первом запуске — клиенту
 не нужно ничего готовить руками, только дать доступ сервисному аккаунту.
 """
-import os, json, time, base64, datetime, threading, urllib.parse
+import os, json, time, base64, hashlib, hmac, datetime, threading, urllib.parse
 os.environ.setdefault('REQUESTS_CA_BUNDLE', '/etc/ssl/certs/ca-certificates.crt')
 from google.oauth2 import service_account
 from google.auth.transport.requests import AuthorizedSession
@@ -270,9 +270,13 @@ def ensure_structure():
             C.TABS['ideas']: ['Дата', 'Кто', 'Точка', 'Откуда', 'Текст', 'Статус', 'Решение'],
             C.TABS['items']: ['Документ', '№', 'Блок', 'Пункт', 'Норматив', 'Фото',
                               'Эталонное фото — вставь ссылку'],
+            # Логин и пароль появились 06.09.2026: система переезжает
+            # с Mini App на свой сайт, и Telegram больше не подтверждает,
+            # кто пришёл. Пароль хранится ТОЛЬКО хешем — в таблицу его
+            # видят трое, и открытый пароль там означал бы вход под любым.
             C.TABS['team']: ['chat_id', 'Имя', 'Точка', 'Роль', 'Активен',
                              'Отдел', 'Может подменить (позиции)',
-                             'Может быть старшим'],
+                             'Может быть старшим', 'Логин', 'Пароль — хеш'],
             C.TABS['points']: ['Код', 'Название', 'Адрес', 'Активна',
                                'Широта', 'Долгота', 'Радиус, м',
                                'Замещает управляющего'],
@@ -867,6 +871,65 @@ def people_log(limit=20):
                     'point': r[4], 'role': r[5], 'dept': r[6], 'was': r[7]})
     out.reverse()
     return out
+
+
+# ── вход на сайт: логин и пароль ─────────────────────────────────────────────
+# До 06.09.2026 паролей не было вовсе: кто пришёл, говорил Telegram своей
+# подписью. На своём сайте посредника нет, узнавать человека приходится
+# самим. Пароль в таблице лежит хешем — таблицу видят трое, и открытый
+# пароль там означал бы, что любой из них может войти под любым сотрудником.
+PBKDF_ROUNDS = 200_000
+
+
+def hash_password(password, salt=None):
+    """Пароль → «соль$хеш» в base64. Соль своя у каждого."""
+    salt = salt or os.urandom(16)
+    h = hashlib.pbkdf2_hmac('sha256', str(password).encode(), salt, PBKDF_ROUNDS)
+    return (base64.b64encode(salt).decode() + '$'
+            + base64.b64encode(h).decode())
+
+
+def check_password(password, stored):
+    """Сходится ли пароль с сохранённым хешем."""
+    try:
+        s, h = str(stored).split('$', 1)
+        salt = base64.b64decode(s)
+        calc = hashlib.pbkdf2_hmac('sha256', str(password).encode(), salt,
+                                   PBKDF_ROUNDS)
+        return hmac.compare_digest(base64.b64encode(calc).decode(), h)
+    except Exception:
+        return False
+
+
+def logins(force=False):
+    """{логин: (chat_id, хеш)} — только у кого пароль задан."""
+    out = {}
+    for r in get(C.TABS['team'], 'A2:J200'):
+        r = list(r) + [''] * (10 - len(r))
+        login = str(r[8]).strip().lower()
+        if login and str(r[9]).strip() and str(r[0]).strip():
+            out[login] = (str(r[0]).strip(), str(r[9]).strip())
+    return out
+
+
+def set_login(chat_id, login, password):
+    """Записать логин и хеш пароля человеку. → получилось ли."""
+    rows = get(C.TABS['team'], 'A2:J200')
+    for i, r in enumerate(rows):
+        if r and str(r[0]).strip() == str(chat_id):
+            put(C.TABS['team'], f'I{i + 2}:J{i + 2}',
+                [[login.lower(), hash_password(password)]])
+            return True
+    return False
+
+
+def login_of(chat_id):
+    """Логин человека, если задан."""
+    for r in get(C.TABS['team'], 'A2:J200'):
+        r = list(r) + [''] * 10
+        if str(r[0]).strip() == str(chat_id):
+            return str(r[8]).strip()
+    return ''
 
 
 def save_fix(who, form, block, n, text, comment, doc=''):

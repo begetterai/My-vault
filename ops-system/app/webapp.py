@@ -3,7 +3,7 @@
 
 Личность приходит от телеграма подписанной — паролей нет, подделать нельзя.
 """
-import os, re, json, hmac, hashlib, base64, time, datetime, threading, urllib.parse
+import os, re, json, hmac, hashlib, base64, random, time, datetime, threading, urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from . import config as C
@@ -15,6 +15,13 @@ from . import score as SC
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PAGE = os.path.join(HERE, 'web', 'index.html')
+WEB = os.path.join(HERE, 'web')
+# Файлы, которые делают из страницы приложение: манифест даёт иконку
+# и полный экран, service worker — работу при пропавшей связи.
+STATIC = {'/manifest.json': 'application/manifest+json',
+          '/sw.js': 'application/javascript; charset=utf-8',
+          '/icon-192.png': 'image/png',
+          '/icon-512.png': 'image/png'}
 
 
 def page_build():
@@ -56,12 +63,134 @@ def check_init_data(init_data, token):
         return None
 
 
-def _who(init_data):
+# ── вход на сайт ─────────────────────────────────────────────────────────────
+# Система переезжает с Mini App на свой сайт, и Telegram больше не говорит,
+# кто пришёл. Держим оба входа сразу: подпись телеграма для тех, кто ещё
+# работает из бота, и своя сессия для сайта. Так смена не встаёт на время
+# переезда — люди переходят по одному, а не все в один день.
+#
+# Сессия — подписанный талон в куке, а не запись в памяти сервера: Railway
+# перезапускает контейнер на каждой выкатке, и хранимые сессии слетали бы
+# вместе с ним, выкидывая всю смену посреди работы.
+SESSION_DAYS = 30
+
+
+def make_session(chat_id):
+    """Талон для куки: кому, до какого дня, и подпись."""
+    till = int(time.time()) + SESSION_DAYS * 86400
+    body = f'{chat_id}.{till}'
+    sig = hmac.new(C.BOT_TOKEN.encode(), body.encode(), hashlib.sha256).hexdigest()
+    return f'{body}.{sig}'
+
+
+def read_session(token):
+    """Талон → chat_id, если подпись сходится и срок не вышел."""
+    try:
+        cid, till, sig = str(token).rsplit('.', 2)
+        body = f'{cid}.{till}'
+        calc = hmac.new(C.BOT_TOKEN.encode(), body.encode(),
+                        hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(calc, sig):
+            return ''
+        return cid if int(till) > time.time() else ''
+    except Exception:
+        return ''
+
+
+TRANSLIT = {'а': 'a', 'б': 'b', 'в': 'v', 'г': 'g', 'д': 'd', 'е': 'e',
+            'ё': 'e', 'ж': 'zh', 'з': 'z', 'и': 'i', 'й': 'y', 'к': 'k',
+            'л': 'l', 'м': 'm', 'н': 'n', 'о': 'o', 'п': 'p', 'р': 'r',
+            'с': 's', 'т': 't', 'у': 'u', 'ф': 'f', 'х': 'h', 'ц': 'ts',
+            'ч': 'ch', 'ш': 'sh', 'щ': 'sch', 'ъ': '', 'ы': 'y', 'ь': '',
+            'э': 'e', 'ю': 'yu', 'я': 'ya'}
+
+
+def make_login(name, taken):
+    """Логин из имени: «Бозорова Чароз» → bozorova. Занят — с цифрой."""
+    word = str(name).strip().split()[0].lower() if str(name).strip() else 'user'
+    base = ''.join(TRANSLIT.get(c, c if c.isalnum() else '') for c in word)[:14]
+    base = base or 'user'
+    login = base
+    n = 2
+    while login in taken:
+        login = f'{base}{n}'
+        n += 1
+    return login
+
+
+# Пароль диктуют голосом и вводят на телефоне, поэтому без похожих знаков:
+# ноль и «о», единица и «l» на маленьком экране неразличимы.
+PWD_ABC = 'abcdefghjkmnpqrstuvwxyz23456789'
+
+
+def make_password():
+    return ''.join(random.choice(PWD_ABC) for _ in range(6))
+
+
+def password_reset(who, body):
+    """Управляющий выдаёт или сбрасывает пароль. → логин и новый пароль."""
+    if S.role_of(who) not in ('manager', 'coo'):
+        return {'ok': False, 'error': 'Пароли выдаёт руководитель'}
+    target = str(body.get('who', '')).strip()
+    team = S.team()
+    cid = next((c for c, v in team.items() if v[0] == target), '')
+    if not cid:
+        return {'ok': False, 'error': f'«{target}» нет в команде'}
+    # Управляющий распоряжается своей точкой, директор — всеми.
+    if S.role_of(who) != 'coo' and team[cid][1] != who[1]:
+        return {'ok': False, 'error': 'Это человек другой точки'}
+    try:
+        login = S.login_of(cid) or make_login(target, set(S.logins()))
+        password = make_password()
+        if not S.set_login(cid, login, password):
+            return {'ok': False, 'error': 'Не нашёл строку в «Команде»'}
+    except Exception as e:
+        return {'ok': False, 'error': f'Не записалось: {e}'}
+    S.team(force=True)
+    BOT.admin(f'🔑 <b>Пароль выдан</b>\n{target} · логин <code>{login}</code>\n'
+              f'Выдал: {who[0]}', point=team[cid][1])
+    return {'ok': True, 'login': login, 'password': password, 'who': target}
+
+
+def do_login(body):
+    """Вход по логину и паролю. → (ответ, chat_id либо пусто).
+
+    Ошибку не уточняем — «нет такого логина» и «неверный пароль» под одним
+    текстом. Иначе по разнице ответов подбирается, кто вообще есть в системе.
+    """
+    login = str(body.get('login', '')).strip().lower()
+    password = str(body.get('password', ''))
+    if not login or not password:
+        return {'ok': False, 'error': 'Введи логин и пароль.'}, ''
+    bad = {'ok': False, 'error': 'Логин или пароль не подходят.'}
+    try:
+        found = S.logins().get(login)
+    except Exception as e:
+        print('вход:', e)
+        return {'ok': False, 'error': 'Не могу проверить — попробуй ещё раз '
+                                      'через минуту.'}, ''
+    if not found:
+        return bad, ''
+    cid, stored = found
+    if not S.check_password(password, stored):
+        return bad, ''
+    who = S.team().get(cid)
+    if not who:
+        return {'ok': False, 'error': 'Тебя нет в составе команды. '
+                                      'Скажи управляющему.'}, ''
+    return {'ok': True, 'name': who[0]}, cid
+
+
+def _who(init_data, cookie=''):
+    """Кто пришёл: по подписи телеграма либо по сессии сайта."""
     u = check_init_data(init_data, C.BOT_TOKEN)
-    if not u:
-        return None, None
-    cid = str(u.get('id', ''))
-    return cid, S.team().get(cid)
+    if u:
+        cid = str(u.get('id', ''))
+        return cid, S.team().get(cid)
+    cid = read_session(cookie)
+    if cid:
+        return cid, S.team().get(cid)
+    return None, None
 
 
 def init_payload(who):
@@ -1617,15 +1746,27 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, *a):
         pass
 
-    def _send(self, code, body, ctype='application/json; charset=utf-8'):
+    def _send(self, code, body, ctype='application/json; charset=utf-8',
+              cookie=''):
         data = body if isinstance(body, bytes) else \
             json.dumps(body, ensure_ascii=False).encode()
         self.send_response(code)
         self.send_header('Content-Type', ctype)
         self.send_header('Content-Length', str(len(data)))
         self.send_header('Cache-Control', 'no-store')
+        if cookie:
+            self.send_header('Set-Cookie', cookie)
         self.end_headers()
         self.wfile.write(data)
+
+    def _session(self):
+        """Талон сессии из куки, если он там есть."""
+        raw = self.headers.get('Cookie', '') or ''
+        for part in raw.split(';'):
+            k, _, v = part.strip().partition('=')
+            if k == 'rs':
+                return v
+        return ''
 
     def do_GET(self):
         p = urllib.parse.urlparse(self.path)
@@ -1635,6 +1776,12 @@ class Handler(BaseHTTPRequestHandler):
             # проверки «смена уже открыта» и «место занято».
             return self._send(200, {'ok': True, 'company': C.COMPANY,
                                     'sheets': S.stats()})
+        if p.path in STATIC:
+            try:
+                with open(os.path.join(WEB, p.path.lstrip('/')), 'rb') as f:
+                    return self._send(200, f.read(), STATIC[p.path])
+            except FileNotFoundError:
+                return self._send(404, {'error': 'not found'})
         if p.path in ('/', '/index.html', '/app'):
             try:
                 return self._send(200, open(PAGE, 'rb').read(), 'text/html; charset=utf-8')
@@ -1694,16 +1841,19 @@ class Handler(BaseHTTPRequestHandler):
         if p.path == '/api/init':
             init = urllib.parse.parse_qs(p.query).get('initData', [''])[0]
             u = check_init_data(init, C.BOT_TOKEN)
-            if not u:
-                return self._send(403, {'error': 'Открой страницу через бота — '
-                                                 'иначе телеграм не подтверждает, кто ты.'})
-            cid = str(u.get('id', ''))
+            cid = str(u.get('id', '')) if u else read_session(self._session())
+            if not cid:
+                # На сайте это не ошибка, а обычное начало: человек ещё
+                # не вошёл. Приложение по этому признаку показывает вход.
+                return self._send(401, {'error': 'Войди по логину и паролю.',
+                                        'login_required': True})
             who = S.team().get(cid)
             if not who:
-                try:
-                    BOT.unknown(cid, u)
-                except Exception:
-                    pass
+                if u:
+                    try:
+                        BOT.unknown(cid, u)
+                    except Exception:
+                        pass
                 return self._send(403, {'error': 'Тебя ещё нет в системе.',
                                         'chat_id': cid})
             return self._send(200, init_payload(who))
@@ -1719,7 +1869,20 @@ class Handler(BaseHTTPRequestHandler):
             body = json.loads(self.rfile.read(n) or b'{}')
         except Exception:
             return self._send(400, {'error': 'плохой запрос'})
-        cid, who = _who(body.get('initData', ''))
+
+        # Вход и выход — до проверки, кто пришёл: человек как раз и приходит
+        # сюда неопознанным.
+        if p == '/api/login':
+            out, cid = do_login(body)
+            if not cid:
+                return self._send(200, out)
+            return self._send(200, out, cookie=(
+                f'rs={make_session(cid)}; Path=/; Max-Age={SESSION_DAYS * 86400}; '
+                f'HttpOnly; SameSite=Lax; Secure'))
+        if p == '/api/logout':
+            return self._send(200, {'ok': True}, cookie=(
+                'rs=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax; Secure'))
+        cid, who = _who(body.get('initData', ''), self._session())
         if not who:
             # Две разные беды под одним сообщением сбивали с толку: подпись
             # телеграма протухла — или система на секунду не увидела состав.
@@ -1737,6 +1900,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, note(who, body))
             if p == '/api/geo':
                 return self._send(200, set_geo(who, body))
+            if p == '/api/password':
+                return self._send(200, password_reset(who, body))
             if p == '/api/geo_ask':
                 return self._send(200, geo_ask(who, body))
             if p == '/api/standin':
