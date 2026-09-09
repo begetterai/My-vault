@@ -764,7 +764,10 @@ def leave_blocked(who, point):
     if not keys:
         return '', False
     try:
-        have = S.filled_today(day, point, keys)
+        # strict обязателен: без него сбой чтения возвращал пустоту, она
+        # читалась как «ничего не сдано» — и человек оказывался заперт
+        # на точке из-за проблем со связью, а не из-за своей работы.
+        have = S.filled_today(day, point, keys, strict=True)
     except Exception as e:
         # Не смогли проверить — не держим человека на точке из-за сбоя связи.
         print('проверка ухода:', e)
@@ -803,7 +806,7 @@ def close_blocked(kind, day, point, who, said=''):
             # он обязан был её принять — иначе принимать её теперь некому,
             # а он закрывает работу, которую не брал.
             gk, tk = f'{grp}_give', f'{grp}_take'
-            have = S.filled_today(day, point, [gk, tk])
+            have = S.filled_today(day, point, [gk, tk], strict=True)
             if gk in have and tk not in have:
                 return ('Сначала прими смену — лист «Приём» ждёт. '
                         'Закрывать можно только то, что принял.')
@@ -811,7 +814,8 @@ def close_blocked(kind, day, point, who, said=''):
         # Работает один день целиком: перед закрытием должно быть открытие.
         ok_key = f'{grp}_open'
         if ok_key in C.checklists() \
-                and ok_key not in S.filled_today(day, point, [ok_key]):
+                and ok_key not in S.filled_today(day, point, [ok_key],
+                                                 strict=True):
             return ('Сначала сдай открытие этого места — закрытие идёт '
                     'после него. Если открывал не ты, попроси сдать лист '
                     'открытия.')
@@ -1268,9 +1272,22 @@ def submit(who, body):
         except Exception:
             pass
         n = ph.get('n')
-        photos.append(S.save_photo(raw, f'{point}-{day}-п{n}') if raw else f'п{n}:есть')
-        if raw:
-            shots.append((int(n), raw))
+        # Пустой снимок больше не помечаем как «есть»: строка утверждала,
+        # что фотография сделана, когда её не было вовсе — и разбираться
+        # потом приходилось с человеком, а не с обрывом связи.
+        if not raw:
+            return {'ok': False,
+                    'error': f'Фото по пункту {n} не дошло. Переснимите его '
+                             'и отправьте лист ещё раз.'}
+        try:
+            photos.append(S.save_photo(raw, f'{point}-{day}-п{n}'))
+        except Exception as e:
+            print('фото:', e)
+            return {'ok': False,
+                    'error': f'Не удалось сохранить фото по пункту {n}. '
+                             'Проверь связь и отправь лист ещё раз — '
+                             'отметки сохранены в телефоне.'}
+        shots.append((int(n), raw))
     sec = float(body.get('seconds') or 0)
     tempo = BOT.tempo(body.get('marks_ts') or [])
     comment = str(body.get('comment', ''))[:300]
@@ -1474,42 +1491,38 @@ def check(who, body):
         # Второе нажатие по той же строке начисляло баллы ещё раз и слало второй
         # итог. 29.08 так вышло два «+5» Насибе за один лист.
         try:
-            done = S.get(C.checklists()[key]['tab'], f'N{line}:N{line}')
-            if done and done[0] and str(done[0][0]).strip():
-                return {'ok': False,
-                        'error': f'Уже подтвердил {done[0][0]}'}
+            # Одно строгое чтение вместо четырёх отдельных. Раньше каждая
+            # проверка читала свою клетку и глотала неудачу: пустой ответ
+            # Google читался как «проверка пройдена», и при нехватке квоты
+            # разом отключались все запреты — включая тот, из-за которого
+            # управляющий 29–30.08 закрыл четыре собственных заполнения.
+            row = S.get(C.checklists()[key]['tab'],
+                        f'A{line}:N{line}', strict=True)
+            cells = (list(row[0]) + [''] * 14) if row and row[0] else [''] * 14
         except Exception as e:
-            print('повторная проверка:', e)
+            print('строка заполнения:', e)
+            return {'ok': False,
+                    'error': 'Не удалось прочитать заполнение — таблица '
+                             'не отвечает. Попробуй ещё раз через минуту.'}
+        if str(cells[13]).strip():                      # N — кто уже подтвердил
+            return {'ok': False, 'error': f'Уже подтвердил {cells[13]}'}
         # Чужая точка — не его дело. В список ему такой лист не попадёт, но
         # запрос до 31.08 принимали: право проверять держалось только тем,
         # что кнопки не видно.
-        try:
-            r = S.get(C.checklists()[key]['tab'], f'B{line}:B{line}')
-            pt = str(r[0][0]).strip() if r and r[0] else ''
-            if (pt and S.role_of(who) != 'coo' and pt != who[1]
-                    and S.standin_of(pt) != who[0]):
-                return {'ok': False, 'error': f'Это лист точки {S.point_label(pt)}. '
-                                              f'Его проверяет её управляющий.'}
-        except Exception as e:
-            print('точка заполнения:', e)
+        pt = str(cells[1]).strip()                      # B — точка
+        if (pt and S.role_of(who) != 'coo' and pt != who[1]
+                and S.standin_of(pt) != who[0]):
+            return {'ok': False, 'error': f'Это лист точки {S.point_label(pt)}. '
+                                          f'Его проверяет её управляющий.'}
         # Свой лист не подтверждает никто. Управляющий так закрыл четыре
         # собственных заполнения 29–30.08 — проверки по факту не было.
-        try:
-            r = S.get(C.checklists()[key]['tab'], f'C{line}:C{line}')
-            if r and r[0] and str(r[0][0]).strip() == who[0]:
-                return {'ok': False, 'error': 'Свой лист подтверждает тот, кто '
-                                              'выше: управляющего — директор.'}
-        except Exception as e:
-            print('автор заполнения:', e)
+        if str(cells[2]).strip() == who[0]:             # C — кто заполнил
+            return {'ok': False, 'error': 'Свой лист подтверждает тот, кто '
+                                          'выше: управляющего — директор.'}
         # Невыполненные пункты нельзя оставить неразобранными. Иначе честный «✕»
         # повисает: он записан, но за него ни минуса смене, ни задачи на починку —
         # и человеку выгоднее нарисовать галочку, чем сказать правду.
-        try:
-            row = S.get(C.checklists()[key]['tab'], f'I{line}:I{line}')
-            fails = re.findall(r'\d+', str(row[0][0]) if row and row[0] else '')
-        except Exception as e:
-            print('невыполненные пункты:', e)
-            fails = []
+        fails = re.findall(r'\d+', str(cells[8]))       # I — невыполненные
         if fails:
             got = {str(x) for x in (body.get('first') or body.get('guilty') or [])} \
                 | {str(x) for x in (body.get('second') or [])} \

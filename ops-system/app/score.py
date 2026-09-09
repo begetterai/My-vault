@@ -285,9 +285,21 @@ def close_day(d=None):
                    if cl.get('deadline') and not cl.get('stage')
                    and S.workers_of(point, cl.get('dept'), cl.get('roles')))
 
+    def worked(point, who):
+        """Сдавал ли этот человек хоть один лист сегодня.
+
+        Раньше проверялась только точка, и +5 «за закрытый день» получал
+        каждый, кто отметил приход, — включая того, кто не сдал ничего.
+        Балл называется «сначала своя работа», значит своя работа и должна
+        быть условием, иначе смысл теряется за неделю.
+        """
+        return any(v.get('who') == who for v in seen.get(point, {}).values())
+
     for r in shifts:
         point, who = r[1].strip(), r[2].strip()
         if not point_closed(point):
+            continue
+        if not worked(point, who):
             continue
         if any(x['event'] == 'day_closed' for x in rows(since=d, until=d, who=who)):
             continue

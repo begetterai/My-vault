@@ -153,11 +153,16 @@ def get(tab, a1='', render='FORMATTED_VALUE', strict=False):
     return []
 
 
-def get_many(pairs):
+def get_many(pairs, strict=False):
     """Несколько диапазонов одним запросом. [(лист, A1)] → [[строки], ...]
 
     Шесть отдельных чтений — это шесть обращений к квоте Google и шесть
     сетевых задержек подряд, пока бот стоит. batchGet делает то же за один.
+
+    strict=True — не отдавать пустоту вместо ответа. Там, где по результату
+    что-то запрещается, «не смог прочитать» и «ничего не сдано» — разные
+    вещи: без этого человек не мог принять смену и, хуже, не мог отметить
+    уход, оставаясь запертым на точке.
     """
     if not pairs:
         return []
@@ -196,6 +201,8 @@ def get_many(pairs):
         time.sleep(0.6 * (n + 1))
     _STAT['fails'] += 1
     print(f'групповое чтение: {last}')
+    if strict:
+        raise IOError(f'не прочиталось: {last}')
     return [[] for _ in pairs]
 
 
@@ -588,18 +595,34 @@ def managers():
 
 # ── фото ─────────────────────────────────────────────────────────────────────
 def save_photo(raw_bytes, name):
+    """Ссылка на сохранённый снимок. Не сохранилось — исключение.
+
+    Раньше любая неудача возвращала пустую строку, и она молча исчезала
+    в строке заполнения: человек сдал лист с фотографиями, в таблице
+    пусто, доказательства нет. Лучше честная ошибка на телефоне.
+    """
     meta = {'name': name + '.jpg'}
     if C.PHOTO_FOLDER:
         meta['parents'] = [C.PHOTO_FOLDER]
-    try:
-        r = session().post(
-            'https://www.googleapis.com/upload/drive/v3/files'
-            '?uploadType=multipart&supportsAllDrives=true&fields=webViewLink',
-            files={'data': ('m', json.dumps(meta), 'application/json'),
-                   'file': (meta['name'], raw_bytes, 'image/jpeg')}, timeout=120)
-        return r.json().get('webViewLink', '')
-    except Exception:
-        return ''
+    last = None
+    for i in range(2):
+        try:
+            r = session().post(
+                'https://www.googleapis.com/upload/drive/v3/files'
+                '?uploadType=multipart&supportsAllDrives=true&fields=webViewLink',
+                files={'data': ('m', json.dumps(meta), 'application/json'),
+                       'file': (meta['name'], raw_bytes, 'image/jpeg')},
+                timeout=120)
+            r.raise_for_status()
+            link = r.json().get('webViewLink', '')
+            if link:
+                return link
+            last = 'хранилище не вернуло ссылку'
+        except Exception as e:
+            last = e
+        if i == 0:
+            time.sleep(1)
+    raise IOError(f'фото не сохранилось: {last}')
 
 
 def save_photo_data_url(url, name):
@@ -623,16 +646,19 @@ def already_filled(key, day, point):
     return None
 
 
-def filled_today(day, point, keys):
+def filled_today(day, point, keys, strict=False):
     """{ключ: {кто, во сколько, кому сдал}} по листам за один запрос.
 
     Нужно, чтобы приложение знало, какой этап уже сдан и кому именно сдают
     смену: приём открывается только названному человеку.
+
+    strict=True — там, где по результату что-то запрещают человеку.
     """
     cls = C.checklists()
     keys = [k for k in keys if k in cls]
     out = {}
-    for k, rows in zip(keys, get_many([(cls[k]['tab'], 'A2:S') for k in keys])):
+    for k, rows in zip(keys, get_many([(cls[k]['tab'], 'A2:S') for k in keys],
+                                      strict=strict)):
         for r in rows:
             if len(r) >= 4 and str(r[0]).strip() == day and str(r[1]).strip() == point:
                 out[k] = {'who': str(r[2]).strip(), 'at': str(r[3]).strip(),
@@ -689,6 +715,7 @@ def read_codes(who):
     return {r[4].strip() for r in read_rows() if len(r) >= 5 and r[3].strip() == who}
 
 
+@serial
 def save_read(point, who, code, title, url):
     """Записать подпись «прочитал и согласился». Повтор не дублируем."""
     if code in read_codes(who):
@@ -813,6 +840,7 @@ def hanging(day):
     return [(line, v) for line, v in segments(day) if not v['end']]
 
 
+@serial
 def take_station(day, point, part, station, who, how='выбрал сам', frm=''):
     """Встать на место. → (получилось, кто его держит)
 
@@ -839,6 +867,7 @@ def take_station(day, point, part, station, who, how='выбрал сам', frm=
     return True, who
 
 
+@serial
 def start_day(day, point, who, part='', at=None):
     """Отметился на точке — время пошло, место ещё не выбрано.
 
@@ -854,6 +883,7 @@ def start_day(day, point, who, part='', at=None):
     return True
 
 
+@serial
 def add_member(chat_id, name, point, role, dept=''):
     """Строка в «Команду». Повторный вызов обновляет, а не дублирует.
 
@@ -932,6 +962,7 @@ def logins(force=False):
     return out
 
 
+@serial
 def set_login(chat_id, login, password):
     """Записать логин и хеш пароля человеку. → получилось ли."""
     rows = get(C.TABS['team'], 'A2:J200')

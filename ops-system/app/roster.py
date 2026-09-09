@@ -166,10 +166,18 @@ def save(day, point, people, author):
     return [r[2] for r in keep if not r[6]]
 
 
+@S.serial
 def _rewrite(day, point, new_rows):
-    """Состав дня переписывается целиком: старые строки этого дня гасим."""
+    """Состав дня переписывается целиком: старые строки этого дня гасим.
+
+    strict и замок здесь обязательны. Читаем весь лист и записываем его
+    обратно: пустой ответ Google означал бы «состава нет ни у кого» —
+    и лист переписался бы одними строками этой точки, стерев вторую
+    точку и все прошлые дни. Замок — потому что оба управляющих собирают
+    состав одним вечером, и без него второй затирает работу первого.
+    """
     ds = day_str(day)
-    all_rows = S.get(TAB, 'A2:J')
+    all_rows = S.get(TAB, 'A2:J', strict=True)
     out = []
     for r in all_rows:
         r = list(r) + [''] * (10 - len(r))
@@ -201,11 +209,14 @@ def mark_show(day):
     Автомат ошибётся в половине случаев, разбирается это на собрании.
     """
     ds = day_str(day)
-    came = {(r[1].strip(), r[2].strip()) for r in S.get(C.TABS['shift'], 'A2:K')
+    # По имени, без точки: человек, отправленный управляющим закрывать
+    # смену на другую точку, отмечался там — и попадал в «не вышел»
+    # вместе с публичной рассылкой. Вышел он или нет, от точки не зависит.
+    came = {r[2].strip() for r in S.get(C.TABS['shift'], 'A2:K', strict=True)
             if len(r) >= 4 and r[0].strip() == ds and r[3].strip()}
     out = []
     for r in rows(day):
-        mark = 'вышел' if (r['point'], r['who']) in came else 'не вышел'
+        mark = 'вышел' if r['who'] in came else 'не вышел'
         if r['mark'] != mark:
             S.put(TAB, f'H{r["line"]}:H{r["line"]}', [[mark]])
         if mark == 'не вышел':

@@ -107,13 +107,48 @@ def deadlines():
 
 
 # ── напоминания и эскалация ──────────────────────────────────────────────────
-def ready_workers(point, cl):
+def on_station(point, cl, key):
+    """Имя того, кто занял рабочее место этого листа. Пусто — место свободно.
+
+    Раньше адресатом был весь отдел: повар получал по четыре напоминания
+    (саладетта, раздача, фритюр, вторая саладетта), а по местам, где сегодня
+    никто не работал, в срок улетало «просрочено» управляющему. Место
+    занимает конкретный человек — с него и спрашиваем.
+
+    Заодно отсекаются передача и приём у того, кто работает один целиком:
+    смену он никому не отдаёт, а ложное «просрочено» в 17:00 приходило
+    по каждой такой станции дважды.
+    """
+    st = cl.get('station')
+    if not st:
+        return None                      # лист не привязан к месту
+    try:
+        for _, v in S.segments(C.day_str(), point):
+            if v['station'] != st or v['end']:
+                continue
+            if key.endswith(('_give', '_take')) and v['part'] == 'one':
+                return ''
+            return v['who']
+    except Exception as e:
+        print('кто на месте:', e)
+        return None                      # не смогли прочитать — не молчим
+    return ''
+
+
+def ready_workers(point, cl, key=''):
     """Кто на точке реально должен сдать этот чек-лист.
 
     Новичок, не сдавший тренинги позиции, из счёта выпадает: приложение
     ему чек-листы ещё не показывает, спрашивать за них нечестно.
     """
     from . import forms as F
+    if key:
+        live = on_station(point, cl, key)
+        if live == '':
+            return []                    # место свободно — спрашивать не с кого
+        if live:
+            return [cid for cid, v in S.team().items()
+                    if v[0] == live and v[1] == point] or []
     out = []
     for cid in S.workers_of(point, cl.get('dept'), cl.get('roles')):
         v = S.team().get(str(cid))
@@ -137,7 +172,7 @@ def remind(key, cl, point, left):
     # Некому сдавать — не с кого и спрашивать: позиция не занята, человека
     # на ней нет. Раньше такие напоминания падали на управляющего, и он
     # получал по десятку красных сообщений за раз ни о чём.
-    who = ready_workers(point, cl)
+    who = ready_workers(point, cl, key)
     for cid in who:
         v = S.team().get(str(cid))
         BOT.say(cid, f'⏰ <b>{cl["title"]}</b> · {point}\n'
@@ -156,7 +191,7 @@ def person_due(key, cl, point, before, minute):
     и просроченным не считаем: неотмеченный приход разбирается отдельно.
     """
     from . import forms as F
-    for cid in ready_workers(point, cl):
+    for cid in ready_workers(point, cl, key):
         v = S.team().get(str(cid))
         if not v:
             continue
@@ -187,7 +222,7 @@ def overdue(key, cl, point):
     if not C.REMINDERS:
         return
     # Пустая позиция не «просрочена»: на ней сегодня никто не работает.
-    if not ready_workers(point, cl):
+    if not ready_workers(point, cl, key):
         return
     txt = (f'🚨 <b>Просрочено</b> · {point}\n'
            f'{cl["title"].lower()} не заполнен '
@@ -379,14 +414,15 @@ def roster_fallback():
                          f'Поправь утром, если что-то не так.')
 
 
-def mark_show():
+def mark_show(day=None):
     """Ночью: кто был в составе и не вышел. Отметка, без баллов.
 
     День берём текущий операционный: в 04:30 сутки, начавшиеся вчера утром,
-    ещё не кончились — это и есть день, который разбираем.
+    ещё не кончились — это и есть день, который разбираем. Параметр нужен
+    для догона, когда обслуживание пропустили из-за перезапуска.
     """
     from . import roster as RS
-    day = C.today()
+    day = day or C.today()
     try:
         missing = RS.mark_show(day)
     except Exception as e:
@@ -404,7 +440,7 @@ def mark_show():
             BOT.say(cid, txt)
 
 
-def close_stations():
+def close_stations(day=None):
     """Под утро: закрыть отрезки тех, кто не отметил уход.
 
     Конец берём из явки — там записан уход, если он есть. Нет и там —
@@ -413,7 +449,7 @@ def close_stations():
     в зарплату должно идти посчитанное, а не угаданное молча.
     """
     from . import forms as F
-    day = C.day_str()
+    day = (day.strftime('%d.%m.%Y') if day else C.day_str())
     left = S.hanging(day)
     if not left:
         return
@@ -670,7 +706,7 @@ def tick():
                     if not (cl.get('points') and point not in cl['points'])
                     # Некому сдавать — не с кого и спрашивать: позиция
                     # не занята. Новичок без обучения тоже не в счёт.
-                    and ready_workers(point, cl)]
+                    and ready_workers(point, cl, k)]
             if not work:
                 continue
             filled = S.filled_today(dstr, point, [k for k, _, _ in work])
@@ -759,6 +795,23 @@ def tick():
         mark_show()
         close_stations()
         close_day()
+    # Догон. Окно выше живёт всего с 04:30 до 04:59: перезапуск в эти
+    # полчаса — и сутки оставались необслуженными навсегда, с открытыми
+    # отрезками и без начислений. В начале новых суток проверяем вчера.
+    elif minute < 120 and once('closeday:prev'):
+        prev = C.today() - datetime.timedelta(days=1)
+        try:
+            # Отметка о закрытии лежит в журнале ТЕХ суток: в 04:30
+            # операционный день — ещё вчерашний. Есть отметка — ночь
+            # отработала штатно, повторно рассылать «не вышли» незачем.
+            _, keys = _load_done(prev.strftime('%d.%m.%Y'))
+            if 'closeday' not in keys:
+                print('догоняю закрытие суток', prev)
+                mark_show(prev)
+                close_stations(prev)
+                close_day(prev)
+        except Exception as e:
+            print('догон закрытия дня:', e)
 
     # Deep Clean — воскресенье, 10:00. Решение Азиза 31.08. Лист ведёт
     # управляющий: он объявляет субботник, обходит зоны и отмечает сам.
