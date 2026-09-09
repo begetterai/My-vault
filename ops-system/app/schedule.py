@@ -16,6 +16,7 @@ from . import reports as R
 
 TAB_DONE = 'Служебное'
 _done = {'day': None, 'keys': set(), 'line': 0}
+_backup_try = [-99]        # операционная минута последней попытки копирования
 
 
 def _load_done(day):
@@ -33,6 +34,43 @@ def _save_done(day):
         S.put(TAB_DONE, f"A{_done['line']}:B{_done['line']}", [[day, val]])
     else:
         _done['line'] = S.append(TAB_DONE, [[day, val]]) or 0
+
+
+def marked(key):
+    """Уже отмечено сегодня? Не отмечает — только смотрит.
+
+    Нужно там, где отметку ставим по факту успеха, а не по факту попытки:
+    иначе неудачная попытка съедает день, и повтора не будет до завтра.
+    """
+    day = C.today().strftime('%d.%m.%Y')
+    if _done['day'] != day:
+        _sync(day)
+    return key in _done['keys']
+
+
+def _sync(day):
+    """Подтянуть журнал за день, если в памяти другой день."""
+    try:
+        line, keys = _load_done(day)
+    except Exception as e:
+        print('журнал отправленного:', e)
+        line, keys = 0, set()
+    _done.update(day=day, keys=keys, line=line)
+    return False
+
+
+def mark(key):
+    """Отметить сделанным. Вызывать после успеха."""
+    day = C.today().strftime('%d.%m.%Y')
+    if _done['day'] != day:
+        _sync(day)
+    if key in _done['keys']:
+        return
+    _done['keys'].add(key)
+    try:
+        _save_done(day)
+    except Exception as e:
+        print('журнал отправленного:', e)
 
 
 def once(key):
@@ -394,8 +432,11 @@ def close_stations():
             end = C.deadline_for(cl, v['point']) or '00:00'
         S.close_segments(day, v['who'], end)
         if not by_shift:
-            told.append(f"· {v['who']} · {v['station']} · с {v['start']} — "
-                        f"ухода нет, поставлен {end}")
+            # Точка в строке обязательна: ниже письмо адресуется управляющему
+            # по вхождению «· точка ·». Раньше здесь стояла станция, фильтр
+            # не находил совпадений — и письмо не уходило вообще никому.
+            told.append(f"· {v['point']} · {v['who']} · {v['station']} · "
+                        f"с {v['start']} — ухода нет, поставлен {end}")
     # Отрезки закрылись, а сама явка оставалась открытой навсегда: у Тохирова
     # смена от 30.08 висела без ухода и без часов. «Часов» — это зарплата,
     # пустая клетка в ней хуже, чем посчитанная с пометкой.
@@ -608,7 +649,12 @@ def monthly():
 # ── цикл ─────────────────────────────────────────────────────────────────────
 def tick():
     now = C.now()
-    day = now.date()
+    # Операционный день, а не календарный. Всё приложение пишет заполнения
+    # под C.day_str(); с полуночи до 5 утра календарная дата уже завтрашняя,
+    # и сданные вечером листы переставали находиться — отсюда шли ночные
+    # «не заполнен» и «просрочено» по каждой станции, особенно на ОВИР,
+    # где срок 03:30 целиком лежит в этом промежутке.
+    day = C.today()
     minute = C.now_minute()
     dstr = day.strftime('%d.%m.%Y')
 
@@ -670,16 +716,25 @@ def tick():
             print('дашборд:', e)
 
     # Копия — рано утром, когда никто не пишет: копируется целостное состояние
-    if minute >= hhmm(C.BACKUP_AT) and once('backup'):
+    # Отметку ставим ПОСЛЕ успеха: неудачная попытка не должна съедать день.
+    # Иначе один сбой оставляет данные без копии до следующих суток —
+    # так и вышло с 22.08 по 09.09, восемнадцать дней без копий.
+    if (minute >= hhmm(C.BACKUP_AT) and not marked('backup')
+            and minute - _backup_try[0] >= 10):
+        _backup_try[0] = minute          # повтор не чаще раза в 10 минут
         try:
             from . import backup as BK
-            BOT.admin(BK.run())
+            txt = BK.run()
+            mark('backup')
+            BOT.admin(txt)
         except Exception as e:
             print('резервная копия:', e)
-            try:
-                BOT.admin(f'⚠️ Резервная копия не сделана: {e}')
-            except Exception:
-                pass
+            if once('backup:alert'):     # тревога один раз в сутки, повтор — молча
+                try:
+                    BOT.admin(f'⚠️ <b>Резервная копия не сделана</b>\n{e}\n'
+                              'Повторю через минуту. Данные пока в одном экземпляре.')
+                except Exception:
+                    pass
 
     # Сводки отключены на время обкатки (23.08.2026): сначала люди привыкают
     # к самой работе в приложении, отчёты подключим, когда будет что сводить.

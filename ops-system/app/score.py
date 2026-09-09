@@ -273,6 +273,10 @@ def close_day(d=None):
         if not got:
             return False
         groups = {k.rsplit('_', 1)[0] for k in got if C.checklists()[k].get('stage')}
+        # Лист управляющего из блокирующих исключён: у его закрытия нет
+        # срока, значит нет и напоминания — и один забытый лист оставлял
+        # без +5 всю смену, которая свою работу сдала.
+        groups.discard('shift_upr')
         if not groups:
             return False
         if any(f'{g}_close' not in got for g in groups):

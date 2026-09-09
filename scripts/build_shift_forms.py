@@ -148,7 +148,11 @@ def build(code, zone, who):
             if stage == 'open':
                 form['deadline_from'], form['deadline_plus'] = 'in', 30
             elif stage == 'close':
-                form['deadline_from'] = 'out'
+                # Плюс четверть часа: без запаса срок совпадал с самой
+                # отметкой ухода, и человек, отпущенный управляющим без
+                # листа, получал «просрочено» в ту же секунду — причём
+                # напоминание не приходило вовсе, окно закрывалось раньше.
+                form['deadline_from'], form['deadline_plus'] = 'out', 15
         if key not in ('shift_ssk', 'shift_upr'):
             form['station'] = key
         # Цех есть только на ЗБ. Без привязки к точке человек с отделом

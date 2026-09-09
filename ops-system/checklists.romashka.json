@@ -6947,6 +6947,7 @@
    "ОВИР": "03:30"
   },
   "deadline_from": "out",
+  "deadline_plus": 15,
   "station": "shift_ceh_m",
   "points": [
    "ЗБ"
@@ -7213,6 +7214,7 @@
    "ОВИР": "03:30"
   },
   "deadline_from": "out",
+  "deadline_plus": 15,
   "station": "shift_ceh_l",
   "points": [
    "ЗБ"
@@ -7494,6 +7496,7 @@
    "ОВИР": "03:30"
   },
   "deadline_from": "out",
+  "deadline_plus": 15,
   "station": "shift_ceh_h",
   "points": [
    "ЗБ"

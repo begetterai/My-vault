@@ -250,11 +250,26 @@ def put(tab, a1, rows, raw=False):
 
     Иначе Google «умно» разбирает значение: 0.72 в колонке рядом с временем
     он показал как 0:43, и число часов перестало быть числом.
+
+    Ответ обязательно проверяем. Через put идут уход и часы смены, минуты
+    отрезков, подтверждение управляющего и выданные пароли: отказ Google,
+    принятый за успех, — это «✅ записано» при пустой клетке в таблице.
     """
-    session().put(B + C.DATA_SHEET + '/values/' + _rng(tab, a1),
-                  params={'valueInputOption': 'RAW' if raw else 'USER_ENTERED'},
-                  json={'values': rows}, timeout=60)
-    _touch(tab)
+    last = None
+    for i in range(3):
+        try:
+            r = session().put(B + C.DATA_SHEET + '/values/' + _rng(tab, a1),
+                              params={'valueInputOption':
+                                      'RAW' if raw else 'USER_ENTERED'},
+                              json={'values': rows}, timeout=30)
+            r.raise_for_status()
+            _touch(tab)
+            return
+        except Exception as e:
+            last = e
+            if i < 2:
+                time.sleep(0.6 * (i + 1))
+    raise IOError(f'не записалось в «{tab}» {a1}: {last}')
 
 
 # ── подготовка таблицы ───────────────────────────────────────────────────────
@@ -551,9 +566,14 @@ def workers_of(point, dept=None, roles=None):
         if v[1] != point:
             continue
         r = role_of(v)
-        if r in ('manager', 'coo'):
-            continue
-        if roles and r not in roles:
+        if roles:
+            # Лист адресован конкретным ролям — тогда руководителей не
+            # отсеиваем: у управляющего есть свои листы (открытие,
+            # санитарный), и раньше они выпадали и из напоминаний,
+            # и из проверки закрытия дня.
+            if r not in roles:
+                continue
+        elif r in ('manager', 'coo'):
             continue
         if ds and (dept_of(v) or '').lower() not in ds:
             continue
