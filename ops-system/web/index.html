@@ -882,7 +882,7 @@
   <button class="send" id="send" disabled>Отправить</button>
 </div>
 <script>
-const BUILD = 'v09.09-2 очередь аудита: сервер';
+const BUILD = 'v09.09-3 закрытие управляющего, связь, камера';
 // Заполняются на старте: скрипт телеграма грузится отложенно, и на момент
 // разбора этой строки window.Telegram может ещё не существовать.
 let tg = null, initData = '';
@@ -955,10 +955,36 @@ function oops(msg){
   // английская строка про пустое свойство — для смены это набор букв,
   // по которому нельзя понять ни причину, ни свои действия.
   // Техническую строку оставляем в конце и мелко: по ней разбираюсь я.
-  note('Приложение сбойнуло. Закрой его и открой заново — сделанное '
-     + 'не потеряется. Если повторится, покажи это управляющему: '
-     + msg, 'err');
+  //
+  // Про «не потеряется» здесь больше не пишем: черновик есть только
+  // у чек-листа, а у журнала, бланка и состава смены его нет — и это
+  // обещание само толкало человека закрыть приложение и всё потерять.
+  note('Приложение сбойнуло. Повтори последнее действие; если не выйдет — '
+     + 'закрой приложение и открой заново. Повторится — покажи '
+     + 'управляющему: ' + msg, 'err');
   setTimeout(hideNote, 12000);
+}
+
+// Один разбор ответа на все запросы. Раньше каждая кнопка делала
+// fetch + r.json() без перехвата: обрыв связи отклонял промис, строка
+// возврата кнопки не выполнялась — и она навсегда оставалась серой
+// с надписью «Отправляю…», а введённое пропадало. Здесь сетевой сбой
+// и HTML от прокси превращаются в обычный ответ с понятной причиной.
+async function jpost(url, body){
+  try{
+    const r = await fetch(url, {method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(body)});
+    const txt = await r.text();
+    try{ return JSON.parse(txt); }
+    catch(_){
+      return {ok:false, error: r.status === 502 || r.status === 503
+        ? 'Сервер перезапускается. Повтори через полминуты.'
+        : 'Сервер ответил непонятно. Повтори ещё раз.'};
+    }
+  }catch(e){
+    return {ok:false, error:'Связь пропала. Проверь интернет и нажми ещё раз.'};
+  }
 }
 
 /* ── возврат на главный экран ────────────────────────────────────────────── */
@@ -1114,10 +1140,7 @@ function renderStandin(){
     if(mine) b.classList.add('on');
     b.onclick = async () => {
       b.disabled = true; b.textContent = '…';
-      const r = await fetch('/api/standin', {method:'POST',
-        headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({initData, point: p.code, on: !mine})});
-      const j = await r.json();
+      const j = await jpost('/api/standin', {initData, point: p.code, on: !mine});
       if(!j.ok){ note(j.error || 'Не вышло', 'err'); renderStandin(); return; }
       DATA.standin[p.code] = j.standin;
       note(j.standin ? 'Встал на точку ' + p.code
@@ -1436,11 +1459,8 @@ function geoPermitButton(direction, g){
   b.onclick = async () => {
     b.disabled = true; b.textContent = 'Отправляю…';
     try{
-      const r = await fetch('/api/geo_ask', {method:'POST',
-        headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({initData, direction, point,
-                              lat: g.lat ?? null, lon: g.lon ?? null})});
-      const j = await r.json();
+      const j = await jpost('/api/geo_ask', {initData, direction, point,
+                              lat: g.lat ?? null, lon: g.lon ?? null});
       note(j.ok ? j.message : (j.error || 'Не ушло.'), j.ok ? 'good' : 'err');
     }catch(e){ note('Не ушло: ' + (e.message || 'ошибка'), 'err'); }
     // Кнопку не убираем: управляющий может не увидеть запрос сразу,
@@ -1460,12 +1480,9 @@ async function mark2(direction){
   BUSY++;
   try{
     const g = await geo();
-    const r = await fetch('/api/shift', {method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({initData, direction, point,
+    const j = await jpost('/api/shift', {initData, direction, point,
                             lat: g.lat ?? null, lon: g.lon ?? null,
-                            part: PART || ''})});
-    const j = await r.json();
+                            part: PART || ''});
     if(!j.ok){
       renderShift(); stages();
       note(j.error || 'Не записалось. Попробуй ещё раз.', 'err');
@@ -1508,6 +1525,23 @@ let camStream = null, camDone = null;
                открылась галерея и подставилось старое фото.
    'none'    — камеры нет или браузер её не умеет. Тогда выбор файла —
                единственный способ вообще сдать лист. */
+/* Снимок для журнала и бланка — той же камерой, что и в чек-листах.
+   06.09 галерею убрали только из чек-листов, а здесь осталось файловое
+   поле: часть телефонов игнорирует capture и открывает галерею, и в
+   списание можно было подставить вчерашний снимок. */
+async function shootOne(lab, done){
+  const r = await openCamera('environment', data => {
+    lab.textContent = '📷 Переснять';
+    done(data);
+  });
+  if(r === true) return;
+  note(r === 'denied'
+    ? 'Доступ к камере запрещён. Разреши его в настройках телефона — '
+      + 'снимок делается только на месте.'
+    : 'Камера недоступна на этом телефоне. Скажи управляющему.', 'err');
+}
+
+
 async function openCamera(facing, done){
   if(!navigator.mediaDevices?.getUserMedia) return 'none';
   try{
@@ -1677,19 +1711,12 @@ function openJournal(j){
   const ph = document.createElement('div');
   ph.className = 'photo';
   ph.innerHTML = '<div><b>Фото</b></div><div class="hint">Если есть что показать</div>';
-  const inp = document.createElement('input');
-  inp.type='file';
-  inp.setAttribute('accept', 'image/*');
-  inp.setAttribute('capture', 'environment');   // основная камера
-  inp.style.display='none';
   const lab = document.createElement('span');
   lab.className='shoot'; lab.textContent='📷 Сфотографировать';
-  lab.onclick = () => inp.click();
   const img = document.createElement('img'); img.className='hidden';
-  inp.onchange = async () => { const file = inp.files[0]; if(!file) return;
-    lab.textContent='Обрабатываю…'; jPhoto = await shrink(file);
-    img.src = jPhoto; img.classList.remove('hidden'); lab.textContent='📷 Переснять'; };
-  ph.append(lab, inp, img); f.appendChild(ph);
+  lab.onclick = () => shootOne(lab, data => {
+    jPhoto = data; img.src = data; img.classList.remove('hidden'); });
+  ph.append(lab, img); f.appendChild(ph);
 
   const send = document.createElement('button');
   send.className='send'; send.textContent='Записать';
@@ -1707,11 +1734,8 @@ async function sendJournal(j, btn){
   j.fields.forEach(x => { values[x.key] = ($('#jf_' + x.key)?.value || '').trim(); });
   btn.disabled = true; btn.textContent = 'Отправляю…';
   const g = await geo();
-  const r = await fetch('/api/journal', {method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({initData, key: j.key, point, values, photo: jPhoto,
-                          lat: g.lat ?? null, lon: g.lon ?? null})});
-  const res = await r.json();
+  const res = await jpost('/api/journal', {initData, key: j.key, point, values, photo: jPhoto,
+                          lat: g.lat ?? null, lon: g.lon ?? null});
   btn.disabled = false; btn.textContent = 'Записать';
   if(!res.ok) return note(res.error || 'Не записалось. Попробуй ещё раз.', 'err');
   tg?.HapticFeedback?.notificationOccurred?.('success');
@@ -1790,18 +1814,12 @@ function openForm(cl){
   const ph = document.createElement('div'); ph.className='photo';
   ph.innerHTML = '<div><b>Фото' + (cl.photo_required ? ' — обязательно' : '') + '</b></div>'
     + '<div class="hint">Снимок листа или позиций</div>';
-  const inp = document.createElement('input');
-  inp.type='file';
-  inp.setAttribute('accept', 'image/*');
-  inp.setAttribute('capture', 'environment');   // основная камера
-  inp.style.display='none';
   const lab = document.createElement('span'); lab.className='shoot';
-  lab.textContent='📷 Сфотографировать'; lab.onclick=()=>inp.click();
+  lab.textContent='📷 Сфотографировать';
   const img = document.createElement('img'); img.className='hidden';
-  inp.onchange = async () => { const file=inp.files[0]; if(!file) return;
-    lab.textContent='Обрабатываю…'; bPhoto = await shrink(file);
-    img.src=bPhoto; img.classList.remove('hidden'); lab.textContent='📷 Переснять'; };
-  ph.append(lab, inp, img); f.appendChild(ph);
+  lab.onclick = () => shootOne(lab, data => {
+    bPhoto = data; img.src = data; img.classList.remove('hidden'); });
+  ph.append(lab, img); f.appendChild(ph);
 
   const send = document.createElement('button');
   send.className='send'; send.id='bSend';
@@ -1818,11 +1836,8 @@ async function sendForm(cl, btn){
   if(cl.photo_required && !bPhoto) return note('Нужно фото — без него запись не принимается.', 'warn');
   btn.disabled = true; btn.textContent='Отправляю…';
   const g = await geo();
-  const r = await fetch('/api/form', {method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({initData, key: cl.key, point, lines: bLines,
-                          photo: bPhoto, lat: g.lat ?? null, lon: g.lon ?? null})});
-  const res = await r.json();
+  const res = await jpost('/api/form', {initData, key: cl.key, point, lines: bLines,
+                          photo: bPhoto, lat: g.lat ?? null, lon: g.lon ?? null});
   if(!res.ok){ btn.disabled=false; collect(); return note(res.error || 'Не записалось.', 'err'); }
   tg?.HapticFeedback?.notificationOccurred?.('success');
   note('Записал ' + res.count + ' позиций.', 'good');
@@ -1922,7 +1937,7 @@ function qDoc(){
         qTheory(0);
       }catch(e){
         next.disabled = false; next.textContent = 'Прочитал и согласен';
-        note('Не сохранилось: ' + e.message, 'bad');
+        note('Не сохранилось: ' + e.message, 'err');
       }
     };
   }
@@ -2015,11 +2030,9 @@ async function sendQuiz(btn){
   btn.disabled = true; btn.textContent = 'Проверяю…';
   let res;
   try{
-    const r = await fetch('/api/quiz', {method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({initData, key: qz.key, point, answers: qAns,
-                            seconds: (Date.now() - qStarted) / 1000})});
-    res = await r.json();
+    res = await jpost('/api/quiz', {initData, key: qz.key, point,
+                      answers: qAns,
+                      seconds: (Date.now() - qStarted) / 1000});
   }catch(e){
     btn.disabled = false; btn.textContent = 'Проверить';
     return note('Не отправилось: ' + e.message + '. Нажми ещё раз.', 'err');
@@ -2287,10 +2300,14 @@ function renderLists(){
     return v < 5 * 60 ? v + 24 * 60 : v;
   };
   const fl = DATA.filled || {};
-  const live = show.filter(k => dead(k))
+  // Сменный лист — ежедневная работа, даже если срока у него намеренно нет.
+  // 07.09 у закрытия управляющего сняли время (он часто задерживается),
+  // и лист уехал в «редкие формы», где его никто не ищет: Владимир решил,
+  // что закрытие пропало. Стадия — такой же признак ежедневного, как срок.
+  const live = show.filter(k => dead(k) || all[k].stage)
     .sort((x, y) => (!!fl[x] - !!fl[y])           // сданные — вниз списка
                  || dmin(dead(x)) - dmin(dead(y)));
-  const rare = show.filter(k => !dead(k));
+  const rare = show.filter(k => !dead(k) && !all[k].stage);
   const add = (k, into) => {
     const b = document.createElement('button');
     b.className = 'big';
@@ -2433,11 +2450,8 @@ function renderStations(){
       [...box.children].forEach(c => c.disabled = true);
       $('#stationHint').textContent = 'Занимаю место…';
       try{
-        const r = await fetch('/api/station', {method: 'POST',
-          headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({initData, point, part: PART || 'one',
-                                station: x.key})});
-        const j = await r.json();
+        const j = await jpost('/api/station', {initData, point,
+                              part: PART || 'one', station: x.key});
         if(!j.ok) throw new Error(j.error || 'не сохранилось');
         DATA.taken = j.taken || {};
       }catch(e){
@@ -2626,10 +2640,7 @@ function equipCard(e){
 
 async function setEquip(e, status, card){
   card.querySelectorAll('button').forEach(b => b.disabled = true);
-  const r = await fetch('/api/equip', {method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({initData, action:'status', line:e.line, status})});
-  const j = await r.json();
+  const j = await jpost('/api/equip', {initData, action:'status', line:e.line, status});
   if(!j.ok){ card.querySelectorAll('button').forEach(b=>b.disabled=false);
              return note(j.error || 'Не записалось. Попробуй ещё раз.', 'err'); }
   e.status = status;
@@ -2649,10 +2660,7 @@ $('#geoBtn').onclick = async () => {
   const rad = prompt('Радиус точки в метрах.\n\nВ этом радиусе отметка '
     + 'считается «на точке». 150 подходит почти всегда.', '150');
   if(rad === null){ b.disabled = false; b.textContent = '📍 Задать координаты отсюда'; return; }
-  const r = await fetch('/api/geo', {method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({initData, point, lat:g.lat, lon:g.lon, radius:rad})});
-  const j = await r.json();
+  const j = await jpost('/api/geo', {initData, point, lat:g.lat, lon:g.lon, radius:rad});
   b.disabled = false; b.textContent = '📍 Задать координаты отсюда';
   if(!j.ok) return note(j.error || 'Не записалось. Попробуй ещё раз.', 'err');
   DATA.geo = DATA.geo || {}; DATA.geo[point] = [j.lat, j.lon, j.radius];
@@ -2677,10 +2685,7 @@ $('#equipAdd').onclick = () => {
 };
 
 async function addEquip(type, title, model){
-  const r = await fetch('/api/equip', {method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({initData, action:'add', point, type, title, model})});
-  const j = await r.json();
+  const j = await jpost('/api/equip', {initData, action:'add', point, type, title, model});
   if(!j.ok) return note(j.error || 'Не записалось. Попробуй ещё раз.', 'err');
   DATA.equip = DATA.equip || [];
   DATA.equip.push({line:0, code:j.code, point, type, title, model,
@@ -2737,10 +2742,7 @@ function taskCard(t){
 
 async function sendTask(t, verdict, comment, card){
   card.querySelectorAll('button').forEach(b => b.disabled = true);
-  const r = await fetch('/api/task', {method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({initData, line: t.line, verdict, comment})});
-  const j = await r.json();
+  const j = await jpost('/api/task', {initData, line: t.line, verdict, comment});
   if(!j.ok){
     card.querySelectorAll('button').forEach(b => b.disabled = false);
     return note(j.error || 'Не записалось. Попробуй ещё раз.', 'err');
@@ -3153,11 +3155,8 @@ async function sendCheck(x, verdict, diff, card){
   const second = nums.filter(n => marked[n] === 'second');
   const external = nums.filter(n => marked[n] === 'ext');
   card.querySelectorAll('button').forEach(b => b.disabled = true);
-  const r = await fetch('/api/check', {method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({initData, key: x.key, line: x.line, verdict,
-                          note: diff, first, second, external})});
-  const j = await r.json();
+  const j = await jpost('/api/check', {initData, key: x.key, line: x.line, verdict,
+                          note: diff, first, second, external});
   if(!j.ok){
     card.querySelectorAll('button').forEach(b => b.disabled = false);
     return note(j.error || 'Не записалось. Попробуй ещё раз.', 'err');
@@ -3194,10 +3193,7 @@ async function loadRoster(){
   // Сотруднику состав виден только для чтения: он должен знать, кто завтра
   // в смене, но менять его — работа управляющего.
   try{
-    const r = await fetch('/api/roster', {method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({initData, point})});
-    ROSTER = await r.json();
+    ROSTER = await jpost('/api/roster', {initData, point});
     if(ROSTER.ok) renderRoster();
   }catch(e){ /* состав не критичен для остального экрана */ }
 }
@@ -3243,10 +3239,7 @@ function renderRosterMine(box){
 
 async function confirmRoster(yes, card){
   card.querySelectorAll('button').forEach(b => b.disabled = true);
-  const r = await fetch('/api/roster_confirm', {method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({initData, yes})});
-  const j = await r.json();
+  const j = await jpost('/api/roster_confirm', {initData, yes});
   if(!j.ok){
     card.querySelectorAll('button').forEach(b => b.disabled = false);
     return note(j.error || 'Не записалось. Попробуй ещё раз.', 'err');
@@ -3371,12 +3364,15 @@ async function sendRoster(btn){
   const dup = names.find((n, i) => names.indexOf(n) !== i);
   if(dup) return note(dup + ' стоит в составе дважды. Убери лишнюю строку.', 'warn');
   btn.disabled = true; btn.textContent = 'Отправляю…';
-  const r = await fetch('/api/roster_save', {method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({initData, point, people: ROSTER.people})});
-  const j = await r.json();
+  const j = await jpost('/api/roster_save', {initData, point, people: ROSTER.people});
   btn.disabled = false;
-  if(!j.ok){ btn.textContent = 'Отправить состав'; return note(j.error || 'Не ушло.', 'err'); }
+  if(!j.ok){
+    // Флаг снимаем в любом случае: пока он поднят, refresh() не обновляет
+    // экран, и после одного обрыва связи приложение выглядит умершим.
+    ROSTER.dirty = false;
+    btn.textContent = 'Отправить состав';
+    return note(j.error || 'Не ушло.', 'err');
+  }
   tg?.HapticFeedback?.notificationOccurred?.('success');
   note('Состав отправлен. Вопрос ушёл: ' + j.sent + ' из ' + j.total + '.', 'good');
   ROSTER.dirty = false;
@@ -3414,10 +3410,7 @@ async function resolveDispute(d, verdict, card){
     : 'Почему оставляешь? Одной фразой — человек это увидит.');
   if(!why) return;
   card.querySelectorAll('button').forEach(b => b.disabled = true);
-  const r = await fetch('/api/dispute_resolve', {method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({initData, line: d.line, verdict, note: why})});
-  const j = await r.json();
+  const j = await jpost('/api/dispute_resolve', {initData, line: d.line, verdict, note: why});
   if(!j.ok){
     card.querySelectorAll('button').forEach(b => b.disabled = false);
     return note(j.error || 'Не записалось. Попробуй ещё раз.', 'err');
@@ -3501,11 +3494,8 @@ function renderPeopleLog(){
 async function sendAward(){
   const btn = $('#awGo');
   btn.disabled = true; btn.textContent = 'Начисляю…';
-  const r = await fetch('/api/award', {method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({initData, point, to: $('#awTo').value,
-                          event: $('#awEvent').value})});
-  const j = await r.json();
+  const j = await jpost('/api/award', {initData, point, to: $('#awTo').value,
+                          event: $('#awEvent').value});
   btn.disabled = false; btn.textContent = 'Начислить';
   if(!j.ok) return note(j.error || 'Не начислилось.', 'err');
   tg?.HapticFeedback?.notificationOccurred?.('success');
@@ -3545,10 +3535,7 @@ async function sendDispute(x, btn){
   if(!text) return;
   btn.disabled = true; btn.textContent = 'Отправляю…';
   try{
-    const r = await fetch('/api/dispute', {method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({initData, line: x.line, text})});
-    const res = await r.json();
+    const res = await jpost('/api/dispute', {initData, line: x.line, text});
     if(!res.ok) throw new Error(res.error || 'не отправилось');
     btn.textContent = '⚖️ Спор отправлен';
     tg?.HapticFeedback?.notificationOccurred?.('success');
@@ -3746,13 +3733,10 @@ async function sendFix(it, bl, btn, formTitle){
     + 'Например: «убрать — дублирует п.4» или «переформулировать: не «чисто», '
     + 'а «нет налёта на решётке»»');
   if(!t) return;
-  const r = await fetch('/api/fix', {method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({initData,
+  const j = await jpost('/api/fix', {initData,
       form: formTitle || (DATA.lists[kind] || {}).title || '',
       block: bl ? bl.name : '', n: it.n, text: it.text, comment: t,
-      doc: bl && bl.doc ? bl.doc.code : ''})});
-  const j = await r.json();
+      doc: bl && bl.doc ? bl.doc.code : ''});
   if(!j.ok) return note(j.error || 'Не записалось. Попробуй ещё раз.', 'err');
   btn.classList.add('done'); btn.textContent = '✓';
   tg?.HapticFeedback?.notificationOccurred?.('success');
@@ -3811,23 +3795,6 @@ function photoRow(p){
   return d;
 }
 
-function shrink(file){
-  return new Promise(res => {
-    const r = new FileReader();
-    r.onload = () => {
-      const im = new Image();
-      im.onload = () => {
-        const max = 1280, k = Math.min(1, max / Math.max(im.width, im.height));
-        const c = document.createElement('canvas');
-        c.width = Math.round(im.width * k); c.height = Math.round(im.height * k);
-        c.getContext('2d').drawImage(im, 0, 0, c.width, c.height);
-        res(c.toDataURL('image/jpeg', 0.75));
-      };
-      im.src = r.result;
-    };
-    r.readAsDataURL(file);
-  });
-}
 
 /* ── черновик в памяти телефона ───────────────────────────────────────────────
    Связь на точке рвётся: подвал, лифт, кончился трафик. Без черновика
@@ -4012,11 +3979,8 @@ async function sendNote(){
   const t = prompt('Что добавить в регламент или что сделать?\n\n'
     + 'Пиши фразой: «Купить второй термощуп, одного на две станции не хватает»');
   if(!t) return;
-  const r = await fetch('/api/note', {method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({initData, text: t,
-                          source: DATA.lists[kind].code + ' · Mini App'})});
-  const j = await r.json();
+  const j = await jpost('/api/note', {initData, text: t,
+                          source: DATA.lists[kind].code + ' · Mini App'});
   note(j.ok ? 'Записал в «Идеи и задачи»' : (j.error || 'Не записалось.'),
        j.ok ? 'good' : 'err');
 }

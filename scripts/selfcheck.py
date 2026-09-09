@@ -79,7 +79,9 @@ def check_api():
     code, _ = js()
     # Адрес бывает с вопросом: fetch('/api/ver?since=' + n). Кавычка после
     # имени ручки не обязательна — иначе такой вызов считается ненайденным.
-    used = set(re.findall(r"fetch\('(/api/[a-z_]+)[?']", code))
+    # Запросы идут двумя путями: напрямую fetch и через jpost — обёртку,
+    # которая превращает обрыв связи в обычный ответ с понятной причиной.
+    used = set(re.findall(r"(?:fetch|jpost)\('(/api/[a-z_]+)[?']", code))
     src = open(os.path.join(APP, 'webapp.py'), encoding='utf-8').read()
     have = set(re.findall(r"p(?:\.path)? == '(/api/[a-z_]+)'", src))
     for u in sorted(used - have):
@@ -129,6 +131,20 @@ def check_forms():
         if len(ids) > 1:
             bad.append(f'код {code}: {len(ids)} разных документа — '
                        f'человек попадёт не в тот')
+
+    # Лист должен доходить до человека. Приложение делит формы на два
+    # списка: ежедневные и редкие. Признак ежедневного — срок либо стадия.
+    # 07.09 у закрытия управляющего сняли срок, стадию тогда не учитывали —
+    # и лист уехал в «редкие», где его никто не искал: Владимир два дня
+    # считал, что закрытие пропало. Проверяем оба признака сразу.
+    live_by_stage = 'dead(k) || all[k].stage' in open(PAGE, encoding='utf-8').read()
+    for k, cl in C.checklists().items():
+        if cl.get('stage') and not cl.get('deadline') and not live_by_stage:
+            bad.append(f'{k}: нет срока, а список ежедневных в приложении '
+                       f'собирается только по сроку — лист не увидят')
+        roles = cl.get('roles') or []
+        if roles and not C.visible(roles[0], 'checklist', cl.get('dept')).get(k):
+            bad.append(f'{k}: не виден даже своей роли {roles[0]}')
 
     groups = collections.defaultdict(dict)
     for k, cl in C.checklists().items():

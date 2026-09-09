@@ -3,7 +3,7 @@
 
 Всё, что бот знает о компании, приходит из конфига и листа «Команда».
 """
-import datetime, re, time, requests
+import datetime, html, re, time, requests
 
 from . import config as C
 from . import storage as S
@@ -51,6 +51,33 @@ def say(chat_id, text, **kw):
         r = tg('sendMessage', chat_id=chat_id, text=part.rstrip(),
                parse_mode='HTML', **(kw if last else {}))
     return r
+
+
+def esc(s):
+    """Экранировать чужой текст перед вставкой в разметку.
+
+    Сообщения уходят с parse_mode=HTML. Один знак «меньше» в комментарии
+    («холодильник <4°C») делал разметку неразборной: Telegram отвечал
+    ошибкой, результат никто не проверял — и «Проверь заполнение»
+    не приходило ни управляющему, ни директору. Лист сдан, второй
+    контур молча не сработал.
+    """
+    return html.escape(str(s or ''), quote=False)
+
+
+def edit(chat_id, mid, text, **kw):
+    """Правка сообщения с оглядкой на длину.
+
+    Телеграм режет на 4096. Списки задач и «на проверке» за две недели
+    столько набирают легко: ответ не приходил вовсе, и кнопка выглядела
+    сломанной ровно тогда, когда список длинный и нужен.
+    """
+    if len(text) <= LIMIT:
+        return tg('editMessageText', chat_id=chat_id, message_id=mid,
+                  text=text, parse_mode='HTML', **kw)
+    tg('editMessageText', chat_id=chat_id, message_id=mid,
+       text='Список длинный — отправляю сообщением ниже.', parse_mode='HTML')
+    return say(chat_id, text, **kw)
 
 
 def admin_add(chat_id, text, **kw):
@@ -463,7 +490,7 @@ def notify_check(st, ok, tot, fails, line, comment, fast, dup=False):
         + ('\n♻️ повторное заполнение за сегодня' if dup else '')
     txt = (f'🔎 <b>Проверь заполнение</b>\n{st["point"]} · {cl["title"].lower()} '
            f'{st["day"]} · {st["who"]}\nВыполнено <b>{ok} из {tot}</b>{warn}\n\n{lst}'
-           + (f'💬 {comment}\n' if comment else '')
+           + (f'💬 {esc(comment)}\n' if comment else '')
            + '\nПройди по точке и подтверди — или опиши, что не сошлось.')
     # Если есть невыполненные пункты, их надо разобрать: вина смены или
     # задача на починку. В чате этого не сделать — отправляем в приложение,
@@ -833,6 +860,16 @@ def on_message(msg):
 
     if st is None:
         if low not in MENU_WORDS:
+            # Молчание в ответ читается как «бот сломался». Человек, который
+            # пишет «не могу отметить приход», должен получить хоть что-то —
+            # иначе он решает вопрос звонком, а мы об этом не узнаём.
+            who = S.team().get(chat_id)
+            if who:
+                say(chat_id, 'Не понял. Напиши <b>меню</b> — покажу, что можно '
+                             'сделать. Если что-то не работает, скажи '
+                             'управляющему: он передаст мне.',
+                    reply_markup=menu_kb(S.role_of(who), S.dept_of(who), who[1]))
+                return True
             return False
         who = S.team().get(chat_id)
         if not who:
@@ -849,10 +886,10 @@ def on_message(msg):
             return True
         src = f'{C.checklists()[st["kind"]]["code"]} блок {st["i"] + 1}'
         S.save_note(st['day'], st['who'], st['point'], src, t[:400])
-        say(chat_id, f'💬 <b>Записал в «Идеи и задачи»</b>\n\n«{t[:300]}»\n\n'
+        say(chat_id, f'💬 <b>Записал в «Идеи и задачи»</b>\n\n«{esc(t[:300])}»\n\n'
                      f'{st["day"]} · {st["point"]} · {st["who"]}\n'
                      f'Источник: {src} · Статус: Новая')
-        admin(f'💬 <b>Идея с точки {st["point"]}</b> · {st["who"]}\n«{t[:300]}»',
+        admin(f'💬 <b>Идея с точки {st["point"]}</b> · {st["who"]}\n«{esc(t[:300])}»',
               st['point'])
         st['stage'] = st.pop('note_return', 'blocks')
         return True
@@ -895,9 +932,18 @@ def on_message(msg):
                     timeout=60).content
                 link = S.save_photo(raw, f'{st["point"]}-{st["day"]}-п{n}')
                 st.setdefault('shots', []).append((n, raw))
-        except Exception:
-            pass
-        st['photos_done'].append(link or f'п{n}:есть')
+        except Exception as e:
+            print('фото из бота:', e)
+        if not link:
+            # Раньше сюда записывалось «есть», хотя снимка не было: строка
+            # утверждала, что пункт сфотографирован, а файла в хранилище
+            # не существовало — и разбирались потом с человеком.
+            st['photos_left'].insert(0, pair)
+            st.setdefault('done_photos', []).remove(pair)
+            say(chat_id, '📷 Снимок не сохранился — связь или хранилище. '
+                         'Пришли фото ещё раз, пункт остался незакрытым.')
+            return True
+        st['photos_done'].append(link)
         ask_next(chat_id, st)
         return True
 
@@ -1015,8 +1061,7 @@ def on_callback(cq):
         kb = [[{'text': f'✓ {x["what"][:34]}',
                 'callback_data': f'cl:td:{x["line"]}'}] for x in items[:8]]
         kb.append([{'text': '◀ Назад', 'callback_data': 'cl:menu'}])
-        tg('editMessageText', chat_id=chat_id, message_id=mid, text=txt,
-           parse_mode='HTML', reply_markup={'inline_keyboard': kb})
+        edit(chat_id, mid, txt, reply_markup={'inline_keyboard': kb})
         return ack() or True
 
     if data.startswith('cl:td:'):
@@ -1045,8 +1090,7 @@ def on_callback(cq):
             kb.append([{'text': '📱 Разобрать невыполненные пункты',
                         'web_app': {'url': C.WEBAPP_URL}}])
         kb.append([{'text': '◀ Назад', 'callback_data': 'cl:menu'}])
-        tg('editMessageText', chat_id=chat_id, message_id=mid, text=txt,
-           parse_mode='HTML', reply_markup={'inline_keyboard': kb})
+        edit(chat_id, mid, txt, reply_markup={'inline_keyboard': kb})
         return ack() or True
 
     if data.startswith('cl:kpi:'):
@@ -1063,16 +1107,14 @@ def on_callback(cq):
                {'text': 'Квартал', 'callback_data': 'cl:kpi:quarter'}],
               [{'text': '👥 Люди', 'callback_data': 'cl:kpi:people'},
                {'text': '◀ Назад', 'callback_data': 'cl:menu'}]]
-        tg('editMessageText', chat_id=chat_id, message_id=mid, text=txt,
-           parse_mode='HTML', reply_markup={'inline_keyboard': kb})
+        edit(chat_id, mid, txt, reply_markup={'inline_keyboard': kb})
         return ack() or True
 
     if data.startswith('cl:h:'):
         scope = data.split(':')[2]
         txt = ideas_text() if scope == 'ideas' else history(scope, who)
-        tg('editMessageText', chat_id=chat_id, message_id=mid, text=txt,
-           parse_mode='HTML', reply_markup={'inline_keyboard': [
-               [{'text': '◀ Назад', 'callback_data': 'cl:menu'}]]})
+        edit(chat_id, mid, txt, reply_markup={'inline_keyboard': [
+            [{'text': '◀ Назад', 'callback_data': 'cl:menu'}]]})
         return ack() or True
 
     if data.startswith('cl:ck:'):
