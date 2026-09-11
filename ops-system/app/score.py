@@ -285,21 +285,34 @@ def close_day(d=None):
                    if cl.get('deadline') and not cl.get('stage')
                    and S.workers_of(point, cl.get('dept'), cl.get('roles')))
 
-    def worked(point, who):
-        """Сдавал ли этот человек хоть один лист сегодня.
+    def closed_own(point, who):
+        """Закрыл ли человек то, что сам вёл сегодня.
 
-        Раньше проверялась только точка, и +5 «за закрытый день» получал
-        каждый, кто отметил приход, — включая того, кто не сдал ничего.
-        Балл называется «сначала своя работа», значит своя работа и должна
-        быть условием, иначе смысл теряется за неделю.
+        Считаем по его станциям, а не по точке целиком. 10.09 премию
+        не получил никто: две станции открыли и не закрыли, и правило
+        сочло точку незакрытой — вместе с кассой и цехом, которые прошли
+        всю цепочку. Наказывать человека за чужую несданную саладетту
+        нельзя, иначе балл перестают связывать со своей работой.
+
+        Смысл прежний — «сначала своя работа», только теперь своя и есть
+        мерило: не сдавал ничего — нет и балла.
         """
-        return any(v.get('who') == who for v in seen.get(point, {}).values())
+        got = seen.get(point) or {}
+        mine = {k for k, v in got.items() if v.get('who') == who}
+        if not mine:
+            return False
+        # Начатые им группы должны быть закрыты — им или сменщиком:
+        # передал смену и ушёл — своё он сделал.
+        groups = {k.rsplit('_', 1)[0] for k in mine
+                  if C.checklists()[k].get('stage')}
+        return all(f'{g}_close' in got for g in groups)
 
     for r in shifts:
         point, who = r[1].strip(), r[2].strip()
-        if not point_closed(point):
-            continue
-        if not worked(point, who):
+        # Точку всё равно прогреваем: seen наполняется здесь одним
+        # пакетным запросом, и от него же считается «своё закрыто».
+        point_closed(point)
+        if not closed_own(point, who):
             continue
         if any(x['event'] == 'day_closed' for x in rows(since=d, until=d, who=who)):
             continue
