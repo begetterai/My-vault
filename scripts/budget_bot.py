@@ -16,7 +16,7 @@
 Разбор ввода идёт БЕЗ модели. Это главное: одинаковая фраза всегда даёт
 одинаковую запись, и запись не теряется, если модель недоступна.
 """
-import os, sys, json, re, time, datetime, logging
+import os, sys, json, re, time, datetime, logging, threading, collections
 
 import requests
 from google.oauth2 import service_account
@@ -343,6 +343,305 @@ def _parse_quick_lines(text):
 LIMITS_TAB = 'Лимиты'
 LIMIT_COLS = ['Категория', 'Лимит в месяц', 'Активен']
 _LIM = {'ts': None, 'map': {}}
+
+
+def _rows(rng):
+    """Строки диапазона. Пусто при сбое — читатель решает, что с этим делать."""
+    try:
+        r = SHEETS.get(API + BUDGET_SS + '/values/' + _q(rng), timeout=30)
+        return r.json().get('values', []) if r.ok else []
+    except Exception as e:
+        log.warning('чтение %s: %s', rng, e)
+        return []
+
+
+# ── привычки: один тап вместо силы воли ──────────────────────────────────────
+# Решено 11.09.2026. Задача не в мотивации, а в трении: у работы короткая
+# петля обратной связи, у зала — длинная, и на этом фоне она всегда
+# проигрывает. Поэтому здесь нет ни очков, ни уровней, ни персонажа:
+# очки вытесняют интерес, а приложение, в которое надо заходить, требует
+# ровно той воли, от которой мы уходим.
+#
+# Работают три вещи: вопрос приходит сам, ответ занимает один тап,
+# и пропуск спрашивает «почему» вместо того, чтобы молча минусовать.
+HABIT_TAB = 'Привычки'
+HABIT_COLS = ['Дата', 'Направление', 'Ответ', 'Причина', 'Время ответа']
+HABIT_CFG_TAB = 'Настройки привычек'
+HABIT_CFG_COLS = ['Направление', 'Дни', 'Время', 'План в неделю', 'Активно']
+
+# Причины пропуска. Список короткий намеренно: длинный превращает ответ
+# в выбор, а выбор — это уже усилие.
+SKIP_WHY = ['работа', 'самочувствие', 'не захотел', 'обстоятельства']
+WEEK_RU = ['пн', 'вт', 'ср', 'чт', 'пт', 'сб', 'вс']
+
+
+def ensure_habit_tabs():
+    """Листы привычек. Идемпотентно, как и «Лимиты»."""
+    meta = SHEETS.get(API + BUDGET_SS, params={'fields': 'sheets.properties'},
+                      timeout=30).json()
+    have = {sh['properties']['title'] for sh in meta.get('sheets', [])}
+    add = []
+    if HABIT_TAB not in have:
+        add.append((HABIT_TAB, HABIT_COLS, 500))
+    if HABIT_CFG_TAB not in have:
+        add.append((HABIT_CFG_TAB, HABIT_CFG_COLS, 20))
+    for title, cols, rows in add:
+        SHEETS.post(API + BUDGET_SS + ':batchUpdate', json={'requests': [
+            {'addSheet': {'properties': {'title': title, 'gridProperties': {
+                'rowCount': rows, 'columnCount': len(cols),
+                'frozenRowCount': 1}}}}]}, timeout=30).raise_for_status()
+        SHEETS.put(API + BUDGET_SS + '/values/' + _q(f'{title}!A1'),
+                   params={'valueInputOption': 'USER_ENTERED'},
+                   json={'values': [cols]}, timeout=30).raise_for_status()
+        log.info('создан лист «%s»', title)
+    if HABIT_CFG_TAB not in have:
+        # Умолчание — из индекса Здоровья: зал четыре раза в неделю.
+        SHEETS.post(API + BUDGET_SS + '/values/' + _q(f'{HABIT_CFG_TAB}!A1')
+                    + ':append', params={'valueInputOption': 'USER_ENTERED',
+                                         'insertDataOption': 'INSERT_ROWS'},
+                    json={'values': [['Зал', 'пн,вт,чт,пт', '19:00', 4, 'да']]},
+                    timeout=30).raise_for_status()
+
+
+def habit_cfg():
+    """[{направление, дни, время, план, активно}] из таблицы."""
+    out = []
+    for r in (_rows(f'{HABIT_CFG_TAB}!A2:E20') or []):
+        r = list(r) + [''] * 5
+        if not str(r[0]).strip():
+            continue
+        days = [d.strip().lower() for d in str(r[1]).split(',') if d.strip()]
+        out.append({'name': str(r[0]).strip(), 'days': days,
+                    'at': str(r[2]).strip() or '19:00',
+                    'plan': int(float(str(r[3]).replace(',', '.') or 0) or 0),
+                    'on': str(r[4]).strip().lower() in ('да', 'yes', '1', 'true')})
+    return out
+
+
+def habit_rows(name=None, days_back=60):
+    """Ответы за последние дни. [(дата, направление, ответ, причина)]"""
+    since = today_local() - datetime.timedelta(days=days_back)
+    out = []
+    for r in (_rows(f'{HABIT_TAB}!A2:E600') or []):
+        r = list(r) + [''] * 5
+        d = _row_date(r[0])
+        if not d or d < since:
+            continue
+        if name and str(r[1]).strip().lower() != name.lower():
+            continue
+        out.append((d, str(r[1]).strip(), str(r[2]).strip(), str(r[3]).strip()))
+    return out
+
+
+def habit_asked_today(name):
+    """Уже спрашивали сегодня? Проверяем по факту записи, а не по памяти:
+    Railway перезапускает контейнер на каждой выкатке, и память обнуляется —
+    на этом мы уже теряли резервные копии восемнадцать дней."""
+    today = today_local()
+    return any(d == today for d, n, _a, _w in habit_rows(name, days_back=3))
+
+
+def habit_write(name, answer, why=''):
+    _budget_append(f'{HABIT_TAB}!A1',
+                   [today_local().isoformat(), name, answer, why,
+                    now_local().strftime('%H:%M')])
+
+
+def habit_set_why(name, why):
+    """Дописать причину в сегодняшнюю строку."""
+    vals = _rows(f'{HABIT_TAB}!A2:E600') or []
+    today = today_local()
+    for i, r in enumerate(vals, start=2):
+        r = list(r) + [''] * 5
+        if _row_date(r[0]) == today and str(r[1]).strip().lower() == name.lower():
+            SHEETS.put(API + BUDGET_SS + '/values/' + _q(f'{HABIT_TAB}!D{i}'),
+                       params={'valueInputOption': 'USER_ENTERED'},
+                       json={'values': [[why]]}, timeout=30).raise_for_status()
+            return True
+    return False
+
+
+def habit_streak(name, plan=4):
+    """Строка обратной связи: сколько на этой неделе и сколько дней подряд.
+
+    Единственная «геймификация», которая здесь нужна. Считаем выполнение,
+    а не результат: результат у зала приходит через месяцы, а выполнение —
+    сегодня, и именно оно держит регулярность.
+    """
+    rows = habit_rows(name, days_back=120)
+    done = {d for d, _n, a, _w in rows if a == 'был'}
+    today = today_local()
+    week_start = today - datetime.timedelta(days=today.weekday())
+    this_week = sum(1 for d in done if d >= week_start)
+    # Серия — по дням, когда вопрос задавался: пропуск в нерабочий день
+    # цепочку не рвёт, иначе она не значила бы ничего.
+    asked = sorted({d for d, _n, a, _w in rows if a in ('был', 'не был')},
+                   reverse=True)
+    streak = 0
+    for d in asked:
+        ans = next((a for dd, _n, a, _w in rows if dd == d), '')
+        if ans != 'был':
+            break
+        streak += 1
+    part = f'{this_week} из {plan} на этой неделе'
+    return part + (f' · подряд {streak}' if streak > 1 else '')
+
+
+def habit_tick():
+    """Раз в минуту: пора ли спрашивать. Вызывается фоновым потоком."""
+    now = now_local()
+    dow = WEEK_RU[now.weekday()]
+    for c in habit_cfg():
+        if not c['on'] or dow not in c['days']:
+            continue
+        if now.strftime('%H:%M') < c['at']:
+            continue
+        if habit_asked_today(c['name']):
+            continue
+        send(f'🏋️ <b>{c["name"]}</b> сегодня?',
+             reply_markup={'inline_keyboard': [[
+                 {'text': '✅ был', 'callback_data': f'h:1:{c["name"]}'},
+                 {'text': '➖ не был', 'callback_data': f'h:0:{c["name"]}'}]]})
+        # Строку пишем сразу пустым ответом: она же и есть защита от того,
+        # что вопрос придёт второй раз после перезапуска.
+        habit_write(c['name'], 'спросили')
+
+
+def habit_answer(data):
+    """Нажата кнопка привычки: h:1:Зал, h:0:Зал или hw:Зал:работа."""
+    parts = data.split(':', 2)
+    if data.startswith('hw:'):
+        _, name, why = parts
+        habit_set_why(name, why)
+        cfg = next((c for c in habit_cfg() if c['name'] == name), {})
+        send(f'Записал: {why}. {habit_streak(name, cfg.get("plan", 4))}\n\n'
+             f'Причины копятся — через месяц станет видно, что мешает '
+             f'на самом деле.')
+        return
+    _, flag, name = parts
+    cfg = next((c for c in habit_cfg() if c['name'] == name), {})
+    if flag == '1':
+        habit_set_answer(name, 'был')
+        send(f'✅ Отметил. {habit_streak(name, cfg.get("plan", 4))}')
+        return
+    habit_set_answer(name, 'не был')
+    # Пропуск не наказываем: вместо минуса спрашиваем причину. Через месяц
+    # это даёт данные о том, что мешает, а не чувство вины.
+    send('Понял. А что помешало?',
+         reply_markup={'inline_keyboard': [
+             [{'text': w, 'callback_data': f'hw:{name}:{w}'}]
+             for w in SKIP_WHY]})
+
+
+def habit_set_answer(name, answer):
+    """Проставить ответ в сегодняшнюю строку (её создал habit_tick)."""
+    vals = _rows(f'{HABIT_TAB}!A2:E600') or []
+    today = today_local()
+    for i, r in enumerate(vals, start=2):
+        r = list(r) + [''] * 5
+        if _row_date(r[0]) == today and str(r[1]).strip().lower() == name.lower():
+            SHEETS.put(API + BUDGET_SS + '/values/' + _q(f'{HABIT_TAB}!C{i}:E{i}'),
+                       params={'valueInputOption': 'USER_ENTERED'},
+                       json={'values': [[answer, r[3],
+                                         now_local().strftime('%H:%M')]]},
+                       timeout=30).raise_for_status()
+            return True
+    habit_write(name, answer)
+    return True
+
+
+def habit_status():
+    """Что с привычкой: расписание, выполнение, причины пропусков."""
+    out = []
+    for c in habit_cfg():
+        rows = habit_rows(c['name'], days_back=30)
+        was = sum(1 for _d, _n, a, _w in rows if a == 'был')
+        skip = [w for _d, _n, a, w in rows if a == 'не был' and w]
+        out.append(f'🏋️ <b>{c["name"]}</b> · {", ".join(c["days"])} в {c["at"]}'
+                   + ('' if c['on'] else ' · выключено'))
+        out.append(f'{habit_streak(c["name"], c["plan"])}')
+        out.append(f'За 30 дней: был {was} раз, пропусков {len(skip)}')
+        if skip:
+            top = collections.Counter(skip).most_common(3)
+            out.append('Причины: ' + ', '.join(f'{w} — {n}' for w, n in top))
+        out.append('')
+    if not out:
+        return 'Привычки не настроены.'
+    out.append('<i>Расписание и план правятся в листе «Настройки привычек» '
+               'таблицы бюджета — дни, время, сколько раз в неделю.</i>')
+    return '\n'.join(out)
+
+
+def quick_keyboard():
+    """Кнопки частых трат — из собственной истории, а не из головы.
+
+    Берём пары «категория + сумма», которые повторялись, и самые частые
+    категории. Смысл тот же, что у привычек: убрать трение. Запись
+    в один тап не даёт бросить на полпути и не зависит от того,
+    разберёт ли бот текст.
+    """
+    rows = _rows('Operations!A2:E2000') or []
+    pairs, cats = collections.Counter(), collections.Counter()
+    for r in rows:
+        r = list(r) + [''] * 5
+        if str(r[1]).strip().lower() != 'расход':
+            continue
+        cat = str(r[2]).strip()
+        try:
+            amt = float(str(r[3]).replace(',', '.').replace(' ', ''))
+        except ValueError:
+            continue
+        if not cat or amt <= 0:
+            continue
+        cats[cat] += 1
+        if amt == int(amt):
+            pairs[(cat, int(amt))] += 1
+    top = [p for p, n in pairs.most_common(8) if n >= 2]
+    buttons = [{'text': f'{c} · {a}', 'callback_data': f'q:{c}:{a}'}
+               for c, a in top]
+    # Плюс частые категории без суммы: нажал — бот спросит только сколько.
+    for c, _n in cats.most_common(4):
+        if not any(b['callback_data'].startswith(f'q:{c}:') for b in buttons):
+            buttons.append({'text': f'{c} · ?', 'callback_data': f'q:{c}:0'})
+    if not buttons:
+        # Журнал очищен 04.09.2026, истории ещё нет. Стартовый набор —
+        # бытовые категории; сумму бот спросит одним вопросом. Как только
+        # записи накопятся, набор заменится настоящими частыми тратами.
+        buttons = [{'text': f'{c} · ?', 'callback_data': f'q:{c}:0'}
+                   for c in ('Кафе', 'Продукты', 'Связь', 'Уход за собой',
+                             'Развлечение', 'Прочее')]
+    rows_kb, row = [], []
+    for b in buttons:
+        row.append(b)
+        if len(row) == 2:
+            rows_kb.append(row)
+            row = []
+    if row:
+        rows_kb.append(row)
+    return {'inline_keyboard': rows_kb}
+
+
+def quick_answer(data):
+    """Нажата кнопка частой траты: q:Кафе:35 или q:Кафе:0 (спросить сумму)."""
+    try:
+        _, cat, amt = data.split(':', 2)
+        amt = float(amt)
+    except ValueError:
+        return
+    if amt <= 0:
+        send(draft_start('', category=cat))
+        return
+    add_entry(amt, category=cat, kind='расход', comment=cat)
+    send(f'✅ {cat} · {_money(amt)}\n{left_line(cat)}')
+
+
+def habit_loop():
+    while True:
+        try:
+            habit_tick()
+        except Exception as e:
+            log.warning('привычки: %s', e)
+        time.sleep(60)
 
 
 def ensure_limits_tab():
@@ -1192,6 +1491,8 @@ MODEL_WORDS = ('модель', '/модель', 'какая модель')
 LIMIT_WORDS = ('лимиты', 'лимит', '/лимиты', 'остаток', 'остатки', 'сколько осталось')
 MONTH_WORDS = ('месяц', '/месяц', 'итог месяца', 'итоги месяца')
 HELP_WORDS = ('/start', '/help', '/помощь', 'помощь', 'что умеешь')
+HABIT_WORDS = ('/зал', 'зал', '/привычки', 'привычки')
+QUICK_WORDS = ('/быстро', 'быстро', 'частые', '/частые')
 UNDO_WORDS = ('отмени последнюю', 'отмени запись', 'удали последнюю',
               'убери последнюю', '/отмена')
 
@@ -1342,6 +1643,18 @@ def handle(msg):
         audit('правка', text, out[:200])
         return
 
+    if low in HABIT_WORDS:
+        send(habit_status())
+        return
+    if low in QUICK_WORDS:
+        kb = quick_keyboard()
+        if not kb:
+            send('Частых трат пока не набралось — нужно хотя бы несколько '
+                 'записей по одной категории. Пиши как обычно, а через неделю '
+                 'кнопки появятся сами.')
+            return
+        send('Частое — жми, запишу сразу:', reply_markup=kb)
+        return
     if low in LIMIT_WORDS:
         typing()
         out = limits_report()
@@ -1434,6 +1747,11 @@ def on_callback(cq):
         # нажать второй раз и попасть в уже закрытый вопрос.
         tg('editMessageReplyMarkup', chat_id=ALLOWED,
            message_id=msg['message_id'], reply_markup={'inline_keyboard': []})
+    # Привычка: «был» / «не был» и причина пропуска.
+    if data.startswith('h:') or data.startswith('hw:'):
+        return habit_answer(data)
+    if data.startswith('q:'):
+        return quick_answer(data)
     if not data.startswith('c:'):
         return
     try:
@@ -1467,6 +1785,10 @@ def run():
     try:
         ensure_limits_tab()
         ensure_audit_tab()
+        ensure_habit_tabs()
+        # Вопрос про привычку должен приходить сам, а не ждать, пока
+        # откроешь бота: в этом вся суть — не заставлять себя заходить.
+        threading.Thread(target=habit_loop, daemon=True).start()
     except Exception as e:
         log.warning('подготовка таблицы: %s', e)
     log.info('💰 Бюджетный бот запущен')
