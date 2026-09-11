@@ -380,6 +380,14 @@ def check_rules_docs():
                encoding='utf-8').read()
     note = open('/home/user/My-vault/1-Области/Ромашка/'
                 'Баллы-штрафы-механика.md', encoding='utf-8').read()
+    # Третий источник — лист, по которому людям объясняют удержания.
+    # Он появился 11.09 и обязан совпадать с кодом так же строго:
+    # расхождение здесь означает спор со смены, где мы неправы.
+    rules_path = ('/home/user/My-vault/1-Области/Ромашка/Баллы-правила.md')
+    rules = open(rules_path, encoding='utf-8').read() \
+        if os.path.exists(rules_path) else ''
+    if not rules:
+        bad.append('нет листа «Баллы-правила» — по чему объяснять смене?')
     WHERE = {'day_closed': 'Полностью закрытый день',
              'check_ok': 'Чек-лист подтверждён управляющим',
              'fill_late': 'Чек-лист сдан позже срока',
@@ -403,12 +411,21 @@ def check_rules_docs():
 
     for ev, txt in WHERE.items():
         pts = SC.RULES[ev][0]
-        for what, src in (('01-POL-02', doc), ('заметке', note)):
+        sources = [('01-POL-02', doc), ('заметке', note)]
+        if rules:
+            sources.append(('листе правил', rules))
+        for what, src in sources:
             got = near(src, txt)
             if got is None:
                 warn.append(f'«{txt}» не найдено в {what}')
             elif got != pts:
                 bad.append(f'«{txt}»: в коде {pts:+}, в {what} {got:+}')
+
+    # Потолки в день: без них доп. счёт набивается за смену, и человек
+    # должен знать предел заранее, а не узнавать в день выплаты.
+    for ev, cap in SC.DAY_CAP.items():
+        if rules and f'не больше {cap}' not in rules:
+            bad.append(f'потолок {ev} = {cap} в день не описан в листе правил')
 
 
 def main():
