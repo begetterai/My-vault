@@ -679,6 +679,20 @@
 
     <div id="rest">
 
+<!-- Обзор руководителя. Только manager и coo: сервер отдаёт отказ всем
+     остальным, а блок здесь скрыт по роли. Управляющий видит свою точку,
+     директор — обе и сравнение между ними.
+     Данные тянутся лениво, при первом раскрытии: обзор стоит восьми
+     чтений из таблицы, и платить ими за тех, кто его не открывает,
+     незачем. -->
+<details class="blk hidden" id="blkBoard">
+      <summary><span class="ic st" id="icBoard">·</span>Обзор</summary>
+    <div id="boardBox">
+      <div class="hint" id="boardHint">Открой, чтобы загрузить.</div>
+      <div id="boardList"></div>
+    </div>
+    </details>
+
 <details class="blk" id="blkCheck" open>
       <summary><span class="ic st" id="icCheck">0</span>Уведомления</summary>
     <div id="pendBox" class="hidden">
@@ -882,7 +896,7 @@
   <button class="send" id="send" disabled>Отправить</button>
 </div>
 <script>
-const BUILD = 'v09.09-3 закрытие управляющего, связь, камера';
+const BUILD = 'v11.09 обзор руководителя';
 // Заполняются на старте: скрипт телеграма грузится отложенно, и на момент
 // разбора этой строки window.Telegram может ещё не существовать.
 let tg = null, initData = '';
@@ -1304,6 +1318,7 @@ async function boot(){
       ['проверка', renderPending],
       ['журналы', renderJournals], ['бланки', renderForms],
       ['обучение', renderQuizzes], ['баллы', renderScore],
+      ['обзор', renderBoard],
       ['споры', renderDisputes], ['начисления', renderAwards],
       ['люди', renderPeopleLog], ['пароли', renderPasswords],
       ['черновики', draftSweep], ['шаги', stages],
@@ -3380,6 +3395,129 @@ async function sendRoster(btn){
 }
 
 /* ── руководителю: споры и начисления ────────────────────────────────────── */
+/* ── обзор руководителя ───────────────────────────────────────────────────
+   Расчёт живёт на сервере (board.py): одна логика на таблицу, телеграм
+   и приложение, чтобы цифры не разошлись. Здесь только показ.
+
+   Порядок карточек — от действия к картине: сверху то, на что реагируют
+   сегодня, ниже то, что описывает неделю. Обзор, который начинается
+   с красивых цифр за месяц, не помогает управлять сегодняшним днём.  */
+let BOARD = null, boardBusy = false;
+
+function boardCard(title, sub, rows, cls){
+  const c = document.createElement('div');
+  c.className = 'chk' + (cls ? ' ' + cls : '');
+  c.innerHTML = '<h3>' + title + '</h3>'
+    + (sub ? '<div class="meta">' + sub + '</div>' : '');
+  if(rows && rows.length){
+    const d = document.createElement('div'); d.className = 'det';
+    rows.forEach(r => {
+      const line = document.createElement('div');
+      line.className = 'kv';
+      line.innerHTML = '<span>' + r[0] + '</span><b>' + r[1] + '</b>';
+      d.appendChild(line);
+    });
+    c.appendChild(d);
+  }
+  return c;
+}
+
+function renderBoard(){
+  const box = $('#boardList');
+  if(!box) return;
+  const boss = ['manager', 'coo'].includes(DATA?.role);
+  const blk = $('#blkBoard');
+  blk.classList.toggle('hidden', !boss);
+  if(!boss) return;
+  // Блок открыт — держим данные свежими вместе с остальным экраном.
+  // Рекурсии нет: вложенный вызов упрётся в boardBusy, а сервер отдаёт
+  // из своего кэша две минуты.
+  if(blk.open) loadBoard();
+  if(!BOARD) return;
+  box.innerHTML = '';
+  $('#boardHint').textContent = 'Обновлено в ' + (BOARD.now || '') + '.';
+
+  // 1. Требует внимания — единственное, на что реагируют прямо сейчас.
+  const att = BOARD.attention || [];
+  $('#icBoard').textContent = att.length || '·';
+  if(att.length){
+    att.forEach(a => box.appendChild(
+      boardCard(a.kind + ' · ' + a.text, a.why)));
+  } else {
+    box.appendChild(boardCard('Ничего не ждёт решения',
+      'споров нет, всё подтверждено, состав на завтра собран'));
+  }
+
+  // 2. Сегодня: сдано, ждём, просрочено — по каждой точке.
+  (BOARD.today || []).forEach(t => {
+    const late = (t.items || []).filter(x => x.state === 'просрочен');
+    const c = boardCard('Сегодня · ' + t.label,
+      'сдано ' + t.done + ' · ждём ' + t.waiting + ' · просрочено ' + t.late,
+      late.length ? late.map(x => [x.title, 'до ' + x.deadline])
+                  : [['просроченных нет', '✓']]);
+    box.appendChild(c);
+  });
+
+  // 3. Индекс недели и флаги — картина, а не сигнал к действию.
+  (BOARD.index || []).forEach(i => {
+    const parts = Object.entries(i.parts || {})
+      .map(([k, v]) => [k, v === null ? 'нет данных' : v]);
+    box.appendChild(boardCard('Индекс недели · ' + i.label,
+      i.total == null ? 'данных пока нет' : 'итог ' + i.total + ' из 100',
+      parts));
+    (i.flags || []).forEach(f => box.appendChild(
+      boardCard('⚑ ' + f.title, f.why)));
+  });
+
+  // 4. Задачи.
+  const tk = BOARD.tasks || {};
+  box.appendChild(boardCard('Задачи',
+    'открыто ' + (tk.open || 0) + ' · просрочено ' + (tk.late || 0),
+    (tk.list || []).length
+      ? tk.list.map(x => [x.what, (x.owner || '—') + ' · ' + x.late + ' дн'])
+      : [['просроченных нет', '✓']]));
+
+  // 5. Баллы периода.
+  const pt = BOARD.points_sum || {};
+  box.appendChild(boardCard('Баллы · ' + (pt.period || ''),
+    'к выплате ' + (pt.sum || 0) + ' · в минусе ' + (pt.minus || 0),
+    (pt.people || []).map(p => [p.who, sign(p.payable)])));
+
+  // 6. Сравнение точек — приходит только директору, у управляющего
+  //    точка одна и сравнивать не с чем.
+  if(BOARD.compare){
+    BOARD.compare.forEach(r => box.appendChild(boardCard(
+      'Итог · ' + r.label,
+      'индекс ' + (r.index == null ? '—' : r.index) + ' · флагов ' + r.flags,
+      [['сдано сегодня', r.done], ['просрочено', r.late],
+       ['задач открыто', r.tasks_open], ['из них просрочено', r.tasks_late],
+       ['к выплате', r.pay], ['в минусе', r.minus]])));
+  }
+}
+
+// Обзор грузится по факту интереса: блок раскрыли — пошёл запрос.
+// Открытым он остаётся между обновлениями, и тогда данные освежаются
+// вместе с остальным экраном.
+(function(){
+  const b = document.getElementById('blkBoard');
+  if(b) b.addEventListener('toggle', () => { if(b.open) loadBoard(); });
+})();
+
+async function loadBoard(){
+  if(boardBusy || !['manager', 'coo'].includes(DATA?.role)) return;
+  boardBusy = true;
+  try{
+    $('#boardHint').textContent = 'Считаю…';
+    const j = await jpost('/api/board', {initData, point});
+    if(!j.ok){
+      $('#boardHint').textContent = j.error || 'Не загрузилось.';
+      return;
+    }
+    BOARD = j.board;
+    renderBoard();
+  } finally { boardBusy = false; }
+}
+
 function renderDisputes(){
   const list = DATA.disputes || [];
   $('#dispN').textContent = list.length || '';
