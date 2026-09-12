@@ -20,7 +20,17 @@ from . import storage as S
 
 TAB = 'График'
 COLS = ['Дата', 'Точка', 'Кто', 'Позиция', 'Начало', 'Вместо кого',
-        'Подтверждение', 'Отметка', 'Составил', 'Когда составлен']
+        'Подтверждение', 'Отметка', 'Составил', 'Когда составлен', 'Смена']
+NCOL = len(COLS)
+
+# Человек может выйти и в первую, и во вторую смену — один и тот же повар
+# закрывает утро на кухне и вечер на баре. А вот двух позиций в одной смене
+# быть не может: в одно время человек стоит в одном месте.
+# «Одна на день» занимает весь день и ни с чем не совмещается.
+PARTS = ('open', 'close', 'one')
+# Пишем в таблицу теми же словами, что и явка (S.PART_RU) — иначе лист
+# состава и лист смен говорят об одном разными словами.
+PART_BACK = {v: k for k, v in S.PART_RU.items()}
 
 YES, NO, WAIT = 'буду', 'не смогу', ''
 
@@ -54,10 +64,21 @@ def hhmm(t):
         return s
 
 
+def part_of(value):
+    """Слово из таблицы → код смены. Пустое — «одна на день».
+
+    Строки, составленные до появления колонки «Смена», пустые. Читать их
+    как «одна на день» — единственный безопасный вариант: так они и
+    работали, занимая весь день целиком.
+    """
+    s = str(value or '').strip().lower()
+    return PART_BACK.get(s) or S.PART_OLD.get(s) or (s if s in PARTS else 'one')
+
+
 def rows(day=None, point=None):
     out = []
-    for i, r in enumerate(S.get(TAB, 'A2:J')):
-        r = list(r) + [''] * (10 - len(r))
+    for i, r in enumerate(S.get(TAB, 'A2:K')):
+        r = list(r) + [''] * (NCOL - len(r))
         if not str(r[0]).strip():
             continue
         if day and str(r[0]).strip() != day_str(day):
@@ -68,7 +89,8 @@ def rows(day=None, point=None):
                     'who': r[2].strip(), 'dept': r[3].strip().lower(),
                     'start': hhmm(r[4]), 'instead': r[5].strip(),
                     'confirm': r[6].strip().lower(), 'mark': r[7].strip(),
-                    'by': r[8].strip(), 'at': r[9].strip()})
+                    'by': r[8].strip(), 'at': r[9].strip(),
+                    'part': part_of(r[10])})
     return out
 
 
@@ -77,24 +99,41 @@ def planned(day, point=None):
     return rows(day, point)
 
 
-def for_person(day, who):
-    """Строка состава конкретного человека или None."""
-    return next((r for r in rows(day) if r['who'] == who), None)
+def for_person(day, who, part=''):
+    """Строка состава конкретного человека или None.
+
+    Строк у человека теперь может быть две — первая и вторая смена.
+    С указанной сменой возвращаем её строку, без неё — ту, что начинается
+    раньше: это смена, на которую человек выходит первой.
+    """
+    mine = [r for r in rows(day) if r['who'] == who]
+    if not mine:
+        return None
+    if part:
+        exact = next((r for r in mine if r['part'] == part), None)
+        if exact:
+            return exact
+    return sorted(mine, key=lambda r: r['start'] or '99:99')[0]
 
 
-def dept_of(day, who, fallback=''):
+def dept_of(day, who, fallback='', part=''):
     """Позиция на день: состав главнее того, что записано в «Команде».
 
     Человек может завтра стоять на кассе, а послезавтра в зале — и чек-листы
     должны открыться те, что нужно.
     """
-    r = for_person(day, who)
+    r = for_person(day, who, part)
     return (r['dept'] if r and r['dept'] else fallback)
 
 
-def start_of(day, who, fallback=''):
-    """Во сколько у человека начинается смена — от этого считается опоздание."""
-    r = for_person(day, who)
+def start_of(day, who, fallback='', part=''):
+    """Во сколько у человека начинается смена — от этого считается опоздание.
+
+    Смену передавать обязательно, если человек стоит в составе дважды:
+    иначе вечерний выход посчитается от утреннего времени, и человек
+    получит минус за опоздание, которого не было.
+    """
+    r = for_person(day, who, part)
     return (r['start'] if r and r['start'] else fallback)
 
 
@@ -123,7 +162,7 @@ def template(point, day):
     if prev:
         return [{'who': r['who'], 'dept': r['dept'],
                  'start': r['start'] or START.get(r['dept'], ''),
-                 'instead': ''} for r in prev]
+                 'instead': '', 'part': r['part']} for r in prev]
     out = []
     for v in S.team().values():
         if v[1] != point or S.role_of(v) in ('coo',):
@@ -132,8 +171,31 @@ def template(point, day):
         if d in ('', 'управление'):
             continue
         out.append({'who': v[0], 'dept': d, 'start': START.get(d, ''),
-                    'instead': ''})
+                    'instead': '', 'part': 'one'})
     return sorted(out, key=lambda x: (x['dept'], x['who']))
+
+
+def clash(people):
+    """Кто стоит в составе дважды на одной смене. → текст ошибки или ''.
+
+    Проверяем до записи, а не после: состав, где человек стоит на двух
+    позициях одновременно, нельзя ни отработать, ни посчитать.
+    """
+    seen = {}
+    for p in people:
+        who = str(p.get('who', '')).strip()
+        if not who:
+            continue
+        part = str(p.get('part', '') or 'one').strip()
+        part = part if part in PARTS else 'one'
+        was = seen.setdefault(who, set())
+        if part in was:
+            return f'{who} стоит дважды на одной смене ({S.PART_RU[part]}).'
+        if 'one' in was or (part == 'one' and was):
+            return (f'{who} стоит и на весь день, и на отдельную смену. '
+                    f'Оставь что-то одно.')
+        was.add(part)
+    return ''
 
 
 def save(day, point, people, author):
@@ -142,28 +204,37 @@ def save(day, point, people, author):
     → список тех, кому надо отправить вопрос «Буду / Не смогу».
     """
     ds = day_str(day)
-    old = {r['who']: r for r in rows(day, point)}
+    old = {(r['who'], r['part']): r for r in rows(day, point)}
     keep, seen = [], set()
     for p in people:
         who = str(p.get('who', '')).strip()
-        # Один человек — одна строка на день: иначе состав врёт, а с ним
-        # врут явка, опоздания и закрытый день.
-        if not who or who in seen:
+        part = str(p.get('part', '') or 'one').strip()
+        part = part if part in PARTS else 'one'
+        # Один человек — одна строка на смену. На первую и на вторую
+        # встать можно, дважды на одну — нет: в одно время человек
+        # стоит в одном месте.
+        if not who or (who, part) in seen:
             continue
-        seen.add(who)
+        seen.add((who, part))
         dept = str(p.get('dept', '')).strip().lower()
         start = hhmm(p.get('start', '')) or START.get(dept, '')
         instead = str(p.get('instead', '')).strip()
-        was = old.get(who)
+        was = old.get((who, part))
         # Уже подтверждённое не сбрасываем: человек ответил, повторно
         # дёргать его из-за правки в чужой строке незачем.
         same = was and was['dept'] == dept and was['start'] == start
         keep.append([ds, point, who, dept, start, instead,
                      was['confirm'] if same else WAIT,
                      was['mark'] if was else '', author,
-                     C.now().strftime('%d.%m.%Y %H:%M')])
+                     C.now().strftime('%d.%m.%Y %H:%M'), S.PART_RU[part]])
     _rewrite(day, point, keep)
-    return [r[2] for r in keep if not r[6]]
+    # Имя может попасть в список дважды — человек на двух сменах отвечает
+    # один раз за обе, поэтому убираем повторы, сохраняя порядок.
+    ask = []
+    for r in keep:
+        if not r[6] and r[2] not in ask:
+            ask.append(r[2])
+    return ask
 
 
 @S.serial
@@ -177,28 +248,34 @@ def _rewrite(day, point, new_rows):
     состав одним вечером, и без него второй затирает работу первого.
     """
     ds = day_str(day)
-    all_rows = S.get(TAB, 'A2:J', strict=True)
+    all_rows = S.get(TAB, 'A2:K', strict=True)
     out = []
     for r in all_rows:
-        r = list(r) + [''] * (10 - len(r))
+        r = list(r) + [''] * (NCOL - len(r))
         if str(r[0]).strip() == ds and str(r[1]).strip() == point:
             continue
         if str(r[0]).strip():
             out.append(r)
     out += new_rows
-    S.put(TAB, f'A2:J{len(out) + 1}', out)
+    S.put(TAB, f'A2:K{len(out) + 1}', out)
     # хвост старых строк, если их стало меньше
     if len(all_rows) > len(out):
-        blank = [[''] * 10 for _ in range(len(all_rows) - len(out))]
-        S.put(TAB, f'A{len(out) + 2}:J{len(all_rows) + 1}', blank)
+        blank = [[''] * NCOL for _ in range(len(all_rows) - len(out))]
+        S.put(TAB, f'A{len(out) + 2}:K{len(all_rows) + 1}', blank)
 
 
 def confirm(day, who, answer):
-    """Ответ сотрудника: «буду» или «не смогу»."""
-    r = for_person(day, who)
-    if not r:
+    """Ответ сотрудника: «буду» или «не смогу».
+
+    Кнопка приходит одна на весь день, поэтому ответ ставим во все строки
+    человека. Иначе у того, кто стоит на двух сменах, вторая строка
+    навсегда осталась бы без ответа и вечно висела в «ждём».
+    """
+    mine = [r for r in rows(day) if r['who'] == who]
+    if not mine:
         return False
-    S.put(TAB, f'G{r["line"]}:G{r["line"]}', [[YES if answer else NO]])
+    for r in mine:
+        S.put(TAB, f'G{r["line"]}:G{r["line"]}', [[YES if answer else NO]])
     return True
 
 
@@ -215,11 +292,16 @@ def mark_show(day):
     came = {r[2].strip() for r in S.get(C.TABS['shift'], 'A2:K', strict=True)
             if len(r) >= 4 and r[0].strip() == ds and r[3].strip()}
     out = []
+    seen = set()
     for r in rows(day):
+        # У человека может быть две строки — первая и вторая смена. Отметку
+        # ставим обеим (вышел он или нет, от смены не зависит), а в список
+        # «не вышли» имя попадает один раз.
         mark = 'вышел' if r['who'] in came else 'не вышел'
         if r['mark'] != mark:
             S.put(TAB, f'H{r["line"]}:H{r["line"]}', [[mark]])
-        if mark == 'не вышел':
+        if mark == 'не вышел' and r['who'] not in seen:
+            seen.add(r['who'])
             out.append(r)
     return out
 
@@ -229,7 +311,17 @@ def summary(day, point=None):
     rs = rows(day, point)
     if not rs:
         return None
-    yes = [r for r in rs if r['confirm'] == YES]
-    no = [r for r in rs if r['confirm'] == NO]
-    wait = [r for r in rs if not r['confirm']]
+    # Ответ у человека один на весь день, а строк может быть две — в списках
+    # имя должно встретиться один раз, иначе сводка выглядит как ошибка.
+    def once(rs_):
+        out, seen = [], set()
+        for r in rs_:
+            if r['who'] not in seen:
+                seen.add(r['who'])
+                out.append(r)
+        return out
+
+    yes = once([r for r in rs if r['confirm'] == YES])
+    no = once([r for r in rs if r['confirm'] == NO])
+    wait = once([r for r in rs if not r['confirm']])
     return {'day': day_str(day), 'all': rs, 'yes': yes, 'no': no, 'wait': wait}

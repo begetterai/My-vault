@@ -211,8 +211,11 @@ def init_payload(who):
     work = who[1]
     try:
         from . import roster as RS
-        dept = RS.dept_of(C.today(), who[0], dept)
-        r = RS.for_person(C.today(), who[0])
+        # Если человек стоит и на первую, и на вторую смену — берём ту,
+        # на которую он отметился: позиции у них разные.
+        part = part_of(C.day_str(), who[0])
+        dept = RS.dept_of(C.today(), who[0], dept, part=part)
+        r = RS.for_person(C.today(), who[0], part)
         if role not in ('manager', 'coo') and r and r['point'] in S.points():
             work = r['point']
     except Exception as e:
@@ -981,7 +984,11 @@ def shift(who, body):
     plan = body.get('plan')
     try:
         from . import roster as RS
-        plan = RS.start_of(C.today(), who[0], plan)
+        # Смену берём ту, что человек выбрал сам: кто стоит и на первую,
+        # и на вторую, иначе получил бы минус за «опоздание» к утреннему
+        # времени, придя на вечернюю смену вовремя.
+        plan = RS.start_of(C.today(), who[0], plan,
+                           part=str(body.get('part') or ''))
     except Exception as e:
         print('состав:', e)
     msg, flag, line, saved = F.mark_shift(d, C.day_str(), point, who[0],
@@ -1723,9 +1730,13 @@ def roster(who, body):
         day = C.today()
     point = pick_point(who, body)
     boss = S.role_of(who) in ('manager', 'coo')
-    mine = RS.for_person(day, who[0])
+    # Строк у человека может быть две — первая и вторая смена. Показываем
+    # обе: иначе тот, кто выходит утром и вечером, увидит только утро.
+    mine_all = sorted((r for r in RS.rows(day) if r['who'] == who[0]),
+                      key=lambda r: r['start'] or '99:99')
     out = {'ok': True, 'day': RS.day_str(day), 'point': point,
-           'mine': mine, 'boss': boss}
+           'mine': mine_all[0] if mine_all else None, 'mine_all': mine_all,
+           'boss': boss}
     if boss:
         cur = RS.planned(day, point)
         out['people'] = cur or RS.template(point, day)
@@ -1742,6 +1753,7 @@ def roster(who, body):
                                 if v[1] != point and S.role_of(v) != 'coo'})
         out['depts'] = list(RS.START)
         out['starts'] = RS.START
+        out['parts'] = [{'code': k, 'name': S.PART_RU[k]} for k in RS.PARTS]
     return out
 
 
@@ -1773,22 +1785,32 @@ def roster_save(who, body):
             return {'ok': False,
                     'error': f'{p["who"]} уже стоит в составе точки '
                              f'{other[p["who"]]} на этот день'}
+    # Две позиции в одну смену — это не состав, а ошибка ввода.
+    bad = RS.clash(people)
+    if bad:
+        return {'ok': False, 'error': bad}
     ask = RS.save(day, point, people, who[0])
     sent = 0
-    for p in people:
-        if p['who'] not in ask:
-            continue
-        cid = names.get(p['who'])
+    for name in ask:
+        cid = names.get(name)
         if not cid:
             continue
-        line = (f'📅 <b>Завтра, {RS.day_str(day)}</b>\n'
-                f'{p.get("dept", "—")} · с {p.get("start") or "—"}')
+        # Человек может стоять и на первую, и на вторую смену — тогда это
+        # одно сообщение с двумя строками, а не два вопроса подряд.
+        mine = [p for p in people if p['who'] == name]
+        lines = []
+        for p in mine:
+            part = str(p.get('part') or 'one')
+            tag = f'{S.PART_RU[part]}: ' if part in ('open', 'close') else ''
+            lines.append(f'{tag}{p.get("dept", "—")} · с {p.get("start") or "—"}')
+        line = f'📅 <b>Завтра, {RS.day_str(day)}</b>\n' + '\n'.join(lines)
         # Не своя точка — говорим об этом первой строкой и называем адрес:
         # человек должен ехать в другое место, а не на привычное.
-        if home.get(p['who']) != point:
+        if home.get(name) != point:
             line += (f'\n📍 <b>Другая точка: {S.point_label(point)}</b>')
-        if p.get('instead'):
-            line += f'\nЗамена: вместо {p["instead"]}'
+        for p in mine:
+            if p.get('instead'):
+                line += f'\nЗамена: вместо {p["instead"]}'
         BOT.say(cid, line + '\n\nПодтверди до 21:30.',
                 reply_markup={'inline_keyboard': [[
                     {'text': '✅ Буду', 'callback_data': 'rs:y'},
@@ -1796,7 +1818,8 @@ def roster_save(who, body):
         sent += 1
     # Забрали человека с соседней точки — её управляющий должен знать:
     # завтра он на него не рассчитывает.
-    guests = [p['who'] for p in people if home.get(p['who']) != point]
+    guests = dict.fromkeys(p['who'] for p in people
+                           if home.get(p['who']) != point)
     for g in guests:
         for cid in S.managers_of(home.get(g, '')):
             BOT.say(cid, f'📅 <b>Завтра, {RS.day_str(day)}</b>\n{g} стоит '

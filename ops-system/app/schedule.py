@@ -363,7 +363,9 @@ def roster_ask():
     for cid, point in S.managers().items():
         if RS.planned(day, point):
             continue
-        n = len(RS.template(point, day))
+        # Считаем людей, а не строки: один человек может стоять и на первую,
+        # и на вторую смену — это две строки, но один человек.
+        n = len({p['who'] for p in RS.template(point, day)})
         kb = ({'inline_keyboard': [[{'text': '📅 Собрать состав',
                                      'web_app': {'url': C.WEBAPP_URL}}]]}
               if C.WEBAPP_URL else None)
@@ -410,7 +412,8 @@ def roster_fallback():
         RS.save(day, point, people, 'система')
         for cid in S.managers_of(point):
             BOT.say(cid, f'📅 Состав на {RS.day_str(day)} · {point} не собран — '
-                         f'взял сегодняшний состав ({len(people)} чел.). '
+                         f'взял сегодняшний состав '
+                         f'({len({p["who"] for p in people})} чел.). '
                          f'Поправь утром, если что-то не так.')
 
 

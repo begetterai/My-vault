@@ -388,7 +388,10 @@ def check_rules_docs():
         if os.path.exists(rules_path) else ''
     if not rules:
         bad.append('нет листа «Баллы-правила» — по чему объяснять смене?')
-    WHERE = {'day_closed': 'Полностью закрытый день',
+    # Одно и то же событие называется в источниках по-разному: в регламенте
+    # «Полностью закрытый день», в листе для смены — «День закрыт полностью».
+    # Ищем любой из вариантов: важно совпадение цифры, а не формулировки.
+    WHERE = {'day_closed': ('Полностью закрытый день', 'День закрыт полностью'),
              'check_ok': 'Чек-лист подтверждён управляющим',
              'fill_late': 'Чек-лист сдан позже срока',
              'item_fail': 'Невыполненный пункт',
@@ -400,26 +403,28 @@ def check_rules_docs():
              'found_issue': 'Нашёл и записал'}
 
     def near(src, txt):
-        i = src.find(txt)
-        if i < 0:
-            return None
-        m = re.search(r'[+−-]\s?(\d+)', src[i:i + 220])
-        if not m:
-            return None
-        return int(m.group(1)) * (-1 if ('−' in m.group(0) or '-' in m.group(0))
-                                  else 1)
+        for one in ((txt,) if isinstance(txt, str) else txt):
+            i = src.find(one)
+            if i < 0:
+                continue
+            m = re.search(r'[+−-]\s?(\d+)', src[i:i + 220])
+            if m:
+                return int(m.group(1)) * (
+                    -1 if ('−' in m.group(0) or '-' in m.group(0)) else 1)
+        return None
 
     for ev, txt in WHERE.items():
         pts = SC.RULES[ev][0]
+        name = txt if isinstance(txt, str) else txt[0]
         sources = [('01-POL-02', doc), ('заметке', note)]
         if rules:
             sources.append(('листе правил', rules))
         for what, src in sources:
             got = near(src, txt)
             if got is None:
-                warn.append(f'«{txt}» не найдено в {what}')
+                warn.append(f'«{name}» не найдено в {what}')
             elif got != pts:
-                bad.append(f'«{txt}»: в коде {pts:+}, в {what} {got:+}')
+                bad.append(f'«{name}»: в коде {pts:+}, в {what} {got:+}')
 
     # Потолки в день: без них доп. счёт набивается за смену, и человек
     # должен знать предел заранее, а не узнавать в день выплаты.

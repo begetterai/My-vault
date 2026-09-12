@@ -896,7 +896,7 @@
   <button class="send" id="send" disabled>Отправить</button>
 </div>
 <script>
-const BUILD = 'v11.09-2 +5 по своей станции';
+const BUILD = 'v12.09-1 две смены в составе';
 // Заполняются на старте: скрипт телеграма грузится отложенно, и на момент
 // разбора этой строки window.Telegram может ещё не существовать.
 let tg = null, initData = '';
@@ -3222,7 +3222,10 @@ function renderRoster(){
 
 /* Сотруднику — только его строка и две кнопки. */
 function renderRosterMine(box){
-  const m = ROSTER.mine;
+  // Смен может быть две — утренняя и вечерняя. Показываем обе строки,
+  // а вопрос «Буду / Не смогу» задаём один на весь день.
+  const all = ROSTER.mine_all || (ROSTER.mine ? [ROSTER.mine] : []);
+  const m = all[0];
   const c = document.createElement('div'); c.className = 'card';
   if(!m){
     c.innerHTML = '<div class="kv"><span>Завтра</span><b>выходной</b></div>'
@@ -3231,9 +3234,12 @@ function renderRosterMine(box){
     box.appendChild(c);
     return;
   }
-  c.innerHTML = '<div class="kv"><span>' + (m.dept || '—') + '</span><b>с '
-    + (m.start || '—') + '</b></div>'
-    + (m.instead ? '<div class="hint">Замена: вместо ' + m.instead + '</div>' : '');
+  c.innerHTML = all.map(r =>
+    '<div class="kv"><span>' + (r.dept || '—')
+    + ((r.part || 'one') !== 'one' ? ' · ' + PART_NAME[r.part] : '')
+    + '</span><b>с ' + (r.start || '—') + '</b></div>'
+    + (r.instead ? '<div class="hint">Замена: вместо ' + r.instead + '</div>' : '')
+  ).join('');
   const st = document.createElement('div'); st.className = 'hint';
   if(m.confirm === 'буду') st.textContent = '✅ Ты подтвердил, что будешь.';
   else if(m.confirm === 'не смогу') st.textContent = '❌ Ты сказал, что не сможешь.';
@@ -3260,7 +3266,10 @@ async function confirmRoster(yes, card){
     return note(j.error || 'Не записалось. Попробуй ещё раз.', 'err');
   }
   tg?.HapticFeedback?.notificationOccurred?.('success');
-  ROSTER.mine.confirm = yes ? 'буду' : 'не смогу';
+  // Ответ один на весь день — ставим его всем своим строкам состава.
+  const said = yes ? 'буду' : 'не смогу';
+  (ROSTER.mine_all || []).forEach(r => { r.confirm = said; });
+  if(ROSTER.mine) ROSTER.mine.confirm = said;
   renderRoster();
 }
 
@@ -3274,13 +3283,23 @@ function renderRosterBoss(box){
   const add = document.createElement('button');
   add.className = 'add'; add.textContent = '+ Добавить человека';
   add.onclick = () => {
-    // Подставляем того, кого в составе ещё нет: иначе один человек попадает
-    // в смену дважды и состав смены врёт.
-    const busy = new Set(ROSTER.people.map(x => x.who));
-    const free = (ROSTER.team || []).find(n => !busy.has(n))
-              || (ROSTER.guests || []).find(n => !busy.has(n));
+    // Подставляем того, у кого ещё есть свободная смена. Занятым считаем
+    // того, кто стоит «на весь день» или уже на обеих сменах, — иначе новая
+    // строка сразу окажется конфликтной.
+    const taken = {};
+    ROSTER.people.forEach(x => {
+      (taken[x.who] = taken[x.who] || []).push(x.part || 'one');
+    });
+    const busy = n => (taken[n] || []).indexOf('one') >= 0
+                   || (taken[n] || []).length >= 2;
+    const free = (ROSTER.team || []).find(n => !busy(n))
+              || (ROSTER.guests || []).find(n => !busy(n));
     if(!free) return note('Все люди уже в составе.', 'warn');
-    ROSTER.people.push({who: free, dept: 'кухня',
+    // Свободному ставим «одна на день», а тому, кто уже стоит на смене, —
+    // ту, которой у него ещё нет.
+    const has = taken[free] || [];
+    const part = !has.length ? 'one' : (has.indexOf('open') >= 0 ? 'close' : 'open');
+    ROSTER.people.push({who: free, dept: 'кухня', part: part,
                         start: ROSTER.starts['кухня'] || '', instead: ''});
     ROSTER.dirty = true;
     renderRoster();
@@ -3319,8 +3338,10 @@ function rosterRow(p, i){
   d.className = 'card'; d.style.marginBottom = '10px';
   const st = p.confirm === 'буду' ? '✅' : p.confirm === 'не смогу' ? '❌' : '⏳';
   const alien = (ROSTER.guests || []).indexOf(p.who) >= 0;
+  const pn = (ROSTER.parts || []).find(o => o.code === (p.part || 'one'));
   d.innerHTML = '<div class="kv"><span>' + st + ' ' + (p.who || '—')
-    + '</span><b>' + (p.dept || '—') + '</b></div>'
+    + '</span><b>' + (p.dept || '—')
+    + ((p.part || 'one') !== 'one' && pn ? ' · ' + pn.name : '') + '</b></div>'
     + (alien ? '<div class="hint">📍 С другой точки — ему уйдёт адрес.</div>' : '');
 
   const who = document.createElement('select');
@@ -3342,6 +3363,14 @@ function rosterRow(p, i){
     ROSTER.dirty = true;
   };
 
+  // Один человек может выйти и в первую, и во вторую смену — это две строки
+  // состава. Двух позиций в одной смене быть не может, это ловится при отправке.
+  const part = document.createElement('select');
+  part.innerHTML = (ROSTER.parts || []).map(o =>
+    '<option value="' + o.code + '"' + (o.code === (p.part || 'one') ? ' selected' : '')
+    + '>' + o.name + '</option>').join('');
+  part.onchange = () => { p.part = part.value; ROSTER.dirty = true; renderRoster(); };
+
   const time = document.createElement('input');
   time.type = 'time'; time.step = 60; time.value = p.start || '';
   time.oninput = () => { p.start = time.value; ROSTER.dirty = true; };
@@ -3357,11 +3386,12 @@ function rosterRow(p, i){
   rm.className = 'note'; rm.textContent = '✕ Убрать из смены';
   rm.onclick = () => { ROSTER.people.splice(i, 1); ROSTER.dirty = true; renderRoster(); };
 
-  // Поля шли впритык — глазом их не разделить, а это четыре разных вопроса:
-  // кто, на какой позиции, во сколько и кого заменяет. Разводим и подписываем.
+  // Поля шли впритык — глазом их не разделить, а это разные вопросы:
+  // кто, на какой позиции, в какую смену, во сколько и кого заменяет.
+  // Разводим и подписываем.
   const box = document.createElement('div');
   box.className = 'rline';
-  [['Кто', who], ['Позиция', dept], ['Начало смены', time],
+  [['Кто', who], ['Позиция', dept], ['Смена', part], ['Начало смены', time],
    ['Замена вместо кого', instead]].forEach(([label, el]) => {
     const w = document.createElement('div');
     const l = document.createElement('label');
@@ -3375,9 +3405,22 @@ function rosterRow(p, i){
 }
 
 async function sendRoster(btn){
-  const names = ROSTER.people.map(x => x.who);
-  const dup = names.find((n, i) => names.indexOf(n) !== i);
-  if(dup) return note(dup + ' стоит в составе дважды. Убери лишнюю строку.', 'warn');
+  // На первую и на вторую смену одного человека поставить можно, дважды
+  // на одну — нет: в одно время он стоит в одном месте. «Одна на день»
+  // занимает весь день и ни с чем не совмещается.
+  const seen = {};
+  for(const p of ROSTER.people){
+    const part = p.part || 'one';
+    const was = seen[p.who] || (seen[p.who] = []);
+    const pn = (ROSTER.parts || []).find(o => o.code === part);
+    if(was.indexOf(part) >= 0)
+      return note(p.who + ' стоит дважды на одной смене (' + (pn ? pn.name : part)
+                  + '). Убери лишнюю строку.', 'warn');
+    if(was.indexOf('one') >= 0 || (part === 'one' && was.length))
+      return note(p.who + ' стоит и на весь день, и на отдельную смену. '
+                  + 'Оставь что-то одно.', 'warn');
+    was.push(part);
+  }
   btn.disabled = true; btn.textContent = 'Отправляю…';
   const j = await jpost('/api/roster_save', {initData, point, people: ROSTER.people});
   btn.disabled = false;
