@@ -51,7 +51,8 @@ def check_js_functions():
         'async', 'await', 'var', 'let', 'const', 'new', 'delete', 'void',
         'Array', 'Object', 'String', 'Number', 'Boolean', 'Math', 'JSON',
         'Date', 'Set', 'Map', 'Promise', 'Error', 'RegExp',
-        'FileReader', 'Image', 'Blob', 'URL', 'FormData', 'Intl'}
+        'FileReader', 'Image', 'Blob', 'URL', 'FormData', 'Intl',
+        'MutationObserver'}
     for name in sorted(called - known):
         bad.append(f'js: {name}() вызывается, но нигде не объявлена')
 

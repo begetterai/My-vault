@@ -23,6 +23,10 @@ FILL_COLS = ['Дата', 'Точка', 'Кто заполнил', 'Заполн�
 
 PART_RU = {'open': 'первая смена', 'close': 'вторая смена',
            'one': 'одна на день'}
+
+# Языки интерфейса. Русский — канонический: на нём написан код, таблица
+# и документы, и на него падает всё, чего нет в словаре перевода.
+LANGS = ('ru', 'tj')
 # Как писали раньше — чтобы старые строки явки читались по-прежнему.
 PART_OLD = {'открывающая': 'open', 'закрывающая': 'close',
             'одна на день': 'one'}
@@ -298,7 +302,8 @@ def ensure_structure():
             # видят трое, и открытый пароль там означал бы вход под любым.
             C.TABS['team']: ['chat_id', 'Имя', 'Точка', 'Роль', 'Активен',
                              'Отдел', 'Может подменить (позиции)',
-                             'Может быть старшим', 'Логин', 'Пароль — хеш'],
+                             'Может быть старшим', 'Логин', 'Пароль — хеш',
+                             'Язык'],
             C.TABS['points']: ['Код', 'Название', 'Адрес', 'Активна',
                                'Широта', 'Долгота', 'Радиус, м',
                                'Замещает управляющего'],
@@ -356,7 +361,7 @@ _READ = {'ts': None, 'rows': []}
 
 
 def team(force=False):
-    """chat_id → (имя, точка, роль, отдел, подменяет, старший)
+    """chat_id → (имя, точка, роль, отдел, подменяет, старший, язык)
 
     Отдел появился 21.08.2026: чек-листы режутся по отделам, и без него
     система не знает, чьи пункты показывать и с кого спрашивать.
@@ -372,17 +377,21 @@ def team(force=False):
     if not force and _TEAM['ts'] and (now - _TEAM['ts']).seconds < 60:
         return _TEAM['map']
     m = {}
-    for r in get(C.TABS['team'], 'A2:H200'):
-        r = list(r) + [''] * (8 - len(r))
+    # До колонки K, а не H: в K лежит язык человека. Бот шлёт напоминания
+    # сам, браузера в этот момент нет — язык нужен здесь, иначе выбравший
+    # таджикский всё равно получит русское сообщение.
+    for r in get(C.TABS['team'], 'A2:K200'):
+        r = list(r) + [''] * (11 - len(r))
         if str(r[0]).strip() and str(r[1]).strip():
             act = (r[4].strip().lower() if r[4] else 'да')
             if act in ('да', 'yes', '1', 'true', ''):
                 can = [x.strip().lower() for x in str(r[6]).replace(';', ',').split(',')
                        if x.strip()]
                 senior = str(r[7]).strip().lower() in ('да', 'yes', '1', 'true')
+                lang = str(r[10]).strip().lower()
                 m[str(r[0]).strip()] = (str(r[1]).strip(), str(r[2]).strip(),
                                         str(r[3]).strip(), str(r[5]).strip().lower(),
-                                        can, senior)
+                                        can, senior, lang if lang in LANGS else 'ru')
     # Пустой ответ — это почти всегда сбой чтения, а не пустая команда:
     # get() глотает ошибку сети и квоты и возвращает []. Записать такую
     # пустоту в кэш значит выкинуть из системы всех до конца его жизни —
@@ -970,6 +979,20 @@ def set_login(chat_id, login, password):
         if r and str(r[0]).strip() == str(chat_id):
             put(C.TABS['team'], f'I{i + 2}:J{i + 2}',
                 [[login.lower(), hash_password(password)]])
+            return True
+    return False
+
+
+@serial
+def set_lang(chat_id, lang):
+    """Записать человеку язык интерфейса. → получилось ли."""
+    if lang not in LANGS:
+        return False
+    rows = get(C.TABS['team'], 'A2:K200')
+    for i, r in enumerate(rows):
+        if r and str(r[0]).strip() == str(chat_id):
+            put(C.TABS['team'], f'K{i + 2}:K{i + 2}', [[lang]])
+            team(force=True)
             return True
     return False
 

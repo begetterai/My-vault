@@ -21,7 +21,11 @@ WEB = os.path.join(HERE, 'web')
 STATIC = {'/manifest.json': 'application/manifest+json',
           '/sw.js': 'application/javascript; charset=utf-8',
           '/icon-192.png': 'image/png',
-          '/icon-512.png': 'image/png'}
+          '/icon-512.png': 'image/png',
+          # Словарь перевода. Отдаётся как обычный файл и грузится только
+          # тем, кто выбрал таджикский: русскому он не нужен и ничего не
+          # стоит. Подписи здесь нет — переведённые подписи не секрет.
+          '/tj.json': 'application/json; charset=utf-8'}
 
 
 def page_build():
@@ -235,7 +239,10 @@ def init_payload(who):
     out = {'company': C.COMPANY, 'name': who[0], 'point': work,
            'point_label': S.point_label(work), 'points': pts,
            'role': role, 'dept': dept, 'day': C.day_str(), 'lists': {},
-           'build': page_build(), 'v': ver}
+           'build': page_build(), 'v': ver,
+           # Язык из «Команды»: на новом устройстве человек должен увидеть
+           # свой язык сразу, а не выбирать его заново.
+           'lang': (who[6] if len(who) > 6 else 'ru') or 'ru'}
     # Поэтапный запуск: пока роль не в ROLLOUT, человек видит одно сообщение
     # и ничего больше. Лучше честное «скоро», чем половина системы.
     if C.ROLLOUT and role not in C.ROLLOUT:
@@ -1849,6 +1856,22 @@ def roster_confirm(who, body):
     return {'ok': True}
 
 
+def set_lang(who, body):
+    """Человек выбрал язык интерфейса.
+
+    Пишем в «Команду», потому что сообщения из телеграма шлёт бот сам —
+    браузера в этот момент нет, и без записи напоминания приходили бы
+    по-русски тому, кто выбрал таджикский.
+    """
+    lang = str(body.get('lang') or '').strip().lower()
+    if lang not in S.LANGS:
+        return {'ok': False, 'error': 'Неизвестный язык'}
+    cid = next((c for c, v in S.team().items() if v[0] == who[0]), '')
+    if not cid:
+        return {'ok': False, 'error': 'Не нашёл тебя в команде'}
+    return {'ok': bool(S.set_lang(cid, lang)), 'lang': lang}
+
+
 def award(who, body):
     """Управляющий начисляет доп. балл: замена, обучение, принятая идея.
 
@@ -2135,6 +2158,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, roster_save(who, body))
             if p == '/api/roster_confirm':
                 return self._send(200, roster_confirm(who, body))
+            if p == '/api/lang':
+                return self._send(200, set_lang(who, body))
             if p == '/api/dispute':
                 return self._send(200, dispute(who, body))
             if p == '/api/dispute_resolve':

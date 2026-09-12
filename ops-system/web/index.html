@@ -68,6 +68,13 @@
         background:var(--card);color:var(--ink);font-size:20px;line-height:1;
         cursor:pointer;display:flex;align-items:center;justify-content:center}
   .back:active{background:var(--wash)}
+  /* Переключатель языка — близнец кнопки «Назад», но по правому краю:
+     .titles растягивается, и кнопка сама прижимается к краю шапки. */
+  .lang{flex:none;height:38px;padding:0 12px;border-radius:12px;
+        border:1.5px solid var(--line);background:var(--card);color:var(--ink);
+        font-family:Manrope,"Golos Text",sans-serif;font-weight:800;font-size:13px;
+        letter-spacing:.02em;cursor:pointer}
+  .lang:active{background:var(--wash)}
   .mark{flex:none;width:30px;height:30px}
   .titles{min-width:0;flex:1}
   .who{font-family:Manrope,"Golos Text",sans-serif;font-weight:800;
@@ -585,6 +592,8 @@
       <div class="who" id="who">Ромашка</div>
       <div class="sub" id="ver" style="opacity:.7;font-size:11px"></div>
     </div>
+    <button class="lang" id="btnLang" type="button" data-raw
+            aria-label="Забон / Язык">РУ</button>
   </div>
   <div class="bar hidden" id="bar"><i></i></div>
 </header>
@@ -896,7 +905,7 @@
   <button class="send" id="send" disabled>Отправить</button>
 </div>
 <script>
-const BUILD = 'v12.09-1 две смены в составе';
+const BUILD = 'v12.09-2 две смены + таджикский';
 // Заполняются на старте: скрипт телеграма грузится отложенно, и на момент
 // разбора этой строки window.Telegram может ещё не существовать.
 let tg = null, initData = '';
@@ -906,6 +915,97 @@ let fails_note = {};   // пояснение к каждому «✕», по н�
 let markTs = [];   // когда нажали каждый пункт — по ним считается темп
 let point = null;
 
+/* ── язык ────────────────────────────────────────────────────────────────
+   Ключ словаря — сам русский текст. Он и остаётся каноническим: в коде,
+   в таблице, в документах. Поэтому перевод не может разъехаться с кодом,
+   а строка, которой нет в словаре, просто показывается по-русски.
+   Словарь грузится только тем, кто выбрал таджикский. */
+const LANG_KEY = 'romashka.lang';
+let LANG = 'ru', TJ = {};
+try{ LANG = localStorage.getItem(LANG_KEY) || 'ru'; }catch(e){}
+// Имя короткое, но не «t»: в коде уже есть свои переменные t — например,
+// результат prompt() и строка задачи. Одна буква тихо перекрыла бы функцию.
+const tr = s => (LANG === 'tj' && TJ[s]) ? TJ[s] : s;
+
+async function loadLang(){
+  if(LANG !== 'tj') return;
+  try{
+    const r = await fetch('/tj.json', {cache: 'force-cache'});
+    if(r.ok) TJ = await r.json();
+  }catch(e){}
+}
+
+/* Страницу переводим обходом готового DOM, а не вызовом t() у каждой строки.
+   Строк в коде под шестьсот, и обернуть каждую руками — ровно тот массовый
+   автозамен, который уже однажды тихо сломал четыре места на этой странице.
+   Обход делает то же самое одним местом и ничего в логике не трогает.
+
+   Внутрь элементов с data-raw не заходим: там имена людей, задачи и прочее,
+   что пишут сами, — это не переводится. */
+const ATTRS = ['placeholder', 'aria-label', 'title'];
+
+function tnode(n){
+  if(!n.nodeValue) return;
+  if(n.parentElement && n.parentElement.closest('[data-raw]')) return;
+  const s = n.nodeValue.trim();
+  if(s && TJ[s]) n.nodeValue = n.nodeValue.replace(s, TJ[s]);
+}
+
+function tattrs(el){
+  if(el.closest && el.closest('[data-raw]')) return;
+  ATTRS.forEach(a => {
+    const v = el.getAttribute && el.getAttribute(a);
+    if(v && TJ[v]) el.setAttribute(a, TJ[v]);
+  });
+}
+
+function translateStatic(root){
+  if(LANG !== 'tj') return;
+  root = root || document.body;
+  if(root.nodeType === 3) return tnode(root);
+  const w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  const nodes = [];
+  for(let n = w.nextNode(); n; n = w.nextNode()) nodes.push(n);
+  nodes.forEach(tnode);
+  if(root.getAttribute) tattrs(root);
+  if(root.querySelectorAll)
+    root.querySelectorAll('[' + ATTRS.join('],[') + ']').forEach(tattrs);
+}
+
+/* Экраны рисуются кодом в полусотне мест. Вместо того чтобы звать перевод
+   из каждого, один раз следим за страницей: что появилось — то и переводим.
+   Зацикливания нет: переведённой строки в словаре уже нет, второй раз
+   она не меняется. */
+function watchLang(){
+  if(LANG !== 'tj') return;
+  new MutationObserver(recs => recs.forEach(r => {
+    if(r.type === 'characterData') return tnode(r.target);
+    r.addedNodes.forEach(n => {
+      if(n.nodeType === 3) tnode(n);
+      else if(n.nodeType === 1) translateStatic(n);
+    });
+  })).observe(document.body,
+              {childList: true, subtree: true, characterData: true});
+}
+
+function langButton(){
+  const b = $('#btnLang');
+  if(b){
+    b.textContent = LANG === 'tj' ? 'ТҶ' : 'РУ';
+    b.onclick = () => setLang(LANG === 'tj' ? 'ru' : 'tj');
+  }
+}
+
+/* Язык хранится у человека в телефоне и на сервере. В телефоне — чтобы
+   экран входа открылся уже на нужном языке, до всякого запроса. На сервере —
+   чтобы напоминания из телеграма приходили на том же языке: их шлёт бот
+   сам, браузера в этот момент нет. */
+async function setLang(code){
+  LANG = code;
+  try{ localStorage.setItem(LANG_KEY, code); }catch(e){}
+  try{ await jpost('/api/lang', {initData, lang: code}); }catch(e){}
+  location.reload();
+}
 
 /* Одно место для всех уведомлений: показать коротко и заметно.
    Ошибка висит, пока не тронут — её нельзя пропустить. Успех уходит сам. */
@@ -1209,6 +1309,19 @@ async function boot(){
         : ''));
     }
     $('#loginBox').classList.add('hidden');
+    // Язык человек выбирает один раз, а телефонов у него может быть два.
+    // Сервер помнит выбор — на новом устройстве подхватываем его и
+    // перезагружаемся, чтобы страница нарисовалась сразу на нужном языке.
+    // Перезагружаемся только если выбор удалось запомнить: иначе после
+    // перезагрузки язык снова не совпадёт — и страница будет крутиться
+    // в вечном цикле.
+    if(j.lang && j.lang !== LANG){
+      let kept = false;
+      try{ localStorage.setItem(LANG_KEY, j.lang); kept = true; }catch(e){}
+      LANG = j.lang;
+      if(kept) return location.reload();
+      await loadLang(); langButton(); translateStatic();
+    }
     // Телеграм держит мини-апп открытым и не перезапрашивает страницу:
     // человек может полдня работать в старой версии. Сервер говорит, какая
     // сборка лежит у него — не сходится, перезагружаемся сами. Один раз:
@@ -2646,8 +2759,8 @@ function equipCard(e){
   }
   const rm = document.createElement('button');
   rm.className = 'no'; rm.textContent = '✕ Списано';
-  rm.onclick = () => { if(confirm('Списать «' + e.title + '»? Пункты проверки '
-    + 'по нему перестанут появляться.')) setEquip(e, 'Списано', d); };
+  rm.onclick = () => { if(confirm(tr('Списать «') + e.title
+    + tr('»? Пункты проверки по нему перестанут появляться.'))) setEquip(e, 'Списано', d); };
   acts.appendChild(rm);
   d.appendChild(acts);
   return d;
@@ -2672,8 +2785,8 @@ $('#geoBtn').onclick = async () => {
     return note('Не получилось определить место. Разреши геопозицию '
       + 'в настройках телефона и попробуй ещё раз.');
   }
-  const rad = prompt('Радиус точки в метрах.\n\nВ этом радиусе отметка '
-    + 'считается «на точке». 150 подходит почти всегда.', '150');
+  const rad = prompt(tr('Радиус точки в метрах.\n\nВ этом радиусе отметка '
+    + 'считается «на точке». 150 подходит почти всегда.'), '150');
   if(rad === null){ b.disabled = false; b.textContent = '📍 Задать координаты отсюда'; return; }
   const j = await jpost('/api/geo', {initData, point, lat:g.lat, lon:g.lon, radius:rad});
   b.disabled = false; b.textContent = '📍 Задать координаты отсюда';
@@ -2688,14 +2801,14 @@ $('#equipAdd').onclick = () => {
   const types = DATA.equip_types || [];
   if(!types.length) return note('Библиотека типов пуста', 'warn');
   const menu = types.map((t, i) => (i + 1) + '. ' + t.icon + ' ' + t.title).join('\n');
-  const pick = prompt('Что добавляем? Номер из списка:\n\n' + menu);
+  const pick = prompt(tr('Что добавляем? Номер из списка:\n\n') + menu);
   const i = parseInt(pick, 10) - 1;
   if(isNaN(i) || i < 0 || i >= types.length) return;
   const t = types[i];
-  const title = prompt('Как называем эту единицу?\n\nЧтобы отличать от '
-    + 'соседних: «Холодильник у станции», «Гриль левый».', t.title);
+  const title = prompt(tr('Как называем эту единицу?\n\nЧтобы отличать от '
+    + 'соседних: «Холодильник у станции», «Гриль левый».'), t.title);
   if(!title) return;
-  const model = prompt('Модель — если знаешь. Можно пропустить.', '') || '';
+  const model = prompt(tr('Модель — если знаешь. Можно пропустить.'), '') || '';
   addEquip(t.key, title, model);
 };
 
@@ -2741,14 +2854,14 @@ function taskCard(t){
   const yes = document.createElement('button');
   yes.className = 'yes'; yes.textContent = '✓ Сделано';
   yes.onclick = () => {
-    const c = prompt('Что именно сделали?\n\n' + t.what
-      + '\n\nКоротко — это останется в истории.');
+    const c = prompt(tr('Что именно сделали?\n\n') + t.what
+      + tr('\n\nКоротко — это останется в истории.'));
     if(c !== null) sendTask(t, 'done', c, d);
   };
   const no = document.createElement('button');
   no.className = 'no'; no.textContent = '✕ Снять';
   no.onclick = () => {
-    const c = prompt('Почему снимаем задачу?\n\n' + t.what);
+    const c = prompt(tr('Почему снимаем задачу?\n\n') + t.what);
     if(c) sendTask(t, 'drop', c, d);
   };
   acts.append(yes, no); d.appendChild(acts);
@@ -2845,9 +2958,9 @@ async function openSheet(x){
       const box = document.createElement('div');
       box.className = 'fixbox hidden';
       const ta = document.createElement('textarea');
-      ta.placeholder = 'Что поправить в этом пункте. Например: '
+      ta.placeholder = tr('Что поправить в этом пункте. Например: '
         + '«убрать — дублирует п.4» или «писать не «чисто», '
-        + 'а «нет налёта на решётке»»';
+        + 'а «нет налёта на решётке»»');
       const save = document.createElement('button');
       save.className = 'send'; save.textContent = 'Зафиксировать';
       const cancel = document.createElement('button');
@@ -3117,8 +3230,8 @@ function pendCard(x){
   const no = document.createElement('button');
   no.className = 'no'; no.textContent = '⚠ Расхождение';
   no.onclick = () => {
-    const t = prompt('Что именно не сошлось?\n\n' + x.title + ' · ' + x.who
-      + '\n\nНапиши фразой — это уйдёт в отчёт и в историю точки.');
+    const t = prompt(tr('Что именно не сошлось?\n\n') + x.title + ' · ' + x.who
+      + tr('\n\nНапиши фразой — это уйдёт в отчёт и в историю точки.'));
     if(t) sendCheck(x, 'bad', t, d);
   };
   acts.append(yes, no); d.appendChild(acts);
@@ -3586,9 +3699,9 @@ function renderDisputes(){
 }
 
 async function resolveDispute(d, verdict, card){
-  const why = prompt(verdict === 'drop'
+  const why = prompt(tr(verdict === 'drop'
     ? 'Почему снимаешь? Одной фразой — человек это увидит.'
-    : 'Почему оставляешь? Одной фразой — человек это увидит.');
+    : 'Почему оставляешь? Одной фразой — человек это увидит.'));
   if(!why) return;
   card.querySelectorAll('button').forEach(b => b.disabled = true);
   const j = await jpost('/api/dispute_resolve', {initData, line: d.line, verdict, note: why});
@@ -3710,8 +3823,8 @@ function renderBalLines(lines){
 }
 
 async function sendDispute(x, btn){
-  const text = prompt('С чем не согласен? Напиши коротко — управляющий '
-                    + 'разберёт сегодня.\n\n' + x.date + ' · ' + x.why
+  const text = prompt(tr('С чем не согласен? Напиши коротко — управляющий '
+                    + 'разберёт сегодня.\n\n') + x.date + ' · ' + x.why
                     + ' · ' + sign(x.pts));
   if(!text) return;
   btn.disabled = true; btn.textContent = 'Отправляю…';
@@ -3847,10 +3960,10 @@ function start(k){
   if(d && Object.keys(d.marks || {}).length){
     const mins = Math.round((Date.now() - (d.saved || Date.now())) / 60000);
     const when = mins < 1 ? 'только что' : mins + ' мин назад';
-    if(confirm('Есть незаконченный чек-лист: отмечено '
-               + Object.keys(d.marks).length + ' пунктов, ' + when + '.'
-               + (L.photos.length ? '\nФото придётся сделать заново.' : '')
-               + '\n\nПродолжить с того места?\nОтмена — начать заново.')){
+    if(confirm(tr('Есть незаконченный чек-лист: отмечено ')
+               + Object.keys(d.marks).length + tr(' пунктов, ') + when + '.'
+               + (L.photos.length ? tr('\nФото придётся сделать заново.') : '')
+               + tr('\n\nПродолжить с того места?\nОтмена — начать заново.'))){
       draftApply(d);
     } else {
       draftDrop(k);
@@ -3910,9 +4023,9 @@ function itemRow(it, bl){
 }
 
 async function sendFix(it, bl, btn, formTitle){
-  const t = prompt('Что поправить в пункте?\n\n«' + it.text + '»\n\n'
-    + 'Например: «убрать — дублирует п.4» или «переформулировать: не «чисто», '
-    + 'а «нет налёта на решётке»»');
+  const t = prompt(tr('Что поправить в пункте?\n\n«') + it.text
+    + tr('»\n\nНапример: «убрать — дублирует п.4» или «переформулировать: '
+       + 'не «чисто», а «нет налёта на решётке»»'));
   if(!t) return;
   const j = await jpost('/api/fix', {initData,
       form: formTitle || (DATA.lists[kind] || {}).title || '',
@@ -4157,8 +4270,8 @@ async function submit(){
 }
 
 async function sendNote(){
-  const t = prompt('Что добавить в регламент или что сделать?\n\n'
-    + 'Пиши фразой: «Купить второй термощуп, одного на две станции не хватает»');
+  const t = prompt(tr('Что добавить в регламент или что сделать?\n\n'
+    + 'Пиши фразой: «Купить второй термощуп, одного на две станции не хватает»'));
   if(!t) return;
   const j = await jpost('/api/note', {initData, text: t,
                           source: DATA.lists[kind].code + ' · Mini App'});
@@ -4169,7 +4282,7 @@ async function sendNote(){
 // Старт после разбора страницы: к этому моменту отложенный скрипт телеграма
 // уже выполнен. Если он не пришёл вовсе — работаем без него и говорим человеку
 // понятную причину, а не показываем пустой экран.
-function bootstrap(){
+async function bootstrap(){
   // Сбой внутри обработчика ничего не показывает: кнопка просто перестаёт
   // отвечать, и человек думает, что «не нажимается». Один такой сбой стоил
   // целого тестового вечера — теперь он виден сразу.
@@ -4181,6 +4294,12 @@ function bootstrap(){
   try{ tg?.ready(); tg?.expand(); }catch(e){}
   $('#btnBack').onclick = goHome;
   tg?.BackButton?.onClick?.(goHome);
+  // Словарь ждём до первой отрисовки: иначе экран успеет нарисоваться
+  // по-русски и переключится на глазах.
+  await loadLang();
+  langButton();
+  translateStatic();
+  watchLang();
   // Телеграм не загрузился — всё равно пробуем: без подписи сервер ответит
   // понятным «открой через бота», и это полезнее пустого экрана.
   if(!tg) $('#who').textContent = 'Открыто не через телеграм';
