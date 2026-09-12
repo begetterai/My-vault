@@ -9,7 +9,9 @@
 Источник — markdown-заметки репозитория, они и остаются оригиналом.
 Docs — то, что можно открыть человеку со стороны.
 
-Запуск: python3 scripts/docs_from_notes.py
+Запуск: python3 scripts/docs_from_notes.py [часть имени документа]
+Без аргумента переносятся все заметки списка, с аргументом — только те,
+в чьём имени встречается эта подстрока.
 """
 import sys, re, datetime
 sys.path.insert(0, '/home/user/My-vault/scripts')
@@ -21,7 +23,8 @@ ROOT = '1cSLEkOXikhTv0g6lPxZ31xJca1Yu-q43'
 FOLDER = '11 Разборы и аналитика'
 V = '/home/user/My-vault/'
 
-# заметка → имя документа
+# заметка → имя документа (третий элемент — вид документа в шапке,
+# по умолчанию «РАЗБОР»)
 NOTES = [
     ('1-Области/Ромашка/Структура-Ромашка-финал.md',
      'Структура Ромашка — 12 шагов'),
@@ -39,6 +42,8 @@ NOTES = [
      'Разбор личного бота'),
     ('1-Области/Ромашка/Баллы-штрафы-механика.md',
      'Баллы и штрафы — механика'),
+    ('1-Области/Ромашка/Баллы-правила.md',
+     'Баллы — правила для смены', 'ПРАВИЛА'),
     ('ops-system/ARCHITECTURE.md',
      'Операционная система точек — архитектура'),
 ]
@@ -51,12 +56,12 @@ def wiki_out(text):
     return text
 
 
-def to_html(md_text, title):
+def to_html(md_text, title, kind='РАЗБОР'):
     body = MD.markdown(wiki_out(md_text),
                        extensions=['tables', 'sane_lists', 'nl2br'])
     today = datetime.date.today().strftime('%d.%m.%Y')
     head = (f'<div class="rk-top"><div class="rk-co">{COMPANY}</div>'
-            f'<div class="rk-kind">РАЗБОР · перенесено из базы знаний {today}</div>'
+            f'<div class="rk-kind">{kind} · перенесено из базы знаний {today}</div>'
             f'</div><h1>{title}</h1>')
     tail = ('<p class="note">Оригинал документа ведётся в базе знаний Азиза. '
             'Эта копия — для тех, кому нужен доступ со стороны; при '
@@ -78,9 +83,12 @@ def main():
         folder = r.json()['id']
         print('создана папка:', FOLDER)
 
+    only = sys.argv[1] if len(sys.argv) > 1 else ''
     seen = set()
-    for path, title in NOTES:
-        if title in seen:
+    for note in NOTES:
+        path, title = note[0], note[1]
+        kind = note[2] if len(note) > 2 else 'РАЗБОР'
+        if title in seen or (only and only.lower() not in title.lower()):
             continue
         try:
             text = open(V + path, encoding='utf-8').read()
@@ -88,7 +96,7 @@ def main():
             print(f'НЕТ ФАЙЛА: {path}')
             continue
         seen.add(title)
-        fid, act = put_doc(s, title, folder, to_html(text, title))
+        fid, act = put_doc(s, title, folder, to_html(text, title, kind))
         enforce_font(s, fid)
         add_footer(s, fid, f'{COMPANY} · {title} · перенесено из базы знаний')
         print(f'{title:52s} {act:9s} '
