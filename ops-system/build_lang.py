@@ -16,6 +16,29 @@ CHECKS = os.path.join(HERE, 'checklists.romashka.json')
 EQUIP = os.path.join(HERE, 'equipment.romashka.json')
 RU = re.compile('[А-Яа-яЁё]')
 
+# Названия вкладок Google Sheets. Это ключи таблицы: по ним система ищет
+# и пишет, перевод их просто сломает запись.
+TABS = {'Явка', 'Станции', 'Баллы', 'График', 'Ознакомление', 'Команда'}
+
+# Обрывки склеенных строк: на экране они соединяются с числом или именем
+# в один текстовый узел, и по куску перевод не найдётся никогда. Их место —
+# в самом коде, через tr(), а не в словаре.
+PARTS = {'Обновляю до', ', а у тебя', '— чек-лист', 'Для позиции «',
+         'Обновляю приложение до', '· до', 'сдан ·', 'ч', 'с', 'мин', 'из',
+         'в', 'её', 'м', 'до', 'дн', '">Норма:'}
+
+# Не текст интерфейса: имя сети, подписи самой кнопки языка, номер сборки
+# и сообщение в консоль браузера.
+OWN = {'Ромашка', 'РУ', 'ТҶ', 'Забон / Язык', 'офлайн-режим не включился:'}
+
+
+def skip(s):
+    """Строка, которую переводить не нужно или нельзя."""
+    # «\n» здесь — два символа из исходника: prompt-строки попадают в словарь
+    # с настоящими переводами строк, и этот вид ключа никогда не сработает.
+    return (s in TABS or s in PARTS or s in OWN
+            or '\\n' in s or s.startswith('v1') or s.startswith('v2'))
+
 
 def page_parts():
     s = open(PAGE, encoding='utf-8').read()
@@ -108,7 +131,7 @@ def collect():
     seen, out = set(), []
     for s in ui + from_content():
         s = s.strip()
-        if s and s not in seen:
+        if s and s not in seen and not skip(s):
             seen.add(s)
             out.append(s)
     return out
@@ -118,7 +141,13 @@ def main():
     have = json.load(open(DICT, encoding='utf-8')) if os.path.exists(DICT) else {}
     keys = collect()
     miss = [k for k in keys if k not in have]
-    extra = [k for k in have if k not in keys]
+    # Ключи с настоящим переводом строки приходят из окон prompt и confirm:
+    # в коде они записаны экранированно, и сборщик их в таком виде не видит.
+    # Лишними они не являются — без них окна остались бы русскими.
+    # Пробел по краям тоже значим: «Есть незаконченный чек-лист: отмечено »
+    # склеивается с числом, и сборщик видит ту же строку уже подрезанной.
+    extra = [k for k in have
+             if k not in keys and k.strip() not in keys and '\n' not in k]
     print(f'строк интерфейса и содержимого: {len(keys)}')
     print(f'переведено: {len(keys) - len(miss)} · осталось: {len(miss)}')
     if extra:
