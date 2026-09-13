@@ -34,8 +34,31 @@ def tg(method, **kw):
 LIMIT = 3800        # телеграм режет на 4096; оставляем запас на разметку
 
 
+def _kb_lang(kw, chat_id):
+    """Подписи кнопок — на том же языке, что и текст рядом с ними."""
+    from . import lang as L
+    kb = kw.get('reply_markup')
+    if not isinstance(kb, dict) or 'inline_keyboard' not in kb:
+        return kw
+    lang = L.of(chat_id)
+    if lang == 'ru':
+        return kw
+    out = [[dict(b, text=L.t(b.get('text', ''), lang)) for b in row]
+           for row in kb['inline_keyboard']]
+    return dict(kw, reply_markup=dict(kb, inline_keyboard=out))
+
+
 def say(chat_id, text, **kw):
-    """Длинный текст режем по строкам — клавиатура уходит с последней частью."""
+    """Длинный текст режем по строкам — клавиатура уходит с последней частью.
+
+    Здесь же перевод: это единственное место, через которое проходит
+    всё, что человек читает в телеграме. Переводить в самих текстах
+    нельзя — они склеены с данными, и русские слова в коде остаются
+    ключами таблиц.
+    """
+    from . import lang as L
+    text = L.t(text, L.of(chat_id))
+    kw = _kb_lang(kw, chat_id)
     if len(text) <= LIMIT:
         return tg('sendMessage', chat_id=chat_id, text=text,
                   parse_mode='HTML', **kw)
@@ -72,11 +95,15 @@ def edit(chat_id, mid, text, **kw):
     столько набирают легко: ответ не приходил вовсе, и кнопка выглядела
     сломанной ровно тогда, когда список длинный и нужен.
     """
+    from . import lang as L
+    text = L.t(text, L.of(chat_id))
+    kw = _kb_lang(kw, chat_id)
     if len(text) <= LIMIT:
         return tg('editMessageText', chat_id=chat_id, message_id=mid,
                   text=text, parse_mode='HTML', **kw)
     tg('editMessageText', chat_id=chat_id, message_id=mid,
-       text='Список длинный — отправляю сообщением ниже.', parse_mode='HTML')
+       text=L.t('Список длинный — отправляю сообщением ниже.',
+                L.of(chat_id)), parse_mode='HTML')
     return say(chat_id, text, **kw)
 
 

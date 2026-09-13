@@ -137,6 +137,37 @@ def from_content():
     return out
 
 
+def from_bot():
+    """Строки, которые бот шлёт в телеграм.
+
+    Словарь один на двоих: приложение берёт из него точные строки, бот —
+    фразы, из которых склеены его сообщения (`app/lang.py`). Без этого
+    списка все фразы бота выглядели бы в отчёте «лишними».
+
+    Считаем только константы вне print() и докстрок: логи человек не видит.
+    """
+    import ast
+    out = []
+    app = os.path.join(HERE, 'app')
+    for name in sorted(os.listdir(app)):
+        if not name.endswith('.py'):
+            continue
+        tree = ast.parse(open(os.path.join(app, name), encoding='utf-8').read())
+        skip = set()
+        for n in ast.walk(tree):
+            if isinstance(n, ast.Call) and getattr(n.func, 'id', '') == 'print':
+                skip.update(id(x) for x in ast.walk(n))
+            if isinstance(n, (ast.Module, ast.FunctionDef, ast.ClassDef)):
+                b = n.body[0] if n.body else None
+                if isinstance(b, ast.Expr) and isinstance(b.value, ast.Constant):
+                    skip.add(id(b.value))
+        for n in ast.walk(tree):
+            if isinstance(n, ast.Constant) and isinstance(n.value, str) \
+                    and id(n) not in skip and RU.search(n.value):
+                out.append(n.value.strip())
+    return out
+
+
 def collect():
     code, markup = page_parts()
     ui = from_markup(markup)
@@ -160,9 +191,12 @@ def main():
     # Лишними они не являются — без них окна остались бы русскими.
     # Пробел по краям тоже значим: «Есть незаконченный чек-лист: отмечено »
     # склеивается с числом, и сборщик видит ту же строку уже подрезанной.
+    bot = set(from_bot())
     extra = [k for k in have
-             if k not in keys and k.strip() not in keys and '\n' not in k]
+             if k not in keys and k.strip() not in keys and k not in bot
+             and '\n' not in k]
     print(f'строк интерфейса и содержимого: {len(keys)}')
+    print(f'фраз бота в словаре: {len([k for k in have if k in bot])}')
     print(f'переведено: {len(keys) - len(miss)} · осталось: {len(miss)}')
     if extra:
         print(f'в словаре есть лишнее (строки уже нет в коде): {len(extra)}')
