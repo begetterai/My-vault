@@ -44,6 +44,10 @@ NOTES = [
      'Баллы и штрафы — механика'),
     ('1-Области/Ромашка/Баллы-правила.md',
      'Баллы — правила для смены', 'ПРАВИЛА'),
+    # Таджикский — отдельным документом: смешивать два языка в одном
+    # файле нельзя, его не дашь человеку в руки.
+    ('1-Области/Ромашка/Баллы-правила-тоҷикӣ.md',
+     'Холҳо — қоидаҳо барои смена', 'ҚОИДАҲО', 'tj'),
     ('ops-system/ARCHITECTURE.md',
      'Операционная система точек — архитектура'),
 ]
@@ -56,16 +60,29 @@ def wiki_out(text):
     return text
 
 
-def to_html(md_text, title, kind='РАЗБОР'):
+# Шапка и подпись документа. Русский и таджикский лежат в разных файлах,
+# и рамка документа должна быть на том же языке, что и текст внутри.
+FRAME = {
+    'ru': ('перенесено из базы знаний',
+           'Оригинал документа ведётся в базе знаний Азиза. Эта копия — '
+           'для тех, кому нужен доступ со стороны; при расхождении верна '
+           'версия в базе.'),
+    'tj': ('аз пойгоҳи дониш кӯчонида шуд',
+           'Асли ҳуҷҷат дар пойгоҳи дониши Азиз нигоҳ дошта мешавад. Ин '
+           'нусха барои онҳоест, ки дастрасии беруна лозим доранд; ҳангоми '
+           'ихтилоф матни русӣ дуруст аст.'),
+}
+
+
+def to_html(md_text, title, kind='РАЗБОР', lang='ru'):
     body = MD.markdown(wiki_out(md_text),
                        extensions=['tables', 'sane_lists', 'nl2br'])
     today = datetime.date.today().strftime('%d.%m.%Y')
+    moved, note = FRAME[lang]
     head = (f'<div class="rk-top"><div class="rk-co">{COMPANY}</div>'
-            f'<div class="rk-kind">{kind} · перенесено из базы знаний {today}</div>'
+            f'<div class="rk-kind">{kind} · {moved} {today}</div>'
             f'</div><h1>{title}</h1>')
-    tail = ('<p class="note">Оригинал документа ведётся в базе знаний Азиза. '
-            'Эта копия — для тех, кому нужен доступ со стороны; при '
-            'расхождении верна версия в базе.</p>')
+    tail = f'<p class="note">{note}</p>'
     return f'<!doctype html><html><head><meta charset="utf-8">{STYLE}' \
            f'</head><body>{head}{body}{tail}</body></html>'
 
@@ -88,6 +105,7 @@ def main():
     for note in NOTES:
         path, title = note[0], note[1]
         kind = note[2] if len(note) > 2 else 'РАЗБОР'
+        lang = note[3] if len(note) > 3 else 'ru'
         if title in seen or (only and only.lower() not in title.lower()):
             continue
         try:
@@ -96,9 +114,10 @@ def main():
             print(f'НЕТ ФАЙЛА: {path}')
             continue
         seen.add(title)
-        fid, act = put_doc(s, title, folder, to_html(text, title, kind))
+        fid, act = put_doc(s, title, folder,
+                           to_html(text, title, kind, lang))
         enforce_font(s, fid)
-        add_footer(s, fid, f'{COMPANY} · {title} · перенесено из базы знаний')
+        add_footer(s, fid, f'{COMPANY} · {title} · {FRAME[lang][0]}')
         print(f'{title:52s} {act:9s} '
               f'https://docs.google.com/document/d/{fid}')
 
