@@ -39,8 +39,13 @@ def _load():
         print('словарь языка:', e)
         d = {}
     ok = [(k, v) for k, v in d.items() if v and v != k]
-    _D['phrases'] = sorted(((k, v) for k, v in ok
-                            if ' ' in k and len(k) >= MIN_PHRASE),
+    # Короткая подпись кнопки вроде «✅ Буду» тоже фраза: она начинается
+    # со значка, а значит внутрь чужого слова попасть не может —
+    # ограничение по длине ей не нужно.
+    def phrase(k):
+        return ' ' in k and (len(k) >= MIN_PHRASE or not k[0].isalnum())
+
+    _D['phrases'] = sorted(((k, v) for k, v in ok if phrase(k)),
                            key=lambda kv: -len(kv[0]))
     _D['words'] = [(re.compile(r'\b' + re.escape(k) + r'\b'), v)
                    for k, v in sorted((kv for kv in ok

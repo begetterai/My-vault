@@ -989,18 +989,28 @@ def shift(who, body):
     # Время начала берём из состава: у повара цеха смена в 07:00, у кассира
     # в 09:30 — считать опоздание всем от одного часа неправильно.
     plan = body.get('plan')
+    part = str(body.get('part') or '')
+    off_roster = ''
     try:
         from . import roster as RS
         # Смену берём ту, что человек выбрал сам: кто стоит и на первую,
         # и на вторую, иначе получил бы минус за «опоздание» к утреннему
         # времени, придя на вечернюю смену вовремя.
-        plan = RS.start_of(C.today(), who[0], plan,
-                           part=str(body.get('part') or ''))
+        plan = RS.start_of(C.today(), who[0], plan, part=part)
+        # Человек назвал смену, а такой строки в составе нет. Опоздания
+        # не будет — не от чего считать, — но молчать нельзя: это значит,
+        # что состав разошёлся с жизнью, и завтра разойдётся снова.
+        if part and not plan:
+            mine = [r for r in RS.rows(C.today()) if r['who'] == who[0]]
+            if mine:
+                off_roster = ', '.join(
+                    f'{S.PART_RU.get(r["part"], r["part"])} с {r["start"]}'
+                    for r in mine)
     except Exception as e:
         print('состав:', e)
     msg, flag, line, saved = F.mark_shift(d, C.day_str(), point, who[0],
                                           lat, lon, plan=plan,
-                                          part=str(body.get('part') or ''),
+                                          part=part,
                                           geo_note=' · '.join(
                                               x for x in (
                                                   f'разрешил {allow}'
@@ -1027,8 +1037,7 @@ def shift(who, body):
         # Время пошло с прихода, а не с выбора места: иначе первые минуты
         # дня не попадают ни в один отрезок и сумма часов меньше явки.
         try:
-            S.start_day(C.day_str(), point, who[0],
-                        str(body.get('part') or ''))
+            S.start_day(C.day_str(), point, who[0], part)
         except Exception as e:
             print('начало дня:', e)
     if d == 'in':
@@ -1045,6 +1054,14 @@ def shift(who, body):
         txt = f'📍 <b>Явка</b> · {point} · {who[0]}\n' + msg.replace('✅ ', '')
         for cid in S.managers_of(point):
             BOT.say(cid, txt)
+    if d == 'in' and off_roster:
+        txt = (f'⚠️ <b>Явка не совпала с составом</b> · {point}\n'
+               f'{who[0]} отметился как {S.PART_RU.get(part, part)}, '
+               f'а в составе на сегодня стоит: {off_roster}.\n'
+               f'Опоздание не считаю — не от чего. Поправь состав.')
+        for cid in S.managers_of(point):
+            BOT.say(cid, txt)
+        BOT.admin(txt, point)
     return {'ok': True, 'message': msg, 'shift': shift_state(who)}
 
 
