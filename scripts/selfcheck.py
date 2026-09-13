@@ -52,7 +52,7 @@ def check_js_functions():
         'Array', 'Object', 'String', 'Number', 'Boolean', 'Math', 'JSON',
         'Date', 'Set', 'Map', 'Promise', 'Error', 'RegExp',
         'FileReader', 'Image', 'Blob', 'URL', 'FormData', 'Intl',
-        'MutationObserver'}
+        'MutationObserver', 'AbortController', 'URLSearchParams'}
     for name in sorted(called - known):
         bad.append(f'js: {name}() вызывается, но нигде не объявлена')
 

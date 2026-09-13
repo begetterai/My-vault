@@ -905,7 +905,7 @@
   <button class="send" id="send" disabled>Отправить</button>
 </div>
 <script>
-const BUILD = 'v13.09-2 таджикский целиком';
+const BUILD = 'v13.09-3 язык не может уронить приложение';
 // Заполняются на старте: скрипт телеграма грузится отложенно, и на момент
 // разбора этой строки window.Telegram может ещё не существовать.
 let tg = null, initData = '';
@@ -921,18 +921,43 @@ let point = null;
    а строка, которой нет в словаре, просто показывается по-русски.
    Словарь грузится только тем, кто выбрал таджикский. */
 const LANG_KEY = 'romashka.lang';
-let LANG = 'ru', TJ = {};
-try{ LANG = localStorage.getItem(LANG_KEY) || 'ru'; }catch(e){}
+let LANG = 'ru', TJ = {}, LANG_SET = false;
+try{
+  const saved = localStorage.getItem(LANG_KEY);
+  if(saved){ LANG = saved; LANG_SET = true; }
+}catch(e){}
+/* Аварийный выход. Если с переводом что-то пойдёт не так на живой смене,
+   человеку не нужно чистить телефон: достаточно открыть адрес приложения
+   с «?lang=ru» на конце — язык вернётся к русскому и запомнится. */
+try{
+  const ask = new URLSearchParams(location.search).get('lang');
+  if(ask === 'ru' || ask === 'tj'){
+    LANG = ask; LANG_SET = true;
+    try{ localStorage.setItem(LANG_KEY, ask); }catch(e){}
+  }
+}catch(e){}
 // Имя короткое, но не «t»: в коде уже есть свои переменные t — например,
 // результат prompt() и строка задачи. Одна буква тихо перекрыла бы функцию.
-const tr = s => (LANG === 'tj' && TJ[s]) ? TJ[s] : s;
+const tr = s => (LANG === 'tj' && TJ[s] && TJ[s] !== s) ? TJ[s] : s;
 
+/* Словарь ждём, но не бесконечно: без срока зависший запрос не дал бы
+   приложению запуститься вообще — boot() стоит за этим await. Не успел
+   за пять секунд — работаем по-русски, это хуже перевода, но это работа. */
 async function loadLang(){
   if(LANG !== 'tj') return;
+  const stop = new AbortController();
+  const t = setTimeout(() => stop.abort(), 5000);
   try{
-    const r = await fetch('/tj.json', {cache: 'force-cache'});
+    // Номер сборки в адресе: без него телефон отдавал бы словарь из своего
+    // кэша и после выкатки исправлений, а старый словарь — это тот самый
+    // зависший экран. Меняется сборка — приходит новый файл.
+    const r = await fetch('/tj.json?v=' + encodeURIComponent(BUILD),
+                          {signal: stop.signal});
     if(r.ok) TJ = await r.json();
-  }catch(e){}
+  }catch(e){
+    console.warn('словарь не загрузился:', e);
+  }
+  clearTimeout(t);
 }
 
 /* Страницу переводим обходом готового DOM, а не вызовом t() у каждой строки.
@@ -944,18 +969,34 @@ async function loadLang(){
    что пишут сами, — это не переводится. */
 const ATTRS = ['placeholder', 'aria-label', 'title'];
 
+/* Значение списка задаём явно и по-русски. Без value браузер берёт
+   значением сам текст, а текст переводится — и на таджикском в таблицу
+   уходило бы «ошхона» вместо «кухня». В таблице один язык: русский. */
+const optRu = (v, sel) => '<option value="' + String(v).replace(/"/g, '&quot;')
+  + '"' + (sel ? ' selected' : '') + '>' + v + '</option>';
+
+/* Перевод, равный оригиналу, — это не перевод, а зависание. Браузер
+   сообщает об изменении текста даже когда записали то же самое, наблюдатель
+   ловит это сообщение и пишет снова — и так до бесконечности. Так 13.09
+   приложение вешалось при переключении на таджикский. Пустые пары из словаря
+   убраны, но проверка нужна здесь: одна такая строка, добавленная руками,
+   снова убьёт приложение. */
+const say_tj = s => (TJ[s] && TJ[s] !== s) ? TJ[s] : '';
+
 function tnode(n){
   if(!n.nodeValue) return;
   if(n.parentElement && n.parentElement.closest('[data-raw]')) return;
   const s = n.nodeValue.trim();
-  if(s && TJ[s]) n.nodeValue = n.nodeValue.replace(s, TJ[s]);
+  const to = s && say_tj(s);
+  if(to) n.nodeValue = n.nodeValue.replace(s, to);
 }
 
 function tattrs(el){
   if(el.closest && el.closest('[data-raw]')) return;
   ATTRS.forEach(a => {
     const v = el.getAttribute && el.getAttribute(a);
-    if(v && TJ[v]) el.setAttribute(a, TJ[v]);
+    const to = v && say_tj(v);
+    if(to) el.setAttribute(a, to);
   });
 }
 
@@ -976,16 +1017,25 @@ function translateStatic(root){
    из каждого, один раз следим за страницей: что появилось — то и переводим.
    Зацикливания нет: переведённой строки в словаре уже нет, второй раз
    она не меняется. */
+let WATCHING = false;
 function watchLang(){
-  if(LANG !== 'tj') return;
-  new MutationObserver(recs => recs.forEach(r => {
-    if(r.type === 'characterData') return tnode(r.target);
-    r.addedNodes.forEach(n => {
-      if(n.nodeType === 3) tnode(n);
-      else if(n.nodeType === 1) translateStatic(n);
-    });
-  })).observe(document.body,
-              {childList: true, subtree: true, characterData: true});
+  if(LANG !== 'tj' || WATCHING) return;
+  WATCHING = true;
+  // Сбой в переводе не должен ронять отрисовку: наблюдатель работает
+  // поверх готового экрана, и если он споткнётся, приложение обязано
+  // продолжить работать — пусть и по-русски.
+  new MutationObserver(recs => {
+    try{
+      recs.forEach(r => {
+        if(r.type === 'characterData') return tnode(r.target);
+        r.addedNodes.forEach(n => {
+          if(n.nodeType === 3) tnode(n);
+          else if(n.nodeType === 1) translateStatic(n);
+        });
+      });
+    }catch(e){ console.warn('перевод:', e); }
+  }).observe(document.body,
+             {childList: true, subtree: true, characterData: true});
 }
 
 function langButton(){
@@ -1003,7 +1053,14 @@ function langButton(){
 async function setLang(code){
   LANG = code;
   try{ localStorage.setItem(LANG_KEY, code); }catch(e){}
-  try{ await jpost('/api/lang', {initData, lang: code}); }catch(e){}
+  // Запись на сервер не должна держать кнопку: таблица иногда отвечает
+  // секунды, и для человека это выглядит как «нажал, а ничего не изменилось».
+  // Ждём три секунды и перезагружаемся в любом случае — в телефоне язык
+  // уже сохранён, а на сервер он допишется при следующем открытии.
+  try{
+    await Promise.race([jpost('/api/lang', {initData, lang: code}),
+                        new Promise(ok => setTimeout(ok, 3000))]);
+  }catch(e){}
   location.reload();
 }
 
@@ -1310,17 +1367,19 @@ async function boot(){
     }
     $('#loginBox').classList.add('hidden');
     // Язык человек выбирает один раз, а телефонов у него может быть два.
-    // Сервер помнит выбор — на новом устройстве подхватываем его и
-    // перезагружаемся, чтобы страница нарисовалась сразу на нужном языке.
-    // Перезагружаемся только если выбор удалось запомнить: иначе после
-    // перезагрузки язык снова не совпадёт — и страница будет крутиться
-    // в вечном цикле.
-    if(j.lang && j.lang !== LANG){
+    // Сервер помнит выбор — на новом устройстве подхватываем его.
+    // Только на новом: если человек уже нажимал кнопку на этом телефоне,
+    // его выбор главнее. Иначе запись на сервер, не успевшая пройти,
+    // молча возвращала бы язык обратно.
+    if(j.lang && j.lang !== LANG && !LANG_SET){
       let kept = false;
       try{ localStorage.setItem(LANG_KEY, j.lang); kept = true; }catch(e){}
       LANG = j.lang;
+      // Перезагружаемся только если выбор удалось запомнить: иначе после
+      // перезагрузки язык снова не совпадёт — и страница будет крутиться
+      // в вечном цикле.
       if(kept) return location.reload();
-      await loadLang(); langButton(); translateStatic();
+      await loadLang(); langButton(); translateStatic(); watchLang();
     }
     // Телеграм держит мини-апп открытым и не перезапрашивает страницу:
     // человек может полдня работать в старой версии. Сервер говорит, какая
@@ -1815,7 +1874,7 @@ function field(f){
   if(f.kind === 'choice'){
     w.innerHTML = '<label>' + f.label + req + '</label><select id="jf_' + f.key + '">'
       + '<option value="">— выбери —</option>'
-      + f.options.map(o => '<option>' + o + '</option>').join('') + '</select>';
+      + f.options.map(o => optRu(o)).join('') + '</select>';
   } else if(f.kind === 'long'){
     w.innerHTML = '<label>' + f.label + req + '</label>'
       + '<textarea id="jf_' + f.key + '" placeholder="' + (f.hint || '') + '"></textarea>';
@@ -1903,9 +1962,9 @@ function lineRow(cl, idx){
   d.innerHTML =
     '<input type="text" placeholder="Позиция" data-k="item">'
     + '<input type="text" inputmode="decimal" placeholder="К-во" data-k="qty">'
-    + '<select data-k="unit">' + (sel ? sel.options.map(o=>'<option>'+o+'</option>').join('') : '') + '</select>'
+    + '<select data-k="unit">' + (sel ? sel.options.map(o => optRu(o)).join('') : '') + '</select>'
     + '<div class="x"><select data-k="reason"><option value="">— причина —</option>'
-    + (reason ? reason.options.map(o=>'<option>'+o+'</option>').join('') : '')
+    + (reason ? reason.options.map(o => optRu(o)).join('') : '')
     + '</select><button class="del" type="button">✕</button></div>';
   d.querySelector('.del').onclick = () => { d.remove(); collect(); };
   d.querySelectorAll('input,select').forEach(x => x.oninput = collect);
@@ -3467,8 +3526,7 @@ function rosterRow(p, i){
   };
 
   const dept = document.createElement('select');
-  dept.innerHTML = (ROSTER.depts || []).map(n =>
-    '<option' + (n === p.dept ? ' selected' : '') + '>' + n + '</option>').join('');
+  dept.innerHTML = (ROSTER.depts || []).map(n => optRu(n, n === p.dept)).join('');
   dept.onchange = () => {
     p.dept = dept.value;
     p.start = ROSTER.starts[p.dept] || p.start;
@@ -4282,7 +4340,7 @@ async function sendNote(){
 // Старт после разбора страницы: к этому моменту отложенный скрипт телеграма
 // уже выполнен. Если он не пришёл вовсе — работаем без него и говорим человеку
 // понятную причину, а не показываем пустой экран.
-async function bootstrap(){
+function bootstrap(){
   // Сбой внутри обработчика ничего не показывает: кнопка просто перестаёт
   // отвечать, и человек думает, что «не нажимается». Один такой сбой стоил
   // целого тестового вечера — теперь он виден сразу.
@@ -4294,12 +4352,13 @@ async function bootstrap(){
   try{ tg?.ready(); tg?.expand(); }catch(e){}
   $('#btnBack').onclick = goHome;
   tg?.BackButton?.onClick?.(goHome);
-  // Словарь ждём до первой отрисовки: иначе экран успеет нарисоваться
-  // по-русски и переключится на глазах.
-  await loadLang();
   langButton();
-  translateStatic();
-  watchLang();
+  // Словарь не держит запуск. Раньше boot() стоял за этим ожиданием, и
+  // медленный или неотвечающий файл означал бы приложение, которое вообще
+  // не открывается, — цена перевода не может быть такой. Пришёл словарь —
+  // перевели готовый экран и следим дальше.
+  loadLang().then(() => { translateStatic(); watchLang(); })
+            .catch(e => console.warn('язык:', e));
   // Телеграм не загрузился — всё равно пробуем: без подписи сервер ответит
   // понятным «открой через бота», и это полезнее пустого экрана.
   if(!tg) $('#who').textContent = 'Открыто не через телеграм';

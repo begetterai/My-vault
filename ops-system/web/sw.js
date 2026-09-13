@@ -7,7 +7,7 @@
  * Версия в имени кэша меняется вместе со сборкой страницы — иначе телефон
  * будет держать старую версию до полной переустановки.
  */
-const CACHE = 'romashka-v07.09';
+const CACHE = 'romashka-v13.09';
 const SHELL = ['/', '/manifest.json'];
 
 self.addEventListener('install', e => {
