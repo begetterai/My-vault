@@ -95,7 +95,10 @@ def main(go):
                             files.add(part.split('/d/')[1].split('/')[0])
 
     # ── график: прошлые дни ──────────────────────────────────────────────
-    plan = rows_of(s, ROSTER, 'A2:J')
+    # A2:K, а не A2:J: 12.09 в «График» добавилась колонка «Смена».
+    # Прочитать без неё и переписать строки заново значит переставить
+    # старые «первая/вторая смена» напротив чужих людей.
+    plan = rows_of(s, ROSTER, 'A2:K')
     stay = []
     for r in plan:
         if not r or not str(r[0]).strip():
@@ -142,12 +145,12 @@ def main(go):
 
     s.post(B + SHEET + '/values:batchClear',
            json={'ranges': [f"'{t}'!A2:Z" for t in wipe]
-                 + [f"'{ROSTER}'!A2:J", f"'{DASH}'!A1:I400"]},
+                 + [f"'{ROSTER}'!A2:K", f"'{DASH}'!A1:I400"]},
            timeout=180).raise_for_status()
     if stay:
         s.put(B + SHEET + '/values/' + urllib.parse.quote(f"'{ROSTER}'!A2"),
               params={'valueInputOption': 'USER_ENTERED'},
-              json={'values': [list(r) + [''] * (10 - len(r)) for r in stay]},
+              json={'values': [list(r) + [''] * (11 - len(r)) for r in stay]},
               timeout=60).raise_for_status()
     print(f'Таблица: очищено {len(wipe)} вкладок, '
           f'в «{ROSTER}» оставлено {len(stay)} строк')
