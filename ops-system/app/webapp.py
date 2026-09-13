@@ -1099,7 +1099,9 @@ def quiz(who, body):
         print('запись тренинга:', e)
     done = right >= need
     if done and not was:
-        SC.add(point, who[0], 'quiz_passed', cl['code'])
+        # Баллов за сданный тренинг нет с 12.09.2026: обучение — обязанность
+        # и допуск к работе. Управляющему сообщаем — ему нужно знать, кого
+        # уже можно ставить на позицию.
         txt = (f'🎓 <b>Тренинг пройден</b> · {point} · {who[0]}\n'
                f'{cl["title"]} — {right} из {len(qs)}, попытка {attempt}')
         for cid in S.managers_of(point):

@@ -549,23 +549,34 @@ def filler_of(kind, line):
 
 
 def _award_check(kind, line, checker, verdict):
-    """Проверяющему — за то, что дошёл. Заполнявшему — за честность.
+    """Расхождение — минус заполнявшему. Подтверждение само по себе — ноль.
 
     Точку берём из самой строки заполнения: проверяющий мог смотреть чужую.
+
+    Правка Азиза 12.09.2026: за подтверждённый лист отдельных баллов нет.
+    Подтверждение стало условием общей пятёрки за день — её начисляет
+    close_day ночью. Проверяющему баллов нет и не было: проверка входит
+    в его работу и оценивается по 01-POL-01.
     """
     from . import score as SC
     try:
         r = S.get(C.checklists()[kind]['tab'], f'A{line}:C{line}')
         if not r or len(r[0]) < 3:
             return
-        point, filler = r[0][1], r[0][2]
-        # Проверяющему баллов нет: проверка входит в его работу и оценивается
-        # по 01-POL-01. Заполнявшему — плюс за подтверждённый лист или минус
-        # за расхождение. Плюс даёт только подтверждение: балл за самоотчёт
-        # оплачивал бы галочки, а не работу.
-        if filler and filler != checker:
-            SC.add(point, filler, 'check_ok' if verdict == 'ok' else 'mismatch',
-                   kind)
+        day, point, filler = str(r[0][0]).strip(), r[0][1], r[0][2]
+        if not filler or filler == checker:
+            return
+        if verdict != 'ok':
+            SC.add(point, filler, 'mismatch', kind)
+            return
+        # Подтвердили лист за уже закрытые сутки — пятёрку за тот день
+        # никто больше не начислит: close_day по нему отработал. Считаем
+        # тот день заново, от дубля он защищён сам.
+        if day and day != C.day_str():
+            try:
+                SC.close_day(datetime.datetime.strptime(day, '%d.%m.%Y').date())
+            except ValueError:
+                pass
     except Exception as e:
         print('баллы проверки:', e)
 
@@ -620,7 +631,8 @@ def final_report(kind, line, verdict, checker, note=''):
     me = next((c for c, v in S.team().items() if v[0] == str(r[2]).strip()), None)
     if me and str(me) not in sent:
         say(me, (f'✅ <b>Твой лист подтверждён</b>\n{cl["title"]} · {r[0]}\n'
-                 f'Проверил {checker}. Начислено +5 баллов.')
+                 f'Проверил {checker}. Пятёрка за день начислится ночью, '
+                 f'если всё своё закрыл.')
             if verdict == 'ok' else
             (f'⚠️ <b>Расхождение при проверке</b>\n{cl["title"]} · {r[0]}\n'
              f'{checker}: {note}' if note else

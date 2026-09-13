@@ -672,6 +672,9 @@ def filled_today(day, point, keys, strict=False):
             if len(r) >= 4 and str(r[0]).strip() == day and str(r[1]).strip() == point:
                 out[k] = {'who': str(r[2]).strip(), 'at': str(r[3]).strip(),
                           'to': str(r[18]).strip() if len(r) > 18 else '',
+                          # Кто подтвердил лист: от этого зависит +5 за день
+                          # (правка Азиза 12.09.2026).
+                          'ok': str(r[13]).strip() if len(r) > 13 else '',
                           'line': ''}
                 break
     return out
