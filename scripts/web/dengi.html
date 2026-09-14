@@ -6,56 +6,100 @@
 <title>Деньги</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <style>
+  /* Цвета берём из телеграма: приложение открывается внутри чата, и свой
+     светлый фон в тёмном чате бьёт по глазам. На каждый цвет — запасной:
+     если открыть адрес в браузере, переменных телеграма нет, и без запасных
+     экран стал бы невидимым. */
   :root{
-    --bg:#f6f6f7; --card:#fff; --ink:#111; --dim:#7a7a80; --line:#e6e6ea;
-    --ok:#1c8a4a; --warn:#b8860b; --bad:#c0392b; --accent:#2b6cb0;
+    --bg:var(--tg-theme-bg-color,#17212b);
+    --card:var(--tg-theme-secondary-bg-color,#202b36);
+    --ink:var(--tg-theme-text-color,#e9edf2);
+    --dim:var(--tg-theme-hint-color,#8c9aa8);
+    --accent:var(--tg-theme-button-color,#5ca9e8);
+    --on-accent:var(--tg-theme-button-text-color,#ffffff);
+    --bad:var(--tg-theme-destructive-text-color,#e0705f);
+    --warn:#d6a13f;
+    --line:color-mix(in srgb, var(--ink) 14%, transparent);
+    --sunk:color-mix(in srgb, var(--ink) 7%, transparent);
   }
   *{box-sizing:border-box}
-  body{margin:0;background:var(--bg);color:var(--ink);
-       font:15px/1.45 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
-       padding:12px 12px 40px;max-width:640px;margin:0 auto}
-  h2{font-size:15px;margin:18px 0 8px;color:var(--dim);font-weight:600;
-     text-transform:uppercase;letter-spacing:.04em}
-  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;
-        padding:12px;margin-bottom:10px}
-  .row{display:flex;gap:8px;align-items:center}
-  .row+.row{margin-top:8px}
-  input,select,textarea{font:inherit;color:inherit;background:var(--card);
-        border:1px solid var(--line);border-radius:10px;padding:10px;width:100%}
-  input[inputmode=decimal]{font-size:22px;font-weight:600;text-align:center}
-  button{font:inherit;border:1px solid var(--line);background:var(--card);
-         border-radius:10px;padding:10px 12px;cursor:pointer}
-  button:active{transform:translateY(1px)}
-  .go{background:var(--accent);color:#fff;border-color:var(--accent);
-      font-weight:600;width:100%;padding:14px}
-  .go[disabled]{opacity:.5}
-  .cats{display:flex;flex-wrap:wrap;gap:6px}
-  .cats button{padding:8px 10px;font-size:14px}
-  .cats button.on{background:var(--accent);color:#fff;border-color:var(--accent)}
-  .tabs{display:flex;gap:6px;margin-bottom:12px}
-  .tabs button{flex:1}
-  .tabs button.on{background:var(--ink);color:#fff;border-color:var(--ink)}
-  .lim{display:flex;justify-content:space-between;gap:8px;padding:7px 0;
-       border-bottom:1px solid var(--line)}
-  .lim:last-child{border-bottom:0}
-  .bar{height:4px;background:var(--line);border-radius:2px;margin-top:4px}
-  .bar i{display:block;height:4px;border-radius:2px;background:var(--ok)}
-  .bar i.w{background:var(--warn)} .bar i.b{background:var(--bad)}
-  .num{font-variant-numeric:tabular-nums;white-space:nowrap}
+  body{
+    margin:0;background:var(--bg);color:var(--ink);
+    font:15px/1.4 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+    padding:10px 12px 36px;max-width:600px;margin:0 auto;
+  }
+  .num{font-variant-numeric:tabular-nums}
   .dim{color:var(--dim)}
-  .big{font-size:26px;font-weight:700;font-variant-numeric:tabular-nums}
-  .grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
-  .op{display:flex;justify-content:space-between;gap:8px;padding:8px 0;
-      border-bottom:1px solid var(--line);align-items:flex-start}
-  .op:last-child{border-bottom:0}
-  .op button{padding:4px 8px;font-size:13px}
-  #toast{position:fixed;left:12px;right:12px;bottom:12px;background:var(--ink);
-         color:#fff;padding:12px;border-radius:12px;display:none;z-index:9;
-         max-width:616px;margin:0 auto}
   .hide{display:none!important}
+
+  /* ── крупная строка сверху ──────────────────────────────── */
+  .top{padding:4px 2px 12px}
+  .top .lbl{font-size:12px;letter-spacing:.06em;text-transform:uppercase;
+            color:var(--dim)}
+  .top .big{font-size:38px;font-weight:700;letter-spacing:-.02em;
+            line-height:1;margin-top:5px}
+  .top .sub{color:var(--dim);font-size:13px;margin-top:6px}
+
+  .tabs{display:flex;gap:6px;margin-bottom:10px}
+  .tabs button{flex:1;padding:9px 0;border:0;border-radius:9px;
+               background:var(--card);color:var(--dim);font:inherit;
+               font-size:14px;cursor:pointer}
+  .tabs button.on{background:var(--ink);color:var(--bg);font-weight:600}
+
+  .card{background:var(--card);border-radius:12px;padding:11px;
+        margin-bottom:9px}
+  h2{font-size:11px;letter-spacing:.12em;text-transform:uppercase;
+     color:var(--dim);font-weight:600;margin:14px 0 6px}
+
+  input,select{font:inherit;color:var(--ink);background:var(--sunk);
+    border:1px solid var(--line);border-radius:10px;padding:10px;width:100%}
+  input::placeholder{color:var(--dim)}
+  #amount{font-size:30px;font-weight:600;text-align:center;padding:12px}
+  /* Подсказка тише самой цифры: вверху уже стоит крупное «на руках»,
+     и два жирных числа на экране спорят друг с другом. */
+  #amount::placeholder{font-size:17px;font-weight:400}
+  .two{display:flex;gap:8px;margin-top:8px}
+  .chips{display:flex;flex-wrap:wrap;gap:5px;margin-top:9px}
+  .chips button{border:0;border-radius:8px;padding:6px 9px;font:inherit;
+                font-size:13px;background:var(--sunk);color:var(--ink);
+                cursor:pointer}
+  .chips button.on{background:var(--accent);color:var(--on-accent);
+                   font-weight:600}
+  .go{display:block;width:100%;margin-top:10px;padding:13px;border:0;
+      border-radius:11px;background:var(--accent);color:var(--on-accent);
+      font:inherit;font-weight:600;font-size:15px;cursor:pointer}
+  .go[disabled]{opacity:.5}
+  .flat{background:var(--sunk);color:var(--ink);font-weight:500}
+
+  /* ── плотные списки ─────────────────────────────────────── */
+  .row{display:flex;justify-content:space-between;align-items:baseline;
+       gap:8px;padding:6px 0;border-bottom:1px solid var(--line)}
+  .row:last-child{border-bottom:0}
+  .row .name{min-width:0;overflow:hidden;text-overflow:ellipsis;
+             white-space:nowrap}
+  .row .val{white-space:nowrap;text-align:right}
+  .row small{display:block;color:var(--dim);font-size:11.5px;
+             overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .over{color:var(--bad)} .near{color:var(--warn)}
+  .x{border:0;background:none;color:var(--dim);font:inherit;font-size:18px;
+     line-height:1;padding:2px 4px;cursor:pointer}
+
+  .acc{display:flex;align-items:center;gap:8px;padding:5px 0}
+  .acc span{flex:1}
+  .acc input{width:44%;padding:8px;text-align:right}
+
+  #toast{position:fixed;left:12px;right:12px;bottom:12px;
+         background:var(--ink);color:var(--bg);padding:11px;border-radius:11px;
+         display:none;z-index:9;max-width:576px;margin:0 auto;font-size:14px}
 </style>
 </head>
 <body>
+
+<div class="top">
+  <div class="lbl">На руках</div>
+  <div class="big num" id="cash">—</div>
+  <div class="sub num" id="sub">&nbsp;</div>
+</div>
 
 <div class="tabs">
   <button id="tWrite" class="on">Записать</button>
@@ -66,7 +110,7 @@
 <section id="pWrite">
   <div class="card">
     <input id="amount" inputmode="decimal" placeholder="Сумма">
-    <div class="row" style="margin-top:8px">
+    <div class="two">
       <select id="kind">
         <option value="расход">Расход</option>
         <option value="доход">Доход</option>
@@ -75,9 +119,9 @@
       </select>
       <input id="date" type="date">
     </div>
-    <div class="cats" id="cats" style="margin-top:10px"></div>
-    <input id="comment" placeholder="Комментарий — на что" style="margin-top:8px">
-    <button class="go" id="save" style="margin-top:10px">Записать</button>
+    <div class="chips" id="cats"></div>
+    <input id="comment" placeholder="На что — коротко" style="margin-top:8px">
+    <button class="go" id="save">Записать</button>
   </div>
 
   <h2>Последние записи</h2>
@@ -91,26 +135,16 @@
 </section>
 
 <section id="pMonth" class="hide">
-  <div class="card">
-    <div class="dim">Остаток (кэш)</div>
-    <div class="big" id="mCash">—</div>
-    <div class="grid" style="margin-top:12px">
-      <div><div class="dim">Заработано</div><div class="num" id="mIn">—</div></div>
-      <div><div class="dim">Потрачено</div><div class="num" id="mOut">—</div></div>
-      <div><div class="dim">Отложено</div><div class="num" id="mSave">—</div></div>
-      <div><div class="dim">Погашено</div><div class="num" id="mDebt">—</div></div>
-    </div>
-  </div>
+  <div class="card" id="month"></div>
 
   <h2>Счета — сколько на руках</h2>
   <div class="card">
     <div id="accs"></div>
-    <button class="go" id="saveAcc" style="margin-top:10px">Сохранить балансы</button>
-    <button id="startBal" style="margin-top:8px;width:100%">Завести стартовую запись</button>
-    <div class="dim" style="margin-top:8px">
+    <button class="go" id="saveAcc">Сохранить балансы</button>
+    <button class="go flat" id="startBal">Завести стартовую запись</button>
+    <p class="dim" style="margin:9px 0 0;font-size:12.5px">
       Стартовая запись нужна один раз после очистки журнала: без неё
-      «Остаток (кэш)» считается от нуля и не сходится с тем, что на руках.
-    </div>
+      «На руках» считается от нуля.</p>
   </div>
 </section>
 
@@ -125,9 +159,9 @@ let D = null, CAT = '', BUSY = false;
 const $ = s => document.querySelector(s);
 const money = n => {
   const v = Number(n) || 0;
-  return (Number.isInteger(v) ? v.toLocaleString('ru-RU')
-                              : v.toLocaleString('ru-RU', {minimumFractionDigits: 2,
-                                                           maximumFractionDigits: 2}));
+  return Number.isInteger(v) ? v.toLocaleString('ru-RU')
+    : v.toLocaleString('ru-RU', {minimumFractionDigits: 2,
+                                 maximumFractionDigits: 2});
 };
 
 let toastT = null;
@@ -144,8 +178,8 @@ async function post(url, body){
   return r.json();
 }
 
-/* Категории показываем по выбранному типу: в доходе не нужны «Продукты»,
-   в расходе — «Зарплата». Список не резиновый, но и путать нечем. */
+/* Категории — по выбранному типу: в доходе не нужны «Продукты»,
+   в расходе — «Зарплата». */
 function catsFor(kind){
   if(kind === 'доход') return D.income_cats;
   if(kind === 'накопление') return D.saving_cats;
@@ -156,50 +190,63 @@ function catsFor(kind){
 function drawCats(){
   const list = catsFor($('#kind').value);
   if(!list.includes(CAT)) CAT = list[0] || '';
-  $('#cats').innerHTML = '';
+  const box = $('#cats'); box.innerHTML = '';
   list.forEach(c => {
     const b = document.createElement('button');
-    b.textContent = c;
+    b.type = 'button'; b.textContent = c;
     if(c === CAT) b.className = 'on';
     b.onclick = () => { CAT = c; drawCats(); };
-    $('#cats').appendChild(b);
+    box.appendChild(b);
   });
+}
+
+function line(name, sub, val, cls){
+  const d = document.createElement('div'); d.className = 'row';
+  const l = document.createElement('div'); l.className = 'name';
+  l.textContent = name;
+  if(sub){ const s = document.createElement('small'); s.textContent = sub;
+           l.appendChild(s); }
+  const r = document.createElement('div');
+  r.className = 'val num' + (cls ? ' ' + cls : '');
+  r.textContent = val;
+  d.append(l, r);
+  return d;
+}
+
+function drawTop(){
+  const m = D.month;
+  $('#cash').textContent = money(m.cash) + ' с';
+  const plan = D.limits.reduce((s, l) => s + l.limit, 0);
+  $('#sub').textContent = 'Потрачено за месяц ' + money(m.spent)
+                        + ' из ' + money(plan);
 }
 
 function drawLimits(){
   const box = $('#limits'); box.innerHTML = '';
   if(!D.limits.length){ box.textContent = 'Лимиты не заданы.'; return; }
   D.limits.forEach(l => {
-    const pct = Math.round(l.used / l.limit * 100);
-    const left = l.limit - l.used;
-    const d = document.createElement('div'); d.className = 'lim';
-    d.innerHTML = `<div><div>${l.cat}</div>
-        <div class="bar"><i class="${pct >= 100 ? 'b' : pct >= 80 ? 'w' : ''}"
-             style="width:${Math.min(pct, 100)}%"></i></div></div>
-      <div class="num" style="text-align:right">
-        <div>${left < 0 ? 'перебор ' + money(-left) : money(left) + ' осталось'}</div>
-        <div class="dim">${money(l.used)} из ${money(l.limit)} · ${pct} %</div>
-      </div>`;
-    box.appendChild(d);
+    const pct = l.limit ? Math.round(l.used / l.limit * 100) : 0;
+    box.appendChild(line(l.cat, '', money(l.used) + ' / ' + money(l.limit),
+                         pct >= 100 ? 'over' : pct >= 80 ? 'near' : ''));
   });
   $('#nolimit').textContent = D.no_limit.join(' · ') || 'нет';
 }
 
 function drawMonth(){
-  const m = D.month;
-  $('#mCash').textContent = money(m.cash) + ' с';
-  $('#mIn').textContent = money(m.income) + ' с';
-  $('#mOut').textContent = money(m.spent) + ' с';
-  $('#mSave').textContent = money(m.saved) + ' с';
-  $('#mDebt').textContent = money(m.debt) + ' с';
-  const box = $('#accs'); box.innerHTML = '';
+  const m = D.month, box = $('#month'); box.innerHTML = '';
+  [['Заработано', m.income], ['Потрачено', m.spent],
+   ['Отложено', m.saved], ['Погашено долга', m.debt],
+   ['С прошлых месяцев', m.carry], ['Остаток (кэш)', m.cash]
+  ].forEach(([k, v]) => box.appendChild(line(k, '', money(v) + ' с')));
+
+  const accs = $('#accs'); accs.innerHTML = '';
   D.accounts.forEach((a, i) => {
-    const r = document.createElement('div'); r.className = 'row';
-    r.innerHTML = `<div style="flex:1">${a.name}</div>`;
+    const r = document.createElement('div'); r.className = 'acc';
+    const s = document.createElement('span'); s.textContent = a.name;
     const inp = document.createElement('input');
-    inp.inputMode = 'decimal'; inp.value = a.value === '' ? '' : a.value;
-    inp.dataset.i = i; inp.style.width = '45%';
-    r.appendChild(inp); box.appendChild(r);
+    inp.id = 'acc' + i; inp.inputMode = 'decimal';
+    inp.value = a.value === '' ? '' : a.value;
+    r.append(s, inp); accs.appendChild(r);
   });
 }
 
@@ -207,29 +254,34 @@ function drawLast(){
   const box = $('#last'); box.innerHTML = '';
   if(!D.last.length){ box.textContent = 'Пока пусто.'; return; }
   D.last.forEach(o => {
-    const d = document.createElement('div'); d.className = 'op';
-    d.innerHTML = `<div><div>${money(o.amount)} с · ${o.cat}</div>
-      <div class="dim">${o.date}${o.comment ? ' · ' + o.comment : ''}</div></div>`;
+    const d = line(money(o.amount) + ' с · ' + o.cat,
+                   o.date + (o.comment ? ' · ' + o.comment : ''), '');
     const b = document.createElement('button');
-    b.textContent = 'Убрать';
+    b.className = 'x'; b.type = 'button'; b.textContent = '×';
+    b.title = 'Убрать';
     b.onclick = async () => {
       if(!confirm('Удалить запись?')) return;
-      const j = await post('/api/drop', {line: o.line, cat: o.cat, amount: o.amount});
+      const j = await post('/api/drop', {line: o.line, cat: o.cat,
+                                         amount: o.amount});
       note(j.ok ? 'Убрал' : (j.error || 'Не вышло'));
       if(j.ok) load();
     };
-    d.appendChild(b); box.appendChild(d);
+    d.lastChild.replaceWith(b);
+    box.appendChild(d);
   });
 }
 
 async function load(){
   const r = await fetch('/api/init?initData=' + encodeURIComponent(initData));
   const j = await r.json();
-  if(!j.ok){ document.body.innerHTML = '<div class="card">' +
-      (j.error || 'Не открылось') + '</div>'; return; }
+  if(!j.ok){
+    document.body.innerHTML = '<div class="card">'
+      + (j.error || 'Не открылось') + '</div>';
+    return;
+  }
   D = j;
   if(!$('#date').value) $('#date').value = j.today;
-  drawCats(); drawLimits(); drawMonth(); drawLast();
+  drawTop(); drawCats(); drawLimits(); drawMonth(); drawLast();
 }
 
 function tab(name){
