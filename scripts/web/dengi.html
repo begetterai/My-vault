@@ -1,0 +1,280 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Деньги</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+  :root{
+    --bg:#f6f6f7; --card:#fff; --ink:#111; --dim:#7a7a80; --line:#e6e6ea;
+    --ok:#1c8a4a; --warn:#b8860b; --bad:#c0392b; --accent:#2b6cb0;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+       font:15px/1.45 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+       padding:12px 12px 40px;max-width:640px;margin:0 auto}
+  h2{font-size:15px;margin:18px 0 8px;color:var(--dim);font-weight:600;
+     text-transform:uppercase;letter-spacing:.04em}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;
+        padding:12px;margin-bottom:10px}
+  .row{display:flex;gap:8px;align-items:center}
+  .row+.row{margin-top:8px}
+  input,select,textarea{font:inherit;color:inherit;background:var(--card);
+        border:1px solid var(--line);border-radius:10px;padding:10px;width:100%}
+  input[inputmode=decimal]{font-size:22px;font-weight:600;text-align:center}
+  button{font:inherit;border:1px solid var(--line);background:var(--card);
+         border-radius:10px;padding:10px 12px;cursor:pointer}
+  button:active{transform:translateY(1px)}
+  .go{background:var(--accent);color:#fff;border-color:var(--accent);
+      font-weight:600;width:100%;padding:14px}
+  .go[disabled]{opacity:.5}
+  .cats{display:flex;flex-wrap:wrap;gap:6px}
+  .cats button{padding:8px 10px;font-size:14px}
+  .cats button.on{background:var(--accent);color:#fff;border-color:var(--accent)}
+  .tabs{display:flex;gap:6px;margin-bottom:12px}
+  .tabs button{flex:1}
+  .tabs button.on{background:var(--ink);color:#fff;border-color:var(--ink)}
+  .lim{display:flex;justify-content:space-between;gap:8px;padding:7px 0;
+       border-bottom:1px solid var(--line)}
+  .lim:last-child{border-bottom:0}
+  .bar{height:4px;background:var(--line);border-radius:2px;margin-top:4px}
+  .bar i{display:block;height:4px;border-radius:2px;background:var(--ok)}
+  .bar i.w{background:var(--warn)} .bar i.b{background:var(--bad)}
+  .num{font-variant-numeric:tabular-nums;white-space:nowrap}
+  .dim{color:var(--dim)}
+  .big{font-size:26px;font-weight:700;font-variant-numeric:tabular-nums}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .op{display:flex;justify-content:space-between;gap:8px;padding:8px 0;
+      border-bottom:1px solid var(--line);align-items:flex-start}
+  .op:last-child{border-bottom:0}
+  .op button{padding:4px 8px;font-size:13px}
+  #toast{position:fixed;left:12px;right:12px;bottom:12px;background:var(--ink);
+         color:#fff;padding:12px;border-radius:12px;display:none;z-index:9;
+         max-width:616px;margin:0 auto}
+  .hide{display:none!important}
+</style>
+</head>
+<body>
+
+<div class="tabs">
+  <button id="tWrite" class="on">Записать</button>
+  <button id="tLimits">Лимиты</button>
+  <button id="tMonth">Месяц</button>
+</div>
+
+<section id="pWrite">
+  <div class="card">
+    <input id="amount" inputmode="decimal" placeholder="Сумма">
+    <div class="row" style="margin-top:8px">
+      <select id="kind">
+        <option value="расход">Расход</option>
+        <option value="доход">Доход</option>
+        <option value="накопление">Накопление</option>
+        <option value="погашение">Погашение кредита</option>
+      </select>
+      <input id="date" type="date">
+    </div>
+    <div class="cats" id="cats" style="margin-top:10px"></div>
+    <input id="comment" placeholder="Комментарий — на что" style="margin-top:8px">
+    <button class="go" id="save" style="margin-top:10px">Записать</button>
+  </div>
+
+  <h2>Последние записи</h2>
+  <div class="card" id="last"></div>
+</section>
+
+<section id="pLimits" class="hide">
+  <div class="card" id="limits"></div>
+  <h2>Без лимита</h2>
+  <div class="card dim" id="nolimit"></div>
+</section>
+
+<section id="pMonth" class="hide">
+  <div class="card">
+    <div class="dim">Остаток (кэш)</div>
+    <div class="big" id="mCash">—</div>
+    <div class="grid" style="margin-top:12px">
+      <div><div class="dim">Заработано</div><div class="num" id="mIn">—</div></div>
+      <div><div class="dim">Потрачено</div><div class="num" id="mOut">—</div></div>
+      <div><div class="dim">Отложено</div><div class="num" id="mSave">—</div></div>
+      <div><div class="dim">Погашено</div><div class="num" id="mDebt">—</div></div>
+    </div>
+  </div>
+
+  <h2>Счета — сколько на руках</h2>
+  <div class="card">
+    <div id="accs"></div>
+    <button class="go" id="saveAcc" style="margin-top:10px">Сохранить балансы</button>
+    <button id="startBal" style="margin-top:8px;width:100%">Завести стартовую запись</button>
+    <div class="dim" style="margin-top:8px">
+      Стартовая запись нужна один раз после очистки журнала: без неё
+      «Остаток (кэш)» считается от нуля и не сходится с тем, что на руках.
+    </div>
+  </div>
+</section>
+
+<div id="toast"></div>
+
+<script>
+const tg = window.Telegram?.WebApp || null;
+try{ tg?.ready(); tg?.expand(); }catch(e){}
+const initData = tg?.initData || '';
+let D = null, CAT = '', BUSY = false;
+
+const $ = s => document.querySelector(s);
+const money = n => {
+  const v = Number(n) || 0;
+  return (Number.isInteger(v) ? v.toLocaleString('ru-RU')
+                              : v.toLocaleString('ru-RU', {minimumFractionDigits: 2,
+                                                           maximumFractionDigits: 2}));
+};
+
+let toastT = null;
+function note(text){
+  const t = $('#toast');
+  t.textContent = text; t.style.display = 'block';
+  clearTimeout(toastT); toastT = setTimeout(() => t.style.display = 'none', 3500);
+}
+
+async function post(url, body){
+  const r = await fetch(url, {method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(Object.assign({initData}, body))});
+  return r.json();
+}
+
+/* Категории показываем по выбранному типу: в доходе не нужны «Продукты»,
+   в расходе — «Зарплата». Список не резиновый, но и путать нечем. */
+function catsFor(kind){
+  if(kind === 'доход') return D.income_cats;
+  if(kind === 'накопление') return D.saving_cats;
+  if(kind === 'погашение') return ['Оплата кредита'];
+  return D.cats;
+}
+
+function drawCats(){
+  const list = catsFor($('#kind').value);
+  if(!list.includes(CAT)) CAT = list[0] || '';
+  $('#cats').innerHTML = '';
+  list.forEach(c => {
+    const b = document.createElement('button');
+    b.textContent = c;
+    if(c === CAT) b.className = 'on';
+    b.onclick = () => { CAT = c; drawCats(); };
+    $('#cats').appendChild(b);
+  });
+}
+
+function drawLimits(){
+  const box = $('#limits'); box.innerHTML = '';
+  if(!D.limits.length){ box.textContent = 'Лимиты не заданы.'; return; }
+  D.limits.forEach(l => {
+    const pct = Math.round(l.used / l.limit * 100);
+    const left = l.limit - l.used;
+    const d = document.createElement('div'); d.className = 'lim';
+    d.innerHTML = `<div><div>${l.cat}</div>
+        <div class="bar"><i class="${pct >= 100 ? 'b' : pct >= 80 ? 'w' : ''}"
+             style="width:${Math.min(pct, 100)}%"></i></div></div>
+      <div class="num" style="text-align:right">
+        <div>${left < 0 ? 'перебор ' + money(-left) : money(left) + ' осталось'}</div>
+        <div class="dim">${money(l.used)} из ${money(l.limit)} · ${pct} %</div>
+      </div>`;
+    box.appendChild(d);
+  });
+  $('#nolimit').textContent = D.no_limit.join(' · ') || 'нет';
+}
+
+function drawMonth(){
+  const m = D.month;
+  $('#mCash').textContent = money(m.cash) + ' с';
+  $('#mIn').textContent = money(m.income) + ' с';
+  $('#mOut').textContent = money(m.spent) + ' с';
+  $('#mSave').textContent = money(m.saved) + ' с';
+  $('#mDebt').textContent = money(m.debt) + ' с';
+  const box = $('#accs'); box.innerHTML = '';
+  D.accounts.forEach((a, i) => {
+    const r = document.createElement('div'); r.className = 'row';
+    r.innerHTML = `<div style="flex:1">${a.name}</div>`;
+    const inp = document.createElement('input');
+    inp.inputMode = 'decimal'; inp.value = a.value === '' ? '' : a.value;
+    inp.dataset.i = i; inp.style.width = '45%';
+    r.appendChild(inp); box.appendChild(r);
+  });
+}
+
+function drawLast(){
+  const box = $('#last'); box.innerHTML = '';
+  if(!D.last.length){ box.textContent = 'Пока пусто.'; return; }
+  D.last.forEach(o => {
+    const d = document.createElement('div'); d.className = 'op';
+    d.innerHTML = `<div><div>${money(o.amount)} с · ${o.cat}</div>
+      <div class="dim">${o.date}${o.comment ? ' · ' + o.comment : ''}</div></div>`;
+    const b = document.createElement('button');
+    b.textContent = 'Убрать';
+    b.onclick = async () => {
+      if(!confirm('Удалить запись?')) return;
+      const j = await post('/api/drop', {line: o.line, cat: o.cat, amount: o.amount});
+      note(j.ok ? 'Убрал' : (j.error || 'Не вышло'));
+      if(j.ok) load();
+    };
+    d.appendChild(b); box.appendChild(d);
+  });
+}
+
+async function load(){
+  const r = await fetch('/api/init?initData=' + encodeURIComponent(initData));
+  const j = await r.json();
+  if(!j.ok){ document.body.innerHTML = '<div class="card">' +
+      (j.error || 'Не открылось') + '</div>'; return; }
+  D = j;
+  if(!$('#date').value) $('#date').value = j.today;
+  drawCats(); drawLimits(); drawMonth(); drawLast();
+}
+
+function tab(name){
+  ['Write', 'Limits', 'Month'].forEach(n => {
+    $('#p' + n).classList.toggle('hide', n !== name);
+    $('#t' + n).classList.toggle('on', n === name);
+  });
+}
+$('#tWrite').onclick = () => tab('Write');
+$('#tLimits').onclick = () => tab('Limits');
+$('#tMonth').onclick = () => tab('Month');
+$('#kind').onchange = drawCats;
+
+$('#save').onclick = async () => {
+  if(BUSY) return;
+  const amount = $('#amount').value.trim();
+  if(!amount){ note('Впиши сумму'); return; }
+  BUSY = true; $('#save').disabled = true;
+  try{
+    const j = await post('/api/add', {amount, cat: CAT, kind: $('#kind').value,
+                                      comment: $('#comment').value.trim(),
+                                      date: $('#date').value});
+    if(j.ok){
+      note(j.line.replace(/<[^>]+>/g, ''));
+      $('#amount').value = ''; $('#comment').value = '';
+      await load();
+    } else note(j.error || 'Не записалось');
+  } finally { BUSY = false; $('#save').disabled = false; }
+};
+
+$('#saveAcc').onclick = async () => {
+  const values = [...$('#accs').querySelectorAll('input')].map(i => i.value.trim());
+  const j = await post('/api/accounts', {values});
+  note(j.ok ? 'Балансы сохранены' : (j.error || 'Не вышло'));
+  if(j.ok) load();
+};
+
+$('#startBal').onclick = async () => {
+  if(!confirm('Завести стартовую запись на сумму счетов?')) return;
+  const j = await post('/api/start', {});
+  note(j.ok ? j.line.replace(/<[^>]+>/g, '') : (j.error || 'Не вышло'));
+  if(j.ok) load();
+};
+
+load();
+</script>
+</body>
+</html>

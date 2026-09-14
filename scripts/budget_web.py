@@ -1,0 +1,293 @@
+#!/usr/bin/env python3
+"""Экран личных денег — мини-приложение к личному боту.
+
+Зачем экран, когда есть переписка. В переписке бот угадывает: разбирает
+фразу, показывает, что понял, и ждёт «да». Это две-три реплики на одну
+трату и один разговор за раз. На экране угадывать нечего — сумма набрана,
+категория нажата, — и запись уходит сразу. Плюс видно то, чего в переписке
+не показать без команды: сколько осталось по каждому лимиту прямо сейчас.
+
+Живёт в том же процессе, что и бот: пишем в одну таблицу, и разводить
+это по двум службам значит держать два ключа, два деплоя и два места,
+где может сломаться.
+
+Пускаем одного человека — того, чей chat_id в TELEGRAM_CHAT_ID. Подпись
+телеграма (initData) проверяем по его же токену бота: чужой браузер такую
+подпись не соберёт.
+"""
+import hashlib
+import hmac
+import json
+import logging
+import os
+import urllib.parse
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+import budget_bot as B
+
+log = logging.getLogger('budget.web')
+
+WEB = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'web')
+PAGE = os.path.join(WEB, 'dengi.html')
+ACCOUNTS = ['Наличные', 'Карта', 'Сбережения / вклад', 'Прочее']
+ACC_RANGE = 'Счета!B4:B7'          # четыре строки под балансы, шапка в A3
+
+
+def who(init_data):
+    """id человека из подписи телеграма. Подпись не сошлась — пусто.
+
+    Считаем ровно по документации: ключ — HMAC(«WebAppData», токен бота),
+    проверяемая строка — все поля, кроме hash, по алфавиту через перевод
+    строки.
+    """
+    try:
+        q = urllib.parse.parse_qsl(init_data, keep_blank_values=True)
+        got = dict(q).get('hash', '')
+        if not got:
+            return ''
+        check = '\n'.join(f'{k}={v}' for k, v in sorted(q) if k != 'hash')
+        secret = hmac.new(b'WebAppData', B.TG_TOKEN.encode(), hashlib.sha256).digest()
+        mine = hmac.new(secret, check.encode(), hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(mine, got):
+            return ''
+        user = json.loads(dict(q).get('user') or '{}')
+        return str(user.get('id') or '')
+    except Exception as e:
+        log.warning('подпись: %s', e)
+        return ''
+
+
+def rows_with_lines():
+    """[(номер строки, дата, тип, категория, сумма, комментарий)] — весь журнал.
+
+    Номер строки нужен, чтобы править и удалять не только последнюю запись.
+    Он живёт до следующей записи: журнал пересортировывается по дате после
+    каждого добавления. Поэтому клиент всегда получает свежие номера, а
+    перед правкой мы сверяем содержимое.
+    """
+    r = B.SHEETS.get(B.API + B.BUDGET_SS + '/values/' + B._q('Operations!A2:E'),
+                     params={'valueRenderOption': 'UNFORMATTED_VALUE'}, timeout=60)
+    out = []
+    for i, row in enumerate(r.json().get('values', []) if r.ok else []):
+        row = list(row) + ['', '', '', '', '']
+        if not str(row[0]).strip():
+            continue
+        d = B._row_date(row[0])
+        out.append({'line': i + 2, 'date': str(d) if d else str(row[0]),
+                    'kind': str(row[1]).strip(), 'cat': str(row[2]).strip(),
+                    'amount': row[3], 'comment': str(row[4]).strip()})
+    return out
+
+
+def month_numbers():
+    """Итог месяца числами: заработано, потрачено, отложено, долг, остаток."""
+    ym = B.now_local().strftime('%Y-%m')
+    by, carry = {}, 0.0
+    for r in rows_with_lines():
+        try:
+            amount = float(str(r['amount']).replace(',', '.'))
+        except (ValueError, TypeError):
+            continue
+        key = (r['date'] or '')[:7]
+        if key < ym:
+            carry += B.CASH_SIGN.get(r['kind'], 0) * amount
+        elif key == ym:
+            by[r['kind']] = by.get(r['kind'], 0.0) + amount
+    month = sum(B.CASH_SIGN[t] * by.get(t, 0.0) for t in B.CASH_SIGN)
+    return {'income': by.get('Доход', 0.0), 'spent': by.get('Расход', 0.0),
+            'saved': by.get('Накопление', 0.0), 'debt': by.get('Погашение', 0.0),
+            'month': month, 'carry': carry, 'cash': carry + month}
+
+
+def accounts():
+    """Балансы счетов, как они вписаны руками."""
+    r = B.SHEETS.get(B.API + B.BUDGET_SS + '/values/' + B._q(ACC_RANGE),
+                     params={'valueRenderOption': 'UNFORMATTED_VALUE'}, timeout=30)
+    vals = (r.json().get('values', []) if r.ok else [])
+    out = []
+    for i, name in enumerate(ACCOUNTS):
+        v = vals[i][0] if i < len(vals) and vals[i] else ''
+        out.append({'name': name, 'value': v})
+    return out
+
+
+def payload():
+    """Всё, что нужно экрану за один запрос."""
+    lim, used = B.limits(force=True), B.spent_by_cat()
+    rows = rows_with_lines()
+    return {
+        'ok': True,
+        'today': str(B.today_local()),
+        'cats': sorted(B.BUDGET_CATS),
+        'income_cats': sorted(B.INCOME_CATS),
+        'saving_cats': sorted(B.SAVINGS_CATS),
+        'limits': [{'cat': c, 'limit': lim[c], 'used': round(used.get(c, 0.0), 2)}
+                   for c in sorted(lim, key=lambda c: -(used.get(c, 0.0) / lim[c]))],
+        'no_limit': sorted(c for c in B.BUDGET_CATS if c not in lim),
+        'month': month_numbers(),
+        'last': list(reversed(rows))[:12],
+        'accounts': accounts(),
+    }
+
+
+def add(body):
+    """Записать операцию. Категорию выбрал человек — не угадываем."""
+    try:
+        amount = float(str(body.get('amount', '')).replace(',', '.'))
+    except (ValueError, TypeError):
+        return {'ok': False, 'error': 'Нужна сумма'}
+    if amount <= 0:
+        return {'ok': False, 'error': 'Сумма должна быть больше нуля'}
+    cat = str(body.get('cat') or 'Прочее').strip()
+    kind = str(body.get('kind') or 'расход').strip()
+    line = B.add_entry(amount, cat, kind, str(body.get('comment') or '').strip(),
+                       str(body.get('date') or '').strip() or None)
+    return {'ok': True, 'line': line}
+
+
+def _same(row, want):
+    """Та ли это строка, что человек видел на экране."""
+    try:
+        return (str(row['cat']) == str(want.get('cat'))
+                and abs(float(row['amount']) - float(want.get('amount'))) < 0.005)
+    except (ValueError, TypeError, KeyError):
+        return False
+
+
+def drop(body):
+    """Удалить запись по номеру строки — любую, не только последнюю."""
+    line = int(body.get('line') or 0)
+    cur = next((r for r in rows_with_lines() if r['line'] == line), None)
+    if not cur or not _same(cur, body):
+        return {'ok': False, 'error': 'Запись изменилась — открой заново'}
+    B.SHEETS.post(B.API + B.BUDGET_SS + ':batchUpdate', json={'requests': [
+        {'deleteDimension': {'range': {'sheetId': 0, 'dimension': 'ROWS',
+                                       'startIndex': line - 1, 'endIndex': line}}}]},
+        timeout=60).raise_for_status()
+    return {'ok': True}
+
+
+FIELD = {'cat': 'C', 'amount': 'D', 'comment': 'E'}
+
+
+def edit(body):
+    """Поправить одно поле записи: категорию, сумму или комментарий."""
+    field = str(body.get('field') or '')
+    if field not in FIELD:
+        return {'ok': False, 'error': 'Править можно категорию, сумму или комментарий'}
+    line = int(body.get('line') or 0)
+    cur = next((r for r in rows_with_lines() if r['line'] == line), None)
+    if not cur or not _same(cur, body):
+        return {'ok': False, 'error': 'Запись изменилась — открой заново'}
+    value = body.get('value')
+    if field == 'amount':
+        try:
+            value = float(str(value).replace(',', '.'))
+        except (ValueError, TypeError):
+            return {'ok': False, 'error': 'Нужно число'}
+    elif field == 'cat' and str(value) not in (B.BUDGET_CATS | B.INCOME_CATS
+                                               | B.SAVINGS_CATS | B.DEBT_CATS):
+        return {'ok': False, 'error': 'Нет такой категории'}
+    else:
+        value = str(value).strip()[:80]
+    B.SHEETS.put(B.API + B.BUDGET_SS + '/values/' + B._q(f'Operations!{FIELD[field]}{line}'),
+                 params={'valueInputOption': 'USER_ENTERED'},
+                 json={'values': [[value]]}, timeout=60).raise_for_status()
+    return {'ok': True}
+
+
+def save_accounts(body):
+    """Вписать фактические балансы счетов."""
+    vals = body.get('values') or []
+    out = []
+    for i in range(len(ACCOUNTS)):
+        v = str(vals[i] if i < len(vals) else '').replace(' ', '').replace(',', '.')
+        out.append([float(v) if v else ''])
+    B.SHEETS.put(B.API + B.BUDGET_SS + '/values/' + B._q(ACC_RANGE),
+                 params={'valueInputOption': 'USER_ENTERED'},
+                 json={'values': out}, timeout=30).raise_for_status()
+    return {'ok': True, 'accounts': accounts()}
+
+
+def start_balance(body):
+    """Стартовая запись на сумму счетов.
+
+    После очистки журнала «Остаток (кэш)» считается от нуля и не сходится
+    с тем, что на руках. Одна запись типа «Доход» на сумму балансов —
+    и картина начинает сходиться с первого дня.
+    """
+    total = 0.0
+    for a in accounts():
+        try:
+            total += float(str(a['value']).replace(',', '.'))
+        except (ValueError, TypeError):
+            pass
+    if total <= 0:
+        return {'ok': False, 'error': 'Сначала впиши балансы счетов'}
+    line = B.add_entry(total, 'Прочий доход', 'доход',
+                       'Стартовый остаток на счетах', str(B.today_local()))
+    return {'ok': True, 'line': line}
+
+
+POST = {'/api/add': add, '/api/drop': drop, '/api/edit': edit,
+        '/api/accounts': save_accounts, '/api/start': start_balance}
+
+
+class Handler(BaseHTTPRequestHandler):
+    def log_message(self, *a):
+        pass
+
+    def _send(self, code, body, ctype='application/json; charset=utf-8'):
+        raw = body if isinstance(body, bytes) else json.dumps(
+            body, ensure_ascii=False).encode()
+        self.send_response(code)
+        self.send_header('Content-Type', ctype)
+        self.send_header('Content-Length', str(len(raw)))
+        self.end_headers()
+        self.wfile.write(raw)
+
+    def _mine(self, init_data):
+        uid = who(init_data)
+        return bool(uid) and uid == str(B.ALLOWED)
+
+    def do_GET(self):
+        path = urllib.parse.urlparse(self.path)
+        if path.path in ('/', '/index.html', '/dengi.html'):
+            try:
+                with open(PAGE, 'rb') as f:
+                    return self._send(200, f.read(), 'text/html; charset=utf-8')
+            except OSError as e:
+                return self._send(500, {'ok': False, 'error': str(e)})
+        if path.path == '/api/init':
+            q = urllib.parse.parse_qs(path.query)
+            if not self._mine((q.get('initData') or [''])[0]):
+                return self._send(403, {'ok': False, 'error': 'Это личное приложение'})
+            try:
+                return self._send(200, payload())
+            except Exception as e:
+                log.warning('init: %s', e)
+                return self._send(500, {'ok': False, 'error': str(e)})
+        self._send(404, {'ok': False, 'error': 'нет такой страницы'})
+
+    def do_POST(self):
+        fn = POST.get(urllib.parse.urlparse(self.path).path)
+        if not fn:
+            return self._send(404, {'ok': False, 'error': 'нет такого действия'})
+        try:
+            n = int(self.headers.get('Content-Length') or 0)
+            body = json.loads(self.rfile.read(n) or b'{}')
+        except (ValueError, TypeError):
+            return self._send(400, {'ok': False, 'error': 'не разобрал запрос'})
+        if not self._mine(str(body.get('initData') or '')):
+            return self._send(403, {'ok': False, 'error': 'Это личное приложение'})
+        try:
+            return self._send(200, fn(body))
+        except Exception as e:
+            log.warning('%s: %s', self.path, e)
+            return self._send(500, {'ok': False, 'error': str(e)})
+
+
+def serve():
+    """Поднять экран. Порт даёт Railway; локально — 8080."""
+    port = int(os.environ.get('PORT', '8080'))
+    ThreadingHTTPServer(('0.0.0.0', port), Handler).serve_forever()

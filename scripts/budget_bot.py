@@ -1791,6 +1791,15 @@ def run():
         threading.Thread(target=habit_loop, daemon=True).start()
     except Exception as e:
         log.warning('подготовка таблицы: %s', e)
+    # Экран денег. Отдельным потоком в том же процессе: пишем в одну
+    # таблицу, и разводить это по двум службам значит держать два ключа
+    # и два деплоя. Не поднялся — бот всё равно работает как раньше.
+    try:
+        import budget_web
+        threading.Thread(target=budget_web.serve, daemon=True).start()
+        log.info('экран денег на порту %s', os.environ.get('PORT', '8080'))
+    except Exception as e:
+        log.warning('экран денег не поднялся: %s', e)
     log.info('💰 Бюджетный бот запущен')
 
     offset, bad = load_offset(), 0

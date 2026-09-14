@@ -143,6 +143,17 @@ if DASH in ids:
         # иначе описания из легенды (Семья/Продукты/Кафе) затекают в колонку «План»
         if rrow and str(rrow[0]).strip() and len(rrow)>1 and isinstance(rrow[1],(int,float)):
             prev[rrow[0]]= rrow[1]
+# План по категориям берём из «Лимитов», если руками его ещё не ставили.
+# Иначе колонка «План/мес» стоит пустой, а с ней мертвеет весь блок
+# план/факт: перерасход не загорится никогда. Введённое руками главнее —
+# лимит только заполняет пустое место.
+limplan={}
+for rrow in api('get','/values/Лимиты!A2:C60?valueRenderOption=UNFORMATTED_VALUE').get('values',[]):
+    rrow=list(rrow)+['','','']
+    act=str(rrow[2]).strip().lower() or 'да'
+    if str(rrow[0]).strip() and isinstance(rrow[1],(int,float)) and act in ('да','yes','1','true'):
+        limplan[str(rrow[0]).strip()]=rrow[1]
+
 if DASH not in ids:
     resp=api('post',':batchUpdate',json={'requests':[{'addSheet':{'properties':{'title':DASH,'index':1}}}]})
     dash_id=resp['replies'][0]['addSheet']['properties']['sheetId']
@@ -171,7 +182,7 @@ h_tbl=d('Категория','План/мес','Факт','Δ план−фак�
 first_cat=len(D)+1
 for c in exp_order:
     rr=cat_row[c]; row=len(D)+1
-    d(c, prev.get(c,''), f'=INDEX(PnL!B{rr}:M{rr},1,$B$2)', f'=B{row}-C{row}',
+    d(c, prev.get(c, limplan.get(c,'')), f'=INDEX(PnL!B{rr}:M{rr},1,$B$2)', f'=B{row}-C{row}',
       f'=IFERROR(C{row}/$B${kpi_val},0)',
       f'=IF(AND(B{row}<>"",C{row}>B{row}),"⚠ перерасход","")')
 last_cat=len(D); row=len(D)+1
