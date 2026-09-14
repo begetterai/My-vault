@@ -945,9 +945,12 @@ def tasks(done=False):
         is_done = str(row[8]).strip().lower() in ('да', 'yes', '1', 'true')
         if is_done != done:
             continue
+        # Дату читаем через _row_date: Google хранит её числом, и без
+        # разбора в списке появлялось «46280» вместо срока.
+        due = _row_date(row[4]) if str(row[4]).strip() else None
         out.append({'line': i + 2, 'created': str(row[0]).strip(), 'text': text,
                     'area': str(row[2]).strip(), 'project': str(row[3]).strip(),
-                    'due': str(row[4]).strip(), 'repeat': str(row[5]).strip(),
+                    'due': str(due) if due else '', 'repeat': str(row[5]).strip(),
                     'moved': int(_num(row[6])),
                     'top': str(row[7]).strip().lower() in ('да', 'yes', '1', 'true'),
                     'done': is_done, 'when': str(row[9]).strip()})

@@ -75,8 +75,8 @@
   .row{display:flex;justify-content:space-between;align-items:baseline;
        gap:8px;padding:6px 0;border-bottom:1px solid var(--line)}
   .row:last-child{border-bottom:0}
-  .row .name{min-width:0;overflow:hidden;text-overflow:ellipsis;
-             white-space:nowrap}
+  .row .name{flex:1;min-width:0;text-align:left;overflow:hidden;
+             text-overflow:ellipsis;white-space:nowrap}
   .row .val{white-space:nowrap;text-align:right}
   .row small{display:block;color:var(--dim);font-size:11.5px;
              overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -108,13 +108,31 @@
 </head>
 <body>
 
-<div class="top">
+<div class="top hide" id="topLine">
   <div class="lbl">Свободно</div>
   <div class="big num" id="cash">—</div>
   <div class="sub num" id="sub">&nbsp;</div>
 </div>
 
-<div class="tabs">
+<section id="pQuick">
+  <div id="qAsk"></div>
+  <div id="qTop"></div>
+  <div class="card">
+    <div class="two-go">
+      <button class="go" id="qSpend">➖ Расход</button>
+      <button class="go flat" id="qTask">✚ Задача</button>
+    </div>
+    <div class="two-go">
+      <button class="go flat" id="qMove">🔁 Перевод</button>
+      <button class="go flat" id="qIn">➕ Доход</button>
+    </div>
+  </div>
+  <p class="dim num" id="qSum" style="font-size:13px;margin:10px 2px 0"></p>
+  <button class="go flat" id="qMore" style="margin-top:6px">Всё остальное →</button>
+</section>
+
+<div class="tabs hide" id="tabs">
+  <button id="tBack">←</button>
   <button id="tWrite" class="on">Записать</button>
   <button id="tLimits">Лимиты</button>
   <button id="tMonth">Месяц</button>
@@ -122,7 +140,7 @@
   <button id="tTasks">Дела</button>
 </div>
 
-<section id="pWrite">
+<section id="pWrite" class="hide">
   <div class="card">
     <input id="amount" inputmode="decimal" placeholder="Сумма">
     <div class="two">
@@ -281,6 +299,44 @@ function taskRow(t){
   mv.onclick = () => taskAct('/api/task_move', {line: t.line, days: 1});
   d.append(ok, mid, mv);
   return d;
+}
+
+/* Экран входа. Каждый блок исчезает, когда в нём пусто: пустой вход —
+   хорошая новость, а не недоработка. */
+function drawQuick(){
+  const ask = $('#qAsk'); ask.innerHTML = '';
+  (D.habits || []).forEach(h => {
+    const planned = h.week.find(d => d.date === D.today);
+    if(h.today || !planned || !planned.planned) return;
+    const c = document.createElement('div'); c.className = 'card';
+    const t = document.createElement('div');
+    t.innerHTML = `<b>${h.name} сегодня?</b>`;
+    const g = document.createElement('div'); g.className = 'two-go';
+    [['Был', 'был'], ['Не был', 'не был']].forEach(([label, val]) => {
+      const b = document.createElement('button');
+      b.className = 'go' + (val === 'был' ? '' : ' flat');
+      b.textContent = label;
+      b.onclick = () => answerHabit(h.name, val, '');
+      g.appendChild(b);
+    });
+    c.append(t, g); ask.appendChild(c);
+  });
+
+  const top = $('#qTop'); top.innerHTML = '';
+  const list = (D.tasks && D.tasks.top) || [];
+  if(list.length){
+    const h = document.createElement('h2'); h.textContent = 'Главные на сегодня';
+    const c = document.createElement('div'); c.className = 'card';
+    list.forEach(t => c.appendChild(taskRow(t)));
+    top.append(h, c);
+  }
+
+  const m = D.month;
+  const plan = D.limits.reduce((s, l) => s + l.limit, 0);
+  const bits = ['Свободно ' + money(m.free ?? m.cash)];
+  if(m.put_away) bits.push('отложено ' + money(m.put_away));
+  bits.push('потрачено ' + money(m.spent) + ' из ' + money(plan));
+  $('#qSum').textContent = bits.join(' · ');
 }
 
 function drawTasks(){
@@ -522,20 +578,51 @@ async function load(){
   if(!$('#date').value) $('#date').value = j.today;
   drawTop(); drawCats(); drawWallets(); drawBal();
   drawLimits(); drawMonth(); drawLast(); drawHabits(); drawDebts();
-  drawTasks();
+  drawTasks(); drawQuick();
 }
 
+/* Два уровня. Вход — только то, что нужно сделать; разделы — чтобы
+   смотреть и разбирать. Полоса вкладок на входе спрятана: выбор вкладки
+   при открытии и есть то трение, от которого уходим. */
 function tab(name){
   ['Write', 'Limits', 'Month', 'Habits', 'Tasks'].forEach(n => {
     $('#p' + n).classList.toggle('hide', n !== name);
     $('#t' + n).classList.toggle('on', n === name);
   });
+  $('#pQuick').classList.add('hide');
+  $('#tabs').classList.remove('hide');
+  $('#topLine').classList.remove('hide');
+  window.scrollTo(0, 0);
+}
+
+function quick(){
+  ['Write', 'Limits', 'Month', 'Habits', 'Tasks']
+    .forEach(n => $('#p' + n).classList.add('hide'));
+  $('#pQuick').classList.remove('hide');
+  $('#tabs').classList.add('hide');
+  $('#topLine').classList.add('hide');
+  window.scrollTo(0, 0);
+}
+
+/* Кнопки входа не заводят второй формы записи — они открывают ту же
+   вкладку с нужным типом и ставят курсор туда, где начинают. */
+function go(kind){
+  $('#kind').value = kind;
+  drawCats(); drawWallets();
+  tab('Write');
+  $('#amount').focus();
 }
 $('#tWrite').onclick = () => tab('Write');
 $('#tLimits').onclick = () => tab('Limits');
 $('#tMonth').onclick = () => tab('Month');
 $('#tHabits').onclick = () => tab('Habits');
 $('#tTasks').onclick = () => tab('Tasks');
+$('#tBack').onclick = quick;
+$('#qMore').onclick = () => tab('Write');
+$('#qSpend').onclick = () => go('расход');
+$('#qMove').onclick = () => go('перевод');
+$('#qIn').onclick = () => go('доход');
+$('#qTask').onclick = () => { tab('Tasks'); $('#tText').focus(); };
 $('#kind').onchange = () => { drawCats(); drawWallets(); };
 
 $('#save').onclick = async () => {
