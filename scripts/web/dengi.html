@@ -84,6 +84,19 @@
   .x{border:0;background:none;color:var(--dim);font:inherit;font-size:18px;
      line-height:1;padding:2px 4px;cursor:pointer}
 
+  /* Неделя привычки: семь клеток, одна строка, ничего лишнего. */
+  .week{display:flex;gap:5px;margin:10px 0 4px}
+  .week div{flex:1;text-align:center;padding:7px 0;border-radius:8px;
+            background:var(--sunk);font-size:12px;color:var(--dim)}
+  .week .was, .week .no{color:var(--ink)}
+  .week div b{display:block;font-size:15px;margin-top:2px}
+  .week .was{background:var(--accent);color:var(--on-accent)}
+  .week .no{background:color-mix(in srgb,var(--bad) 30%,transparent)}
+  .week .plan{outline:1px dashed var(--line)}
+  .week .fut{opacity:.45}
+  .two-go{display:flex;gap:8px;margin-top:10px}
+  .two-go button{flex:1}
+
   .acc{display:flex;align-items:center;gap:8px;padding:5px 0}
   .acc span{flex:1}
   .acc input{width:44%;padding:8px;text-align:right}
@@ -105,6 +118,7 @@
   <button id="tWrite" class="on">Записать</button>
   <button id="tLimits">Лимиты</button>
   <button id="tMonth">Месяц</button>
+  <button id="tHabits">Зал</button>
 </div>
 
 <section id="pWrite">
@@ -132,6 +146,8 @@
   <h2>Последние записи</h2>
   <div class="card" id="last"></div>
 </section>
+
+<section id="pHabits" class="hide"></section>
 
 <section id="pLimits" class="hide">
   <div class="card" id="limits"></div>
@@ -282,6 +298,77 @@ function drawMonth(){
 
 }
 
+/* Привычка: вопрос за сегодня одним тапом, неделя, доля от плана и
+   причины пропусков. Ни очков, ни уровней: внешняя награда вытесняет
+   интерес, а полоска, которую рисуешь себе сам, к третьей неделе
+   перестаёт что-либо значить. */
+async function answerHabit(name, answer, why){
+  const j = await post('/api/habit', {name, answer, why});
+  note(j.ok ? (j.line || 'Записал') : (j.error || 'Не вышло'));
+  if(j.ok) load();
+}
+
+function drawHabits(){
+  const box = $('#pHabits'); box.innerHTML = '';
+  if(!(D.habits || []).length){
+    box.innerHTML = '<div class="card dim">Привычек нет. Заведи их в листе '
+                  + '«Настройки привычек».</div>';
+    return;
+  }
+  D.habits.forEach(h => {
+    const card = document.createElement('div'); card.className = 'card';
+    const head = document.createElement('div');
+    head.innerHTML = `<b>${h.name}</b> <span class="dim">· вопрос в ${h.at}</span>
+      <div class="dim num" style="font-size:13px;margin-top:2px">
+        ${h.done_week} из ${h.plan} на этой неделе · всего ${h.done_all}${
+          h.skipped_all ? ', пропусков ' + h.skipped_all : ''}</div>`;
+    card.appendChild(head);
+
+    const wk = document.createElement('div'); wk.className = 'week';
+    h.week.forEach(d => {
+      const c = document.createElement('div');
+      c.className = [d.answer === 'был' ? 'was' : d.answer === 'не был' ? 'no' : '',
+                     d.planned ? 'plan' : '', d.future ? 'fut' : ''].join(' ');
+      c.innerHTML = d.day + '<b>' + (d.answer === 'был' ? '✓'
+                    : d.answer === 'не был' ? '–' : '·') + '</b>';
+      wk.appendChild(c);
+    });
+    card.appendChild(wk);
+
+    const ask = document.createElement('div'); ask.className = 'two-go';
+    [['Был', 'был'], ['Не был', 'не был']].forEach(([label, val]) => {
+      const b = document.createElement('button');
+      b.className = 'go' + (h.today === val ? '' : ' flat');
+      b.textContent = label;
+      b.onclick = () => answerHabit(h.name, val, '');
+      ask.appendChild(b);
+    });
+    card.appendChild(ask);
+
+    // Причину спрашиваем только когда пропуск: «почему» вместо молчаливого
+    // минуса — ради этого причины и копятся.
+    if(h.today === 'не был'){
+      const lbl = document.createElement('h2'); lbl.textContent = 'Что помешало';
+      const ch = document.createElement('div'); ch.className = 'chips';
+      h.reasons.forEach(r => {
+        const b = document.createElement('button');
+        b.type = 'button'; b.textContent = r;
+        b.onclick = () => answerHabit(h.name, '', r);
+        ch.appendChild(b);
+      });
+      card.append(lbl, ch);
+    }
+    box.appendChild(card);
+
+    if(h.why.length){
+      const t = document.createElement('h2'); t.textContent = 'Почему пропускал';
+      const c2 = document.createElement('div'); c2.className = 'card';
+      h.why.forEach(([w, n]) => c2.appendChild(line(w, '', n + ' раз')));
+      box.append(t, c2);
+    }
+  });
+}
+
 function drawLast(){
   const box = $('#last'); box.innerHTML = '';
   if(!D.last.length){ box.textContent = 'Пока пусто.'; return; }
@@ -315,11 +402,11 @@ async function load(){
   D = j;
   if(!$('#date').value) $('#date').value = j.today;
   drawTop(); drawCats(); drawWallets(); drawBal();
-  drawLimits(); drawMonth(); drawLast();
+  drawLimits(); drawMonth(); drawLast(); drawHabits();
 }
 
 function tab(name){
-  ['Write', 'Limits', 'Month'].forEach(n => {
+  ['Write', 'Limits', 'Month', 'Habits'].forEach(n => {
     $('#p' + n).classList.toggle('hide', n !== name);
     $('#t' + n).classList.toggle('on', n === name);
   });
@@ -327,6 +414,7 @@ function tab(name){
 $('#tWrite').onclick = () => tab('Write');
 $('#tLimits').onclick = () => tab('Limits');
 $('#tMonth').onclick = () => tab('Month');
+$('#tHabits').onclick = () => tab('Habits');
 $('#kind').onchange = () => { drawCats(); drawWallets(); };
 
 $('#save').onclick = async () => {

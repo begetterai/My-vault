@@ -124,6 +124,7 @@ def payload():
         'last': list(reversed(rows))[:12],
         'wallets': [w for w, _ in B.wallets(force=True)],
         'balances': wallet_lines(),
+        'habits': habits(),
     }
 
 
@@ -137,6 +138,67 @@ def wallet_lines():
         # а не размазываем: иначе остаток врёт молча.
         out.append({'name': 'Без кошелька', 'value': round(unknown, 2)})
     return out
+
+
+def habits():
+    """Привычки для экрана: ответ за сегодня, неделя, цикл, причины пропусков.
+
+    Считаем выполнение, а не результат: результат у зала приходит через
+    месяцы, а выполнение — сегодня, и держит регулярность именно оно.
+    """
+    today = B.today_local()
+    week_start = today - B.datetime.timedelta(days=today.weekday())
+    out = []
+    for cfg in B.habit_cfg():
+        if not cfg['on']:
+            continue
+        rows = B.habit_rows(cfg['name'], days_back=120)
+        by_day = {d: a for d, _n, a, _w in rows}
+        week = []
+        for i in range(7):
+            d = week_start + B.datetime.timedelta(days=i)
+            week.append({'day': B.WEEK_RU[i], 'date': str(d),
+                         'answer': by_day.get(d, ''),
+                         'planned': B.WEEK_RU[i] in cfg['days'],
+                         'future': d > today})
+        why = {}
+        for _d, _n, a, w in rows:
+            if a == 'не был' and w:
+                why[w] = why.get(w, 0) + 1
+        out.append({
+            'name': cfg['name'], 'plan': cfg['plan'], 'at': cfg['at'],
+            'days': cfg['days'],
+            'today': by_day.get(today, ''),
+            'asked_today': today in by_day,
+            'week': week,
+            'done_week': sum(1 for d, a in by_day.items()
+                             if a == 'был' and d >= week_start),
+            'done_all': sum(1 for a in by_day.values() if a == 'был'),
+            'skipped_all': sum(1 for a in by_day.values() if a == 'не был'),
+            'why': sorted(why.items(), key=lambda kv: -kv[1]),
+            'reasons': B.SKIP_WHY,
+        })
+    return out
+
+
+def habit(body):
+    """Ответ на привычку с экрана: «был» / «не был» и причина."""
+    name = str(body.get('name') or '').strip()
+    answer = str(body.get('answer') or '').strip()
+    why = str(body.get('why') or '').strip()
+    if name not in [c['name'] for c in B.habit_cfg()]:
+        return {'ok': False, 'error': 'Нет такого направления'}
+    if answer not in ('был', 'не был'):
+        # Причину дописываем к сегодняшнему ответу, не заводя новой строки.
+        if why:
+            B.habit_set_why(name, why)
+            return {'ok': True, 'line': f'Записал причину: {why}'}
+        return {'ok': False, 'error': 'Ответ — «был» или «не был»'}
+    if B.habit_asked_today(name):
+        B.habit_set_answer(name, answer)
+    else:
+        B.habit_write(name, answer, why)
+    return {'ok': True, 'line': f'{name}: {answer}'}
 
 
 def transfer(body):
@@ -223,7 +285,7 @@ def edit(body):
 
 
 POST = {'/api/add': add, '/api/drop': drop, '/api/edit': edit,
-        '/api/transfer': transfer}
+        '/api/transfer': transfer, '/api/habit': habit}
 
 
 class Handler(BaseHTTPRequestHandler):
