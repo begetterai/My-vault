@@ -137,6 +137,7 @@ def payload():
         'balances': wallet_lines(),
         'habits': habits(),
         'debts': B.debt_state(),
+        'tasks': task_list(),
     }
 
 
@@ -211,6 +212,61 @@ def habit(body):
     else:
         B.habit_write(name, answer, why)
     return {'ok': True, 'line': f'{name}: {answer}'}
+
+
+def task_list():
+    """Дела тремя группами: просрочено · сегодня · дальше.
+
+    Без срока — в «дальше»: задача без даты не просрочена, она просто
+    не назначена, и пугать ею каждый день нечестно.
+    """
+    today = str(B.today_local())
+    groups = {'late': [], 'today': [], 'later': []}
+    for t in B.tasks():
+        due = t['due']
+        key = 'late' if due and due < today else 'today' if due == today else 'later'
+        groups[key].append(t)
+    for g in groups.values():
+        g.sort(key=lambda t: (t['due'] or '9999', -t['moved']))
+    done_week = 0
+    week_ago = str(B.today_local() - B.datetime.timedelta(days=7))
+    for t in B.tasks(done=True):
+        if t['when'] and t['when'] >= week_ago:
+            done_week += 1
+    return {'late': groups['late'], 'today': groups['today'],
+            'later': groups['later'],
+            'top': [t for t in B.tasks() if t['top']],
+            'done_week': done_week}
+
+
+def task_add(body):
+    line = B.add_task(str(body.get('text') or ''),
+                      str(body.get('area') or '').strip(),
+                      str(body.get('project') or '').strip(),
+                      str(body.get('due') or '').strip(),
+                      str(body.get('repeat') or '').strip())
+    return {'ok': not line.startswith('⚠️'), 'line': line,
+            'error': line.lstrip('⚠️ ') if line.startswith('⚠️') else ''}
+
+
+def task_close(body):
+    line = B.close_task(int(body.get('line') or 0))
+    return {'ok': not line.startswith('⚠️'), 'line': line,
+            'error': line.lstrip('⚠️ ') if line.startswith('⚠️') else ''}
+
+
+def task_move(body):
+    line, moved = B.move_task(int(body.get('line') or 0),
+                              int(body.get('days') or 1))
+    return {'ok': not line.startswith('⚠️'), 'line': line, 'moved': moved,
+            # Третий перенос — повод спросить, нужна ли задача вообще.
+            'ask': moved >= 3,
+            'error': line.lstrip('⚠️ ') if line.startswith('⚠️') else ''}
+
+
+def task_top(body):
+    lines = [int(x) for x in (body.get('lines') or [])][:3]
+    return {'ok': True, 'n': B.set_top(lines)}
 
 
 def debt_pay(body):
@@ -313,7 +369,9 @@ def edit(body):
 
 POST = {'/api/add': add, '/api/drop': drop, '/api/edit': edit,
         '/api/transfer': transfer, '/api/habit': habit,
-        '/api/debt_pay': debt_pay}
+        '/api/debt_pay': debt_pay, '/api/task_add': task_add,
+        '/api/task_close': task_close, '/api/task_move': task_move,
+        '/api/task_top': task_top}
 
 
 class Handler(BaseHTTPRequestHandler):

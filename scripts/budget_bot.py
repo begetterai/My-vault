@@ -906,6 +906,147 @@ def pay_debt(name, amount, wallet='', comment=''):
     return line
 
 
+# ── дела ────────────────────────────────────────────────────────────────────
+# Задачи до 14.09.2026 жили в markdown-заметках с тегами #p1 и #next.
+# В кармане их не было, а галочка должна ставиться одним тапом — писать
+# в git с телефона приложение не умеет. Решение Азиза: задачи переезжают
+# в таблицу, заметки остаются для мыслей и разборов. Мост между ними
+# не строим: две правды об одной задаче всегда расходятся.
+TASK_TAB = 'Дела'
+TASK_COLS = ['Создано', 'Текст', 'Область', 'Проект', 'Срок', 'Повтор',
+             'Переносов', 'Главная', 'Сделано', 'Когда']
+
+
+def ensure_task_tab():
+    """Лист «Дела». Идемпотентно."""
+    meta = SHEETS.get(API + BUDGET_SS, params={'fields': 'sheets.properties'},
+                      timeout=30).json()
+    have = {sh['properties']['title'] for sh in meta.get('sheets', [])}
+    if TASK_TAB in have:
+        return
+    SHEETS.post(API + BUDGET_SS + ':batchUpdate', json={'requests': [
+        {'addSheet': {'properties': {'title': TASK_TAB, 'gridProperties': {
+            'rowCount': 500, 'columnCount': len(TASK_COLS),
+            'frozenRowCount': 1}}}}]}, timeout=30).raise_for_status()
+    SHEETS.put(API + BUDGET_SS + '/values/' + _q(f'{TASK_TAB}!A1'),
+               params={'valueInputOption': 'USER_ENTERED'},
+               json={'values': [TASK_COLS]}, timeout=30).raise_for_status()
+    log.info('создан лист «%s»', TASK_TAB)
+
+
+def tasks(done=False):
+    """Дела с номерами строк. По умолчанию только открытые."""
+    out = []
+    for i, row in enumerate(_rows(f'{TASK_TAB}!A2:J500') or []):
+        row = list(row) + [''] * 10
+        text = str(row[1]).strip()
+        if not text:
+            continue
+        is_done = str(row[8]).strip().lower() in ('да', 'yes', '1', 'true')
+        if is_done != done:
+            continue
+        out.append({'line': i + 2, 'created': str(row[0]).strip(), 'text': text,
+                    'area': str(row[2]).strip(), 'project': str(row[3]).strip(),
+                    'due': str(row[4]).strip(), 'repeat': str(row[5]).strip(),
+                    'moved': int(_num(row[6])),
+                    'top': str(row[7]).strip().lower() in ('да', 'yes', '1', 'true'),
+                    'done': is_done, 'when': str(row[9]).strip()})
+    return out
+
+
+def add_task(text, area='', project='', due='', repeat=''):
+    """Захват одной строкой: написал — попало в список, разбор потом."""
+    text = _cap(str(text).strip())[:200]
+    if not text:
+        return '⚠️ Пустая задача.'
+    _budget_append(f'{TASK_TAB}!A1',
+                   [str(today_local()), text, area, project, due, repeat,
+                    0, '', '', ''])
+    return f'✚ {text}' + (f' · до {due}' if due else '')
+
+
+def _task_put(line, col, value):
+    SHEETS.put(API + BUDGET_SS + '/values/' + _q(f'{TASK_TAB}!{col}{line}'),
+               params={'valueInputOption': 'USER_ENTERED'},
+               json={'values': [[value]]}, timeout=30).raise_for_status()
+
+
+def close_task(line):
+    """Галочка. Повторяющееся дело закрывается и заводится заново."""
+    t = next((x for x in tasks() if x['line'] == line), None)
+    if not t:
+        return '⚠️ Нет такой задачи.'
+    SHEETS.post(API + BUDGET_SS + '/values:batchUpdate',
+                json={'valueInputOption': 'USER_ENTERED', 'data': [
+                    {'range': f'{TASK_TAB}!I{line}', 'values': [['да']]},
+                    {'range': f'{TASK_TAB}!J{line}',
+                     'values': [[str(today_local())]]}]},
+                timeout=30).raise_for_status()
+    if t['repeat']:
+        nxt = _next_due(t['due'], t['repeat'])
+        add_task(t['text'], t['area'], t['project'], nxt, t['repeat'])
+        return f'✓ {t["text"]} · следующее {nxt}'
+    return f'✓ {t["text"]}'
+
+
+def _next_due(due, repeat):
+    """Следующий срок повторяющегося дела."""
+    try:
+        d = datetime.date.fromisoformat(due) if due else today_local()
+    except ValueError:
+        d = today_local()
+    r = str(repeat).strip().lower()
+    if r.startswith('нед'):
+        d += datetime.timedelta(days=7)
+    elif r.startswith('год'):
+        d = d.replace(year=d.year + 1)
+    else:                                   # месяц — по умолчанию
+        m, y = d.month + 1, d.year
+        if m > 12:
+            m, y = 1, y + 1
+        day = min(d.day, [31, 29 if y % 4 == 0 else 28, 31, 30, 31, 30, 31,
+                          31, 30, 31, 30, 31][m - 1])
+        d = datetime.date(y, m, day)
+    return str(d)
+
+
+def move_task(line, days=1):
+    """Перенос. Считаем переносы: третий — повод спросить, нужна ли задача.
+
+    Из Bullet Journal: дело, которое переносишь третий раз, чаще всего
+    делать не собираются. Честнее спросить, чем копить мёртвый список.
+    """
+    t = next((x for x in tasks() if x['line'] == line), None)
+    if not t:
+        return '⚠️ Нет такой задачи.', 0
+    try:
+        base = datetime.date.fromisoformat(t['due']) if t['due'] else today_local()
+    except ValueError:
+        base = today_local()
+    new_due = max(base, today_local()) + datetime.timedelta(days=days)
+    moved = t['moved'] + 1
+    SHEETS.post(API + BUDGET_SS + '/values:batchUpdate',
+                json={'valueInputOption': 'USER_ENTERED', 'data': [
+                    {'range': f'{TASK_TAB}!E{line}', 'values': [[str(new_due)]]},
+                    {'range': f'{TASK_TAB}!G{line}', 'values': [[moved]]}]},
+                timeout=30).raise_for_status()
+    return f'→ {t["text"]} · до {new_due}', moved
+
+
+def set_top(lines):
+    """Три главные на завтра. Выбираются вечером — утром только исполняются."""
+    data = []
+    for t in tasks():
+        want = 'да' if t['line'] in lines else ''
+        if ('да' if t['top'] else '') != want:
+            data.append({'range': f'{TASK_TAB}!H{t["line"]}', 'values': [[want]]})
+    if data:
+        SHEETS.post(API + BUDGET_SS + '/values:batchUpdate',
+                    json={'valueInputOption': 'USER_ENTERED', 'data': data},
+                    timeout=30).raise_for_status()
+    return len(lines)
+
+
 def ensure_limits_tab():
     """Создаёт лист «Лимиты» со всеми категориями расходов. Идемпотентно."""
     meta = SHEETS.get(API + BUDGET_SS, params={'fields': 'sheets.properties'},
@@ -2193,6 +2334,7 @@ def run():
         ensure_habit_tabs()
         ensure_wallet_tab()
         ensure_debt_tab()
+        ensure_task_tab()
         # Вопрос про привычку должен приходить сам, а не ждать, пока
         # откроешь бота: в этом вся суть — не заставлять себя заходить.
         threading.Thread(target=habit_loop, daemon=True).start()

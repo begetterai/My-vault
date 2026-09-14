@@ -119,6 +119,7 @@
   <button id="tLimits">Лимиты</button>
   <button id="tMonth">Месяц</button>
   <button id="tHabits">Зал</button>
+  <button id="tTasks">Дела</button>
 </div>
 
 <section id="pWrite">
@@ -148,6 +149,17 @@
 </section>
 
 <section id="pHabits" class="hide"></section>
+
+<section id="pTasks" class="hide">
+  <div class="card">
+    <div class="two">
+      <input id="tText" placeholder="Что сделать">
+      <input id="tDue" type="date" style="width:46%">
+    </div>
+    <button class="go" id="tAdd">Добавить</button>
+  </div>
+  <div id="taskList"></div>
+</section>
 
 <section id="pLimits" class="hide">
   <div class="card" id="limits"></div>
@@ -237,6 +249,71 @@ function drawWallets(){
 /* Долги: остаток, платёж, месяцев до нуля и заплачено ли в этом месяце.
    Вопрос «я в этом месяце платил?» раньше решался по памяти — то есть
    не решался. Кнопка платежа рядом: решил — нажал, не выходя с экрана. */
+/* Дела: захват одной строкой, три группы, галочка одним тапом.
+   Круг слева закрывает, стрелка переносит на завтра. Третий перенос —
+   вопрос: дело, которое переносишь третий раз, чаще всего делать
+   не собираются, и честнее спросить, чем копить мёртвый список. */
+async function taskAct(url, body){
+  const j = await post(url, body);
+  note(j.ok ? (j.line || 'Готово') : (j.error || 'Не вышло'));
+  if(j.ok && j.ask &&
+     confirm('Переносишь третий раз. Оставляем в списке?\n\n' +
+             'Отмена — закрою как несделанное.')) { /* оставляем */ }
+  else if(j.ok && j.ask) await post('/api/task_close', {line: body.line});
+  if(j.ok) load();
+}
+
+function taskRow(t){
+  const d = document.createElement('div'); d.className = 'row';
+  const ok = document.createElement('button');
+  ok.className = 'x'; ok.type = 'button'; ok.textContent = '○';
+  ok.title = 'Сделано';
+  ok.onclick = () => taskAct('/api/task_close', {line: t.line});
+  const mid = document.createElement('div'); mid.className = 'name';
+  mid.textContent = t.text;
+  const sub = [t.due || 'без срока', t.project, t.area,
+               t.moved ? 'переносов ' + t.moved : ''].filter(Boolean);
+  const s2 = document.createElement('small'); s2.textContent = sub.join(' · ');
+  mid.appendChild(s2);
+  const mv = document.createElement('button');
+  mv.className = 'x'; mv.type = 'button'; mv.textContent = '→';
+  mv.title = 'На завтра';
+  mv.onclick = () => taskAct('/api/task_move', {line: t.line, days: 1});
+  d.append(ok, mid, mv);
+  return d;
+}
+
+function drawTasks(){
+  const box = $('#taskList'); box.innerHTML = '';
+  const T = D.tasks || {late: [], today: [], later: [], done_week: 0};
+  [['Просрочено', T.late, 'over'], ['Сегодня', T.today, ''],
+   ['Дальше', T.later, '']].forEach(([title, list, cls]) => {
+    if(!list.length) return;
+    const h = document.createElement('h2');
+    h.textContent = title + ' · ' + list.length;
+    if(cls) h.className = cls;
+    const c = document.createElement('div'); c.className = 'card';
+    list.forEach(t => c.appendChild(taskRow(t)));
+    box.append(h, c);
+  });
+  if(!T.late.length && !T.today.length && !T.later.length){
+    box.innerHTML = '<div class="card dim">Дел нет. Напиши строкой сверху — '
+                  + 'разберёшь потом.</div>';
+  }
+  const f = document.createElement('p');
+  f.className = 'dim'; f.style.fontSize = '12.5px';
+  f.textContent = 'За неделю закрыто: ' + T.done_week;
+  box.appendChild(f);
+}
+
+$('#tAdd').onclick = async () => {
+  const text = $('#tText').value.trim();
+  if(!text){ note('Напиши, что сделать'); return; }
+  const j = await post('/api/task_add', {text, due: $('#tDue').value});
+  note(j.ok ? j.line : (j.error || 'Не вышло'));
+  if(j.ok){ $('#tText').value = ''; load(); }
+};
+
 function drawDebts(){
   const box = $('#debts'); box.innerHTML = '';
   if(!(D.debts || []).length){
@@ -445,10 +522,11 @@ async function load(){
   if(!$('#date').value) $('#date').value = j.today;
   drawTop(); drawCats(); drawWallets(); drawBal();
   drawLimits(); drawMonth(); drawLast(); drawHabits(); drawDebts();
+  drawTasks();
 }
 
 function tab(name){
-  ['Write', 'Limits', 'Month', 'Habits'].forEach(n => {
+  ['Write', 'Limits', 'Month', 'Habits', 'Tasks'].forEach(n => {
     $('#p' + n).classList.toggle('hide', n !== name);
     $('#t' + n).classList.toggle('on', n === name);
   });
@@ -457,6 +535,7 @@ $('#tWrite').onclick = () => tab('Write');
 $('#tLimits').onclick = () => tab('Limits');
 $('#tMonth').onclick = () => tab('Month');
 $('#tHabits').onclick = () => tab('Habits');
+$('#tTasks').onclick = () => tab('Tasks');
 $('#kind').onchange = () => { drawCats(); drawWallets(); };
 
 $('#save').onclick = async () => {
