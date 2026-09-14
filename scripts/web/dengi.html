@@ -145,15 +145,6 @@
 
   <div class="card" id="month"></div>
 
-  <h2>Счета — сколько на руках</h2>
-  <div class="card">
-    <div id="accs"></div>
-    <button class="go" id="saveAcc">Сохранить балансы</button>
-    <button class="go flat" id="startBal">Завести стартовую запись</button>
-    <p class="dim" style="margin:9px 0 0;font-size:12.5px">
-      Стартовая запись нужна один раз после очистки журнала: без неё
-      «На руках» считается от нуля.</p>
-  </div>
 </section>
 
 <div id="toast"></div>
@@ -286,18 +277,9 @@ function drawMonth(){
   const m = D.month, box = $('#month'); box.innerHTML = '';
   [['Заработано', m.income], ['Потрачено', m.spent],
    ['Отложено', m.saved], ['Погашено долга', m.debt],
-   ['С прошлых месяцев', m.carry], ['Остаток (кэш)', m.cash]
+   ['Было к началу месяца', m.carry], ['Остаток (кэш)', m.cash]
   ].forEach(([k, v]) => box.appendChild(line(k, '', money(v) + ' с')));
 
-  const accs = $('#accs'); accs.innerHTML = '';
-  D.accounts.forEach((a, i) => {
-    const r = document.createElement('div'); r.className = 'acc';
-    const s = document.createElement('span'); s.textContent = a.name;
-    const inp = document.createElement('input');
-    inp.id = 'acc' + i; inp.inputMode = 'decimal';
-    inp.value = a.value === '' ? '' : a.value;
-    r.append(s, inp); accs.appendChild(r);
-  });
 }
 
 function drawLast(){
@@ -367,20 +349,6 @@ $('#save').onclick = async () => {
       await load();
     } else note(j.error || 'Не записалось');
   } finally { BUSY = false; $('#save').disabled = false; }
-};
-
-$('#saveAcc').onclick = async () => {
-  const values = [...$('#accs').querySelectorAll('input')].map(i => i.value.trim());
-  const j = await post('/api/accounts', {values});
-  note(j.ok ? 'Балансы сохранены' : (j.error || 'Не вышло'));
-  if(j.ok) load();
-};
-
-$('#startBal').onclick = async () => {
-  if(!confirm('Завести стартовую запись на сумму счетов?')) return;
-  const j = await post('/api/start', {});
-  note(j.ok ? j.line.replace(/<[^>]+>/g, '') : (j.error || 'Не вышло'));
-  if(j.ok) load();
 };
 
 load();

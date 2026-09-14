@@ -29,8 +29,6 @@ log = logging.getLogger('budget.web')
 
 WEB = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'web')
 PAGE = os.path.join(WEB, 'dengi.html')
-ACCOUNTS = ['Наличные', 'Карта', 'Сбережения / вклад', 'Прочее']
-ACC_RANGE = 'Счета!B4:B7'          # четыре строки под балансы, шапка в A3
 
 
 def who(init_data):
@@ -95,21 +93,14 @@ def month_numbers():
         elif key == ym:
             by[r['kind']] = by.get(r['kind'], 0.0) + amount
     month = sum(B.CASH_SIGN[t] * by.get(t, 0.0) for t in B.CASH_SIGN)
+    # «На руках» считаем от стартовых остатков кошельков, а не от нуля.
+    # 14.09.2026 на экране стояли две разные правды: крупная строка сверху
+    # показывала −1, а список кошельков под ней — 1 385,85. Журнал знает
+    # только движение; сколько было до первой записи, знают кошельки.
+    start = sum(s for _, s in B.wallets())
     return {'income': by.get('Доход', 0.0), 'spent': by.get('Расход', 0.0),
             'saved': by.get('Накопление', 0.0), 'debt': by.get('Погашение', 0.0),
-            'month': month, 'carry': carry, 'cash': carry + month}
-
-
-def accounts():
-    """Балансы счетов, как они вписаны руками."""
-    r = B.SHEETS.get(B.API + B.BUDGET_SS + '/values/' + B._q(ACC_RANGE),
-                     params={'valueRenderOption': 'UNFORMATTED_VALUE'}, timeout=30)
-    vals = (r.json().get('values', []) if r.ok else [])
-    out = []
-    for i, name in enumerate(ACCOUNTS):
-        v = vals[i][0] if i < len(vals) and vals[i] else ''
-        out.append({'name': name, 'value': v})
-    return out
+            'month': month, 'carry': start + carry, 'cash': start + carry + month}
 
 
 def payload():
@@ -131,7 +122,6 @@ def payload():
         'no_limit': sorted(c for c in B.BUDGET_CATS if c not in lim),
         'month': month_numbers(),
         'last': list(reversed(rows))[:12],
-        'accounts': accounts(),
         'wallets': [w for w, _ in B.wallets(force=True)],
         'balances': wallet_lines(),
     }
@@ -232,42 +222,8 @@ def edit(body):
     return {'ok': True}
 
 
-def save_accounts(body):
-    """Вписать фактические балансы счетов."""
-    vals = body.get('values') or []
-    out = []
-    for i in range(len(ACCOUNTS)):
-        v = str(vals[i] if i < len(vals) else '').replace(' ', '').replace(',', '.')
-        out.append([float(v) if v else ''])
-    B.SHEETS.put(B.API + B.BUDGET_SS + '/values/' + B._q(ACC_RANGE),
-                 params={'valueInputOption': 'USER_ENTERED'},
-                 json={'values': out}, timeout=30).raise_for_status()
-    return {'ok': True, 'accounts': accounts()}
-
-
-def start_balance(body):
-    """Стартовая запись на сумму счетов.
-
-    После очистки журнала «Остаток (кэш)» считается от нуля и не сходится
-    с тем, что на руках. Одна запись типа «Доход» на сумму балансов —
-    и картина начинает сходиться с первого дня.
-    """
-    total = 0.0
-    for a in accounts():
-        try:
-            total += float(str(a['value']).replace(',', '.'))
-        except (ValueError, TypeError):
-            pass
-    if total <= 0:
-        return {'ok': False, 'error': 'Сначала впиши балансы счетов'}
-    line = B.add_entry(total, 'Прочий доход', 'доход',
-                       'Стартовый остаток на счетах', str(B.today_local()))
-    return {'ok': True, 'line': line}
-
-
 POST = {'/api/add': add, '/api/drop': drop, '/api/edit': edit,
-        '/api/transfer': transfer,
-        '/api/accounts': save_accounts, '/api/start': start_balance}
+        '/api/transfer': transfer}
 
 
 class Handler(BaseHTTPRequestHandler):
