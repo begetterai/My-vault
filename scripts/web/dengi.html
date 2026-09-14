@@ -156,6 +156,9 @@
 </section>
 
 <section id="pMonth" class="hide">
+  <h2>Долги</h2>
+  <div class="card" id="debts"></div>
+
   <h2>Кошельки — считается по журналу</h2>
   <div class="card" id="bal"></div>
 
@@ -228,6 +231,39 @@ function drawWallets(){
       };
       box.appendChild(b);
     });
+  });
+}
+
+/* Долги: остаток, платёж, месяцев до нуля и заплачено ли в этом месяце.
+   Вопрос «я в этом месяце платил?» раньше решался по памяти — то есть
+   не решался. Кнопка платежа рядом: решил — нажал, не выходя с экрана. */
+function drawDebts(){
+  const box = $('#debts'); box.innerHTML = '';
+  if(!(D.debts || []).length){
+    box.innerHTML = '<span class="dim">Долгов нет. Заведи их в листе '
+                  + '«Долги» — кому, остаток, платёж, день.</span>';
+    return;
+  }
+  D.debts.forEach(d => {
+    const sub = [d.to, d.day ? 'платёж ' + d.day + '-го' : '',
+                 d.months ? d.months + ' мес. до нуля' : ''].filter(Boolean);
+    const row = line(d.name, sub.join(' · '), money(d.left) + ' с');
+    box.appendChild(row);
+    const b = document.createElement('button');
+    b.className = 'go' + (d.done ? ' flat' : '');
+    b.textContent = d.done
+      ? `В этом месяце заплачено ${money(d.paid)}`
+      : `Заплатить ${money(d.pay)} с`;
+    b.onclick = async () => {
+      const raw = prompt(`Сколько платим по «${d.name}»?`, d.pay);
+      if(raw === null) return;
+      const j = await post('/api/debt_pay', {debt: d.name, amount: raw,
+                                             wallet: WAL});
+      note(j.ok ? j.line.replace(/<[^>]+>/g, '').split('\n')[0]
+                : (j.error || 'Не вышло'));
+      if(j.ok) load();
+    };
+    box.appendChild(b);
   });
 }
 
@@ -402,7 +438,7 @@ async function load(){
   D = j;
   if(!$('#date').value) $('#date').value = j.today;
   drawTop(); drawCats(); drawWallets(); drawBal();
-  drawLimits(); drawMonth(); drawLast(); drawHabits();
+  drawLimits(); drawMonth(); drawLast(); drawHabits(); drawDebts();
 }
 
 function tab(name){

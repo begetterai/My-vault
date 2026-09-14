@@ -118,7 +118,7 @@ def _budget_append(tab, row):
     gid={'Operations':0,'Loans':215071340}.get(tab.split('!')[0])
     if gid is not None:
         SHEETS.post(f'https://sheets.googleapis.com/v4/spreadsheets/{BUDGET_SS}:batchUpdate',
-            json={'requests':[{'sortRange':{'range':{'sheetId':gid,'startRowIndex':1,'startColumnIndex':0,'endColumnIndex':7},
+            json={'requests':[{'sortRange':{'range':{'sheetId':gid,'startRowIndex':1,'startColumnIndex':0,'endColumnIndex':8},
                 'sortSpecs':[{'dimensionIndex':0,'sortOrder':'ASCENDING'}]}}]}, timeout=30).raise_for_status()
 _cap = lambda x: (x[:1].upper()+x[1:]) if x else x
 def _money(n):
@@ -586,7 +586,7 @@ def quick_keyboard():
     в один тап не даёт бросить на полпути и не зависит от того,
     разберёт ли бот текст.
     """
-    rows = _rows('Operations!A2:G2000') or []
+    rows = _rows('Operations!A2:H2000') or []
     pairs, cats = collections.Counter(), collections.Counter()
     for r in rows:
         r = list(r) + [''] * 5
@@ -760,7 +760,7 @@ def wallet_balances():
     """{кошелёк: остаток}. Стартовый остаток плюс всё движение по журналу."""
     bal = {name: start for name, start in wallets()}
     unknown = 0.0
-    for row in (_rows('Operations!A2:G2000') or []):
+    for row in (_rows('Operations!A2:H2000') or []):
         row = list(row) + [''] * 7
         try:
             amount = float(str(row[3]).replace(',', '.'))
@@ -776,6 +776,113 @@ def wallet_balances():
         if typ == 'Перевод' and dst in bal:
             bal[dst] += amount
     return bal, unknown
+
+
+# ── долги ───────────────────────────────────────────────────────────────────
+# Долг 11 748 (Эсхата + рассрочки Alif) до 14.09.2026 жил только в таблице,
+# и вопрос «заплатил ли я в этом месяце» решался по памяти — то есть
+# не решался. Платёж — обычная операция типа «Погашение»; чтобы её можно
+# было отнести к конкретному долгу, у журнала появилась колонка «Долг».
+# Сопоставление точное, по имени: угадывать по комментарию значит
+# однажды зачесть платёж не туда.
+DEBT_TAB = 'Долги'
+DEBT_COLS = ['Долг', 'Кому', 'Остаток', 'Платёж в месяц', 'День платежа',
+             'Ставка, %', 'Активен']
+_DEBT = {'ts': None, 'list': []}
+
+
+def ensure_debt_tab():
+    """Лист «Долги». Идемпотентно."""
+    meta = SHEETS.get(API + BUDGET_SS, params={'fields': 'sheets.properties'},
+                      timeout=30).json()
+    have = {sh['properties']['title'] for sh in meta.get('sheets', [])}
+    if DEBT_TAB in have:
+        return
+    SHEETS.post(API + BUDGET_SS + ':batchUpdate', json={'requests': [
+        {'addSheet': {'properties': {'title': DEBT_TAB, 'gridProperties': {
+            'rowCount': 30, 'columnCount': len(DEBT_COLS),
+            'frozenRowCount': 1}}}}]}, timeout=30).raise_for_status()
+    SHEETS.put(API + BUDGET_SS + '/values/' + _q(f'{DEBT_TAB}!A1'),
+               params={'valueInputOption': 'USER_ENTERED'},
+               json={'values': [DEBT_COLS]}, timeout=30).raise_for_status()
+    log.info('создан лист «%s»', DEBT_TAB)
+
+
+def _num(x, default=0.0):
+    try:
+        return float(str(x).replace(' ', '').replace(',', '.'))
+    except (ValueError, TypeError):
+        return default
+
+
+def debts(force=False):
+    """[{долг, кому, остаток, платёж, день, ставка}] — активные."""
+    now = datetime.datetime.utcnow()
+    if not force and _DEBT['ts'] and (now - _DEBT['ts']).seconds < 300:
+        return _DEBT['list']
+    out = []
+    try:
+        for row in (_rows(f'{DEBT_TAB}!A2:G30') or []):
+            row = list(row) + [''] * 7
+            name = str(row[0]).strip()
+            act = str(row[6]).strip().lower() or 'да'
+            if not name or act not in ('да', 'yes', '1', 'true'):
+                continue
+            out.append({'name': name, 'to': str(row[1]).strip(),
+                        'left': _num(row[2]), 'pay': _num(row[3]),
+                        'day': int(_num(row[4])), 'rate': _num(row[5])})
+    except Exception as e:
+        log.warning('долги: %s', e)
+    _DEBT['ts'], _DEBT['list'] = now, out
+    return out
+
+
+def debt_paid(name, ym=None):
+    """Сколько заплачено по этому долгу за месяц."""
+    ym = ym or now_local().strftime('%Y-%m')
+    total = 0.0
+    for row in (_rows('Operations!A2:H2000') or []):
+        row = list(row) + [''] * 8
+        if str(row[1]).strip() != 'Погашение' or str(row[7]).strip() != name:
+            continue
+        d = _row_date(row[0])
+        if d and d.strftime('%Y-%m') == ym:
+            total += _num(row[3])
+    return total
+
+
+def debt_state():
+    """Долги с расчётом: заплачено за месяц и сколько месяцев до нуля."""
+    out = []
+    for d in debts():
+        paid = debt_paid(d['name'])
+        left = d['left'] - paid
+        # Месяцев до нуля — по нынешнему платежу, без процентов: ставку
+        # считать честно можно только зная порядок начислений банка,
+        # а выдуманная точность здесь хуже её отсутствия.
+        months = int(-(-left // d['pay'])) if d['pay'] > 0 and left > 0 else 0
+        out.append(dict(d, paid=paid, left=round(left, 2), months=months,
+                        done=paid >= d['pay'] > 0))
+    return out
+
+
+def pay_debt(name, amount, wallet='', comment=''):
+    """Платёж по долгу. Обычное «Погашение», но с именем долга в колонке."""
+    if name not in [d['name'] for d in debts(force=True)]:
+        return f'⚠️ Нет такого долга: {name}'
+    d, _m = _resolve_date(None)
+    com = _cap((comment or '').strip()) or name
+    _budget_append('Operations!A:H',
+                   [d, 'Погашение', 'Оплата кредита', float(amount), com,
+                    str(wallet or '').strip(), '', name])
+    LAST['data'] = [d, 'Погашение', 'Оплата кредита', float(amount), com]
+    st = next((x for x in debt_state() if x['name'] == name), None)
+    line = f'🏦 Погашение: {_money(amount)} с · {name}'
+    if st:
+        line += f'\nОстаток {_money(st["left"])} с'
+        if st['months']:
+            line += f' · при таком платеже {st["months"]} мес. до нуля'
+    return line
 
 
 def ensure_limits_tab():
@@ -838,7 +945,7 @@ def spent_by_cat(ym=None):
     """{категория: потрачено} за месяц. Только строки типа «Расход»."""
     ym = ym or now_local().strftime('%Y-%m')
     out = {}
-    r = SHEETS.get(API + BUDGET_SS + '/values/' + _q('Operations!A2:G'),
+    r = SHEETS.get(API + BUDGET_SS + '/values/' + _q('Operations!A2:H'),
                    params={'valueRenderOption': 'UNFORMATTED_VALUE'}, timeout=60)
     for row in (r.json().get('values', []) if r.ok else []):
         row = list(row) + ['', '', '', '', '']
@@ -948,7 +1055,7 @@ def month_report():
     называем своими именами; «Остаток (кэш)» сходится с таблицей.
     """
     ym = now_local().strftime('%Y-%m')
-    r = SHEETS.get(API + BUDGET_SS + '/values/' + _q('Operations!A2:G'),
+    r = SHEETS.get(API + BUDGET_SS + '/values/' + _q('Operations!A2:H'),
                    params={'valueRenderOption': 'UNFORMATTED_VALUE'}, timeout=60)
     by, carry = {}, 0.0
     for row in (r.json().get('values', []) if r.ok else []):
@@ -982,7 +1089,7 @@ def month_report():
 def _row_exists(d, typ, cat, amount, com):
     """Есть ли уже точно такая строка в журнале."""
     try:
-        r = SHEETS.get(API + BUDGET_SS + '/values/' + _q('Operations!A2:G'),
+        r = SHEETS.get(API + BUDGET_SS + '/values/' + _q('Operations!A2:H'),
                        params={'valueRenderOption': 'UNFORMATTED_VALUE'},
                        timeout=60)
         for row in (r.json().get('values', []) if r.ok else []):
@@ -1026,7 +1133,7 @@ def add_entry(amount, category='Прочее', kind='расход', comment='', 
                 + '\nВторой раз не пишу. Если трата и правда повторилась — '
                   'добавь пояснение в комментарий.')
     w = str(wallet or '').strip()
-    _budget_append('Operations!A:G', [d, typ, cat, float(amount), com, w, ''])
+    _budget_append('Operations!A:H', [d, typ, cat, float(amount), com, w, '', ''])
     # Запоминаем СОДЕРЖИМОЕ, а не номер строки: _budget_append сразу
     # сортирует журнал по дате, и номер протухает в тот же миг.
     LAST['data'] = [d, typ, cat, float(amount), com]
@@ -1059,8 +1166,8 @@ def add_transfer(amount, src, dst, comment='', date=None):
             return f'⚠️ Нет такого кошелька: {w}'
     d, _m = _resolve_date(date)
     com = _cap((comment or '').strip())
-    _budget_append('Operations!A:G',
-                   [d, 'Перевод', 'Перевод', float(amount), com, src, dst])
+    _budget_append('Operations!A:H',
+                   [d, 'Перевод', 'Перевод', float(amount), com, src, dst, ''])
     LAST['data'] = [d, 'Перевод', 'Перевод', float(amount), com]
     return f'🔁 Перевод: {_money(amount)} с · {src} → {dst}'
 
@@ -1075,7 +1182,7 @@ def _find_last_row():
     want = LAST.get('data')
     if not want:
         return 0
-    r = SHEETS.get(API + BUDGET_SS + '/values/' + _q('Operations!A2:G'),
+    r = SHEETS.get(API + BUDGET_SS + '/values/' + _q('Operations!A2:H'),
                    params={'valueRenderOption': 'UNFORMATTED_VALUE'}, timeout=60)
     rows = r.json().get('values', []) if r.ok else []
     for i in range(len(rows) - 1, -1, -1):
@@ -2057,6 +2164,7 @@ def run():
         ensure_audit_tab()
         ensure_habit_tabs()
         ensure_wallet_tab()
+        ensure_debt_tab()
         # Вопрос про привычку должен приходить сам, а не ждать, пока
         # откроешь бота: в этом вся суть — не заставлять себя заходить.
         threading.Thread(target=habit_loop, daemon=True).start()

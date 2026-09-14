@@ -63,7 +63,7 @@ def rows_with_lines():
     каждого добавления. Поэтому клиент всегда получает свежие номера, а
     перед правкой мы сверяем содержимое.
     """
-    r = B.SHEETS.get(B.API + B.BUDGET_SS + '/values/' + B._q('Operations!A2:G'),
+    r = B.SHEETS.get(B.API + B.BUDGET_SS + '/values/' + B._q('Operations!A2:H'),
                      params={'valueRenderOption': 'UNFORMATTED_VALUE'}, timeout=60)
     out = []
     for i, row in enumerate(r.json().get('values', []) if r.ok else []):
@@ -74,7 +74,8 @@ def rows_with_lines():
         out.append({'line': i + 2, 'date': str(d) if d else str(row[0]),
                     'kind': str(row[1]).strip(), 'cat': str(row[2]).strip(),
                     'amount': row[3], 'comment': str(row[4]).strip(),
-                    'wallet': str(row[5]).strip(), 'to': str(row[6]).strip()})
+                    'wallet': str(row[5]).strip(), 'to': str(row[6]).strip(),
+                    'debt': str(row[7]).strip()})
     return out
 
 
@@ -125,6 +126,7 @@ def payload():
         'wallets': [w for w, _ in B.wallets(force=True)],
         'balances': wallet_lines(),
         'habits': habits(),
+        'debts': B.debt_state(),
     }
 
 
@@ -199,6 +201,21 @@ def habit(body):
     else:
         B.habit_write(name, answer, why)
     return {'ok': True, 'line': f'{name}: {answer}'}
+
+
+def debt_pay(body):
+    """Платёж по долгу с экрана."""
+    try:
+        amount = float(str(body.get('amount', '')).replace(',', '.'))
+    except (ValueError, TypeError):
+        return {'ok': False, 'error': 'Нужна сумма'}
+    if amount <= 0:
+        return {'ok': False, 'error': 'Сумма должна быть больше нуля'}
+    line = B.pay_debt(str(body.get('debt') or '').strip(), amount,
+                      str(body.get('wallet') or '').strip(),
+                      str(body.get('comment') or '').strip())
+    return {'ok': not line.startswith('⚠️'), 'line': line,
+            'error': line.lstrip('⚠️ ') if line.startswith('⚠️') else ''}
 
 
 def transfer(body):
@@ -285,7 +302,8 @@ def edit(body):
 
 
 POST = {'/api/add': add, '/api/drop': drop, '/api/edit': edit,
-        '/api/transfer': transfer, '/api/habit': habit}
+        '/api/transfer': transfer, '/api/habit': habit,
+        '/api/debt_pay': debt_pay}
 
 
 class Handler(BaseHTTPRequestHandler):
