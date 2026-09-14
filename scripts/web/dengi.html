@@ -116,10 +116,15 @@
         <option value="доход">Доход</option>
         <option value="накопление">Накопление</option>
         <option value="погашение">Погашение кредита</option>
+        <option value="перевод">Перевод между кошельками</option>
       </select>
       <input id="date" type="date">
     </div>
     <div class="chips" id="cats"></div>
+    <h2 id="walLbl">Откуда</h2>
+    <div class="chips" id="wallets"></div>
+    <h2 id="toLbl" class="hide">Куда</h2>
+    <div class="chips hide" id="toWallets"></div>
     <input id="comment" placeholder="На что — коротко" style="margin-top:8px">
     <button class="go" id="save">Записать</button>
   </div>
@@ -135,6 +140,9 @@
 </section>
 
 <section id="pMonth" class="hide">
+  <h2>Кошельки — считается по журналу</h2>
+  <div class="card" id="bal"></div>
+
   <div class="card" id="month"></div>
 
   <h2>Счета — сколько на руках</h2>
@@ -155,6 +163,9 @@ const tg = window.Telegram?.WebApp || null;
 try{ tg?.ready(); tg?.expand(); }catch(e){}
 const initData = tg?.initData || '';
 let D = null, CAT = '', BUSY = false;
+let WAL = '', TO = '';
+const WAL_KEY = 'dengi.wallet';
+try{ WAL = localStorage.getItem(WAL_KEY) || ''; }catch(e){}
 
 const $ = s => document.querySelector(s);
 const money = n => {
@@ -187,7 +198,44 @@ function catsFor(kind){
   return D.cats;
 }
 
+/* Кошелёк запоминается: платишь чаще всего с одного, и выбирать его
+   каждый раз — то самое трение, от которого уходим. */
+function drawWallets(){
+  const pay = $('#kind').value === 'перевод';
+  $('#toLbl').classList.toggle('hide', !pay);
+  $('#toWallets').classList.toggle('hide', !pay);
+  $('#walLbl').textContent = pay ? 'Откуда' : ($('#kind').value === 'доход'
+                                               ? 'Куда пришли' : 'Откуда');
+  if(!D.wallets.includes(WAL)) WAL = D.wallets[0] || '';
+  if(!D.wallets.includes(TO)) TO = D.wallets.find(w => w !== WAL) || '';
+  [['#wallets', 'WAL'], ['#toWallets', 'TO']].forEach(([sel, which]) => {
+    const box = $(sel); box.innerHTML = '';
+    D.wallets.forEach(w => {
+      const b = document.createElement('button');
+      b.type = 'button'; b.textContent = w;
+      if(w === (which === 'WAL' ? WAL : TO)) b.className = 'on';
+      b.onclick = () => {
+        if(which === 'WAL'){ WAL = w; try{ localStorage.setItem(WAL_KEY, w); }catch(e){} }
+        else TO = w;
+        drawWallets();
+      };
+      box.appendChild(b);
+    });
+  });
+}
+
+function drawBal(){
+  const box = $('#bal'); box.innerHTML = '';
+  (D.balances || []).forEach(b =>
+    box.appendChild(line(b.name, '', money(b.value) + ' с',
+                         b.value < 0 ? 'over' : '')));
+}
+
 function drawCats(){
+  // У перевода категории нет: деньги никуда не потрачены.
+  const pay = $('#kind').value === 'перевод';
+  $('#cats').classList.toggle('hide', pay);
+  if(pay) return;
   const list = catsFor($('#kind').value);
   if(!list.includes(CAT)) CAT = list[0] || '';
   const box = $('#cats'); box.innerHTML = '';
@@ -256,8 +304,9 @@ function drawLast(){
   const box = $('#last'); box.innerHTML = '';
   if(!D.last.length){ box.textContent = 'Пока пусто.'; return; }
   D.last.forEach(o => {
+    const where = o.kind === 'Перевод' ? o.wallet + ' → ' + o.to : o.wallet;
     const d = line(money(o.amount) + ' с · ' + o.cat,
-                   o.date + (o.comment ? ' · ' + o.comment : ''), '');
+                   [o.date, where, o.comment].filter(Boolean).join(' · '), '');
     const b = document.createElement('button');
     b.className = 'x'; b.type = 'button'; b.textContent = '×';
     b.title = 'Убрать';
@@ -283,7 +332,8 @@ async function load(){
   }
   D = j;
   if(!$('#date').value) $('#date').value = j.today;
-  drawTop(); drawCats(); drawLimits(); drawMonth(); drawLast();
+  drawTop(); drawCats(); drawWallets(); drawBal();
+  drawLimits(); drawMonth(); drawLast();
 }
 
 function tab(name){
@@ -295,7 +345,7 @@ function tab(name){
 $('#tWrite').onclick = () => tab('Write');
 $('#tLimits').onclick = () => tab('Limits');
 $('#tMonth').onclick = () => tab('Month');
-$('#kind').onchange = drawCats;
+$('#kind').onchange = () => { drawCats(); drawWallets(); };
 
 $('#save').onclick = async () => {
   if(BUSY) return;
@@ -303,9 +353,14 @@ $('#save').onclick = async () => {
   if(!amount){ note('Впиши сумму'); return; }
   BUSY = true; $('#save').disabled = true;
   try{
-    const j = await post('/api/add', {amount, cat: CAT, kind: $('#kind').value,
-                                      comment: $('#comment').value.trim(),
-                                      date: $('#date').value});
+    const kind = $('#kind').value;
+    const j = kind === 'перевод'
+      ? await post('/api/transfer', {amount, from: WAL, to: TO,
+                                     comment: $('#comment').value.trim(),
+                                     date: $('#date').value})
+      : await post('/api/add', {amount, cat: CAT, kind,
+                                comment: $('#comment').value.trim(),
+                                date: $('#date').value, wallet: WAL});
     if(j.ok){
       note(j.line.replace(/<[^>]+>/g, ''));
       $('#amount').value = ''; $('#comment').value = '';

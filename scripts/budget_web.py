@@ -65,7 +65,7 @@ def rows_with_lines():
     каждого добавления. Поэтому клиент всегда получает свежие номера, а
     перед правкой мы сверяем содержимое.
     """
-    r = B.SHEETS.get(B.API + B.BUDGET_SS + '/values/' + B._q('Operations!A2:E'),
+    r = B.SHEETS.get(B.API + B.BUDGET_SS + '/values/' + B._q('Operations!A2:G'),
                      params={'valueRenderOption': 'UNFORMATTED_VALUE'}, timeout=60)
     out = []
     for i, row in enumerate(r.json().get('values', []) if r.ok else []):
@@ -75,7 +75,8 @@ def rows_with_lines():
         d = B._row_date(row[0])
         out.append({'line': i + 2, 'date': str(d) if d else str(row[0]),
                     'kind': str(row[1]).strip(), 'cat': str(row[2]).strip(),
-                    'amount': row[3], 'comment': str(row[4]).strip()})
+                    'amount': row[3], 'comment': str(row[4]).strip(),
+                    'wallet': str(row[5]).strip(), 'to': str(row[6]).strip()})
     return out
 
 
@@ -131,7 +132,37 @@ def payload():
         'month': month_numbers(),
         'last': list(reversed(rows))[:12],
         'accounts': accounts(),
+        'wallets': [w for w, _ in B.wallets(force=True)],
+        'balances': wallet_lines(),
     }
+
+
+def wallet_lines():
+    """[{кошелёк, остаток}] плюс строка «без кошелька», если такие есть."""
+    bal, unknown = B.wallet_balances()
+    out = [{'name': w, 'value': round(bal.get(w, 0.0), 2)}
+           for w, _ in B.wallets()]
+    if abs(unknown) > 0.004:
+        # Записи из переписки кошелька не знают. Показываем отдельно,
+        # а не размазываем: иначе остаток врёт молча.
+        out.append({'name': 'Без кошелька', 'value': round(unknown, 2)})
+    return out
+
+
+def transfer(body):
+    """Перевод между своими кошельками."""
+    try:
+        amount = float(str(body.get('amount', '')).replace(',', '.'))
+    except (ValueError, TypeError):
+        return {'ok': False, 'error': 'Нужна сумма'}
+    if amount <= 0:
+        return {'ok': False, 'error': 'Сумма должна быть больше нуля'}
+    line = B.add_transfer(amount, str(body.get('from') or '').strip(),
+                          str(body.get('to') or '').strip(),
+                          str(body.get('comment') or '').strip(),
+                          str(body.get('date') or '').strip() or None)
+    return {'ok': not line.startswith('⚠️'), 'line': line,
+            'error': line.lstrip('⚠️ ') if line.startswith('⚠️') else ''}
 
 
 def add(body):
@@ -145,7 +176,8 @@ def add(body):
     cat = str(body.get('cat') or 'Прочее').strip()
     kind = str(body.get('kind') or 'расход').strip()
     line = B.add_entry(amount, cat, kind, str(body.get('comment') or '').strip(),
-                       str(body.get('date') or '').strip() or None)
+                       str(body.get('date') or '').strip() or None,
+                       wallet=str(body.get('wallet') or '').strip())
     return {'ok': True, 'line': line}
 
 
@@ -234,6 +266,7 @@ def start_balance(body):
 
 
 POST = {'/api/add': add, '/api/drop': drop, '/api/edit': edit,
+        '/api/transfer': transfer,
         '/api/accounts': save_accounts, '/api/start': start_balance}
 
 

@@ -112,7 +112,7 @@ def _budget_append(tab, row):
     gid={'Operations':0,'Loans':215071340}.get(tab.split('!')[0])
     if gid is not None:
         SHEETS.post(f'https://sheets.googleapis.com/v4/spreadsheets/{BUDGET_SS}:batchUpdate',
-            json={'requests':[{'sortRange':{'range':{'sheetId':gid,'startRowIndex':1,'startColumnIndex':0,'endColumnIndex':5},
+            json={'requests':[{'sortRange':{'range':{'sheetId':gid,'startRowIndex':1,'startColumnIndex':0,'endColumnIndex':7},
                 'sortSpecs':[{'dimensionIndex':0,'sortOrder':'ASCENDING'}]}}]}, timeout=30).raise_for_status()
 _cap = lambda x: (x[:1].upper()+x[1:]) if x else x
 def _money(n):
@@ -580,7 +580,7 @@ def quick_keyboard():
     в один тап не даёт бросить на полпути и не зависит от того,
     разберёт ли бот текст.
     """
-    rows = _rows('Operations!A2:E2000') or []
+    rows = _rows('Operations!A2:G2000') or []
     pairs, cats = collections.Counter(), collections.Counter()
     for r in rows:
         r = list(r) + [''] * 5
@@ -644,6 +644,90 @@ def habit_loop():
         time.sleep(60)
 
 
+# ── кошельки ────────────────────────────────────────────────────────────────
+# Заведено 14.09.2026. До этого журнал не помнил, откуда ушли деньги, и лист
+# «Счета» приходилось заполнять руками: система не знала, что списалось
+# с карты, а что из наличных. Теперь у каждой операции есть кошелёк, и
+# остаток по каждому считается сам.
+#
+# Перевод между своими кошельками — не расход: снял с карты наличными, деньги
+# те же. Поэтому у него свой тип и вторая колонка «Куда».
+WALLET_TAB = 'Кошельки'
+WALLET_COLS = ['Кошелёк', 'Стартовый остаток', 'Активен']
+WALLETS_DEFAULT = ['Наличные', 'Эсхата кошелёк', 'Эсхата виза',
+                   'Алиф виза', 'Алиф мастеркард', 'DC кошелёк']
+_WAL = {'ts': None, 'list': []}
+
+
+def ensure_wallet_tab():
+    """Лист «Кошельки». Идемпотентно, как «Лимиты»."""
+    meta = SHEETS.get(API + BUDGET_SS, params={'fields': 'sheets.properties'},
+                      timeout=30).json()
+    have = {sh['properties']['title'] for sh in meta.get('sheets', [])}
+    if WALLET_TAB in have:
+        return
+    SHEETS.post(API + BUDGET_SS + ':batchUpdate', json={'requests': [
+        {'addSheet': {'properties': {'title': WALLET_TAB, 'gridProperties': {
+            'rowCount': 30, 'columnCount': 3, 'frozenRowCount': 1}}}}]},
+        timeout=30).raise_for_status()
+    rows = [WALLET_COLS] + [[w, '', 'да'] for w in WALLETS_DEFAULT]
+    SHEETS.put(API + BUDGET_SS + '/values/' + _q(f'{WALLET_TAB}!A1'),
+               params={'valueInputOption': 'USER_ENTERED'},
+               json={'values': rows}, timeout=30).raise_for_status()
+    log.info('создан лист «%s»', WALLET_TAB)
+
+
+def wallets(force=False):
+    """[(кошелёк, стартовый остаток)] — активные, в порядке листа."""
+    now = datetime.datetime.utcnow()
+    if not force and _WAL['ts'] and (now - _WAL['ts']).seconds < 300:
+        return _WAL['list']
+    out = []
+    try:
+        for row in (_rows(f'{WALLET_TAB}!A2:C30') or []):
+            row = list(row) + ['', '', '']
+            name = str(row[0]).strip()
+            act = str(row[2]).strip().lower() or 'да'
+            if not name or act not in ('да', 'yes', '1', 'true'):
+                continue
+            try:
+                start = float(str(row[1]).replace(' ', '').replace(',', '.'))
+            except ValueError:
+                start = 0.0
+            out.append((name, start))
+    except Exception as e:
+        log.warning('кошельки: %s', e)
+    _WAL['ts'], _WAL['list'] = now, out
+    return out
+
+
+# Как тип операции двигает деньги в кошельке, из которого она сделана.
+WALLET_SIGN = {'Доход': 1, 'Расход': -1, 'Накопление': -1, 'Погашение': -1,
+               'Перевод': -1}
+
+
+def wallet_balances():
+    """{кошелёк: остаток}. Стартовый остаток плюс всё движение по журналу."""
+    bal = {name: start for name, start in wallets()}
+    unknown = 0.0
+    for row in (_rows('Operations!A2:G2000') or []):
+        row = list(row) + [''] * 7
+        try:
+            amount = float(str(row[3]).replace(',', '.'))
+        except (ValueError, TypeError):
+            continue
+        typ, src, dst = str(row[1]).strip(), str(row[5]).strip(), str(row[6]).strip()
+        if src in bal:
+            bal[src] += WALLET_SIGN.get(typ, -1) * amount
+        elif not src:
+            # Записи из переписки кошелька не знают. Не раскидываем их
+            # по догадке: пусть видно, сколько денег «ничьих».
+            unknown += WALLET_SIGN.get(typ, -1) * amount
+        if typ == 'Перевод' and dst in bal:
+            bal[dst] += amount
+    return bal, unknown
+
+
 def ensure_limits_tab():
     """Создаёт лист «Лимиты» со всеми категориями расходов. Идемпотентно."""
     meta = SHEETS.get(API + BUDGET_SS, params={'fields': 'sheets.properties'},
@@ -704,7 +788,7 @@ def spent_by_cat(ym=None):
     """{категория: потрачено} за месяц. Только строки типа «Расход»."""
     ym = ym or now_local().strftime('%Y-%m')
     out = {}
-    r = SHEETS.get(API + BUDGET_SS + '/values/' + _q('Operations!A2:E'),
+    r = SHEETS.get(API + BUDGET_SS + '/values/' + _q('Operations!A2:G'),
                    params={'valueRenderOption': 'UNFORMATTED_VALUE'}, timeout=60)
     for row in (r.json().get('values', []) if r.ok else []):
         row = list(row) + ['', '', '', '', '']
@@ -814,7 +898,7 @@ def month_report():
     называем своими именами; «Остаток (кэш)» сходится с таблицей.
     """
     ym = now_local().strftime('%Y-%m')
-    r = SHEETS.get(API + BUDGET_SS + '/values/' + _q('Operations!A2:E'),
+    r = SHEETS.get(API + BUDGET_SS + '/values/' + _q('Operations!A2:G'),
                    params={'valueRenderOption': 'UNFORMATTED_VALUE'}, timeout=60)
     by, carry = {}, 0.0
     for row in (r.json().get('values', []) if r.ok else []):
@@ -848,7 +932,7 @@ def month_report():
 def _row_exists(d, typ, cat, amount, com):
     """Есть ли уже точно такая строка в журнале."""
     try:
-        r = SHEETS.get(API + BUDGET_SS + '/values/' + _q('Operations!A2:E'),
+        r = SHEETS.get(API + BUDGET_SS + '/values/' + _q('Operations!A2:G'),
                        params={'valueRenderOption': 'UNFORMATTED_VALUE'},
                        timeout=60)
         for row in (r.json().get('values', []) if r.ok else []):
@@ -867,7 +951,8 @@ def _row_exists(d, typ, cat, amount, com):
     return False
 
 
-def add_entry(amount, category='Прочее', kind='расход', comment='', date=None, **_):
+def add_entry(amount, category='Прочее', kind='расход', comment='', date=None,
+              wallet='', **_):
     """Строка в лист Operations. Тип нормализуется, комментарий с заглавной."""
     k = str(kind).lower()
     if k.startswith('пог') or category == 'Оплата кредита':
@@ -890,7 +975,8 @@ def add_entry(amount, category='Прочее', kind='расход', comment='', 
                 + (f' · {com}' if com else '')
                 + '\nВторой раз не пишу. Если трата и правда повторилась — '
                   'добавь пояснение в комментарий.')
-    _budget_append('Operations!A:E', [d, typ, cat, float(amount), com])
+    w = str(wallet or '').strip()
+    _budget_append('Operations!A:G', [d, typ, cat, float(amount), com, w, ''])
     # Запоминаем СОДЕРЖИМОЕ, а не номер строки: _budget_append сразу
     # сортирует журнал по дате, и номер протухает в тот же миг.
     LAST['data'] = [d, typ, cat, float(amount), com]
@@ -898,6 +984,8 @@ def add_entry(amount, category='Прочее', kind='расход', comment='', 
     line = f'💵 {typ}: {_money(amount)} с · {cat}{when}'
     if com:
         line += f' · {com}'
+    if w:
+        line += f' · {w}'
     # Сразу показываем остаток — ради этого лимиты и заводятся.
     if typ == 'Расход':
         try:
@@ -905,6 +993,26 @@ def add_entry(amount, category='Прочее', kind='расход', comment='', 
         except Exception as e:
             log.warning('остаток: %s', e)
     return line
+
+
+def add_transfer(amount, src, dst, comment='', date=None):
+    """Перевод между своими кошельками. Не расход: деньги те же.
+
+    Пишется одной строкой, а не двумя: две строки пришлось бы держать
+    в паре — удалил одну, и деньги появились из ниоткуда.
+    """
+    if src == dst:
+        return '⚠️ Кошельки одинаковые — переводить некуда.'
+    names = [w for w, _ in wallets()]
+    for w in (src, dst):
+        if w not in names:
+            return f'⚠️ Нет такого кошелька: {w}'
+    d, _m = _resolve_date(date)
+    com = _cap((comment or '').strip())
+    _budget_append('Operations!A:G',
+                   [d, 'Перевод', 'Перевод', float(amount), com, src, dst])
+    LAST['data'] = [d, 'Перевод', 'Перевод', float(amount), com]
+    return f'🔁 Перевод: {_money(amount)} с · {src} → {dst}'
 
 
 def _find_last_row():
@@ -917,7 +1025,7 @@ def _find_last_row():
     want = LAST.get('data')
     if not want:
         return 0
-    r = SHEETS.get(API + BUDGET_SS + '/values/' + _q('Operations!A2:E'),
+    r = SHEETS.get(API + BUDGET_SS + '/values/' + _q('Operations!A2:G'),
                    params={'valueRenderOption': 'UNFORMATTED_VALUE'}, timeout=60)
     rows = r.json().get('values', []) if r.ok else []
     for i in range(len(rows) - 1, -1, -1):
@@ -1839,6 +1947,7 @@ def run():
         ensure_limits_tab()
         ensure_audit_tab()
         ensure_habit_tabs()
+        ensure_wallet_tab()
         # Вопрос про привычку должен приходить сам, а не ждать, пока
         # откроешь бота: в этом вся суть — не заставлять себя заходить.
         threading.Thread(target=habit_loop, daemon=True).start()
