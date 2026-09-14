@@ -22,8 +22,9 @@
 Ссылки на регламенты («Ознакомление»), документы («Правки») и эталонные
 фото («Пункты») не трогаем: это рабочие документы, а не следы обкатки.
 
-Запуск: python3 scripts/clear_pilot_data.py        — только показать
-        python3 scripts/clear_pilot_data.py --go   — сделать
+Запуск: python3 scripts/clear_pilot_data.py         — только показать
+        python3 scripts/clear_pilot_data.py --go    — сделать
+        python3 scripts/clear_pilot_data.py --all   — стереть и сегодня
 """
 import sys, datetime, urllib.parse
 sys.path.insert(0, '/home/user/My-vault/scripts')
@@ -66,7 +67,7 @@ def rows_of(s, tab, a1):
     return s.get(B + SHEET + '/values/' + q, timeout=60).json().get('values', [])
 
 
-def split_by_date(rows, today):
+def split_by_date(rows, today, everything=False):
     """(что стереть, что оставить). Оставляем сегодня и дальше.
 
     14.09.2026 это стоило смене ЗБ утра работы. Скрипт чистил вкладки
@@ -77,10 +78,16 @@ def split_by_date(rows, today):
 
     Дату не разобрали — строку оставляем: лучше лишняя строка, чем
     стёртая по ошибке.
+
+    `everything` — разовый режим «--all»: сегодняшнее тоже стереть,
+    смена проходит день заново. К «Графику» не применяется.
     """
     gone, stay = [], []
     for r in rows:
         if not r or not str(r[0]).strip():
+            continue
+        if everything:
+            gone.append(r)
             continue
         try:
             d = datetime.datetime.strptime(str(r[0]).strip(), '%d.%m.%Y').date()
@@ -91,7 +98,7 @@ def split_by_date(rows, today):
     return gone, stay
 
 
-def main(go):
+def main(go, everything=False):
     s = session()
     today = C.today()
     meta = s.get(B + SHEET, params={'fields': 'sheets.properties'},
@@ -109,7 +116,7 @@ def main(go):
     got = s.get(B + SHEET + '/values:batchGet?' + q, timeout=120).json()
     data = {}
     for t, vr in zip(wipe, got.get('valueRanges', [])):
-        data[t] = split_by_date(vr.get('values', []), today)
+        data[t] = split_by_date(vr.get('values', []), today, everything)
     data[ROSTER] = split_by_date(rows_of(s, ROSTER, 'A2:K'), today)
 
     # ── что уйдёт с Drive ────────────────────────────────────────────────
@@ -132,7 +139,9 @@ def main(go):
     counts = {t: len(v[0]) for t, v in data.items() if t != ROSTER and v[0]}
     keep_n = sum(len(v[1]) for t, v in data.items() if t != ROSTER)
     print(f'сегодня: {today.strftime("%d.%m.%Y")}')
-    print(f'\nСТЕРЕТЬ строки до сегодня — вкладок {len(wipe)}, '
+    print(f'\nСТЕРЕТЬ строки '
+          f'{"ЦЕЛИКОМ, включая сегодня" if everything else "до сегодня"} — '
+          f'вкладок {len(wipe)}, '
           f'с данными {len(counts)}, строк {sum(counts.values())}:')
     for t, n in sorted(counts.items(), key=lambda x: -x[1]):
         print(f'  {n:5d}  {t}')
@@ -176,4 +185,4 @@ def main(go):
 
 
 if __name__ == '__main__':
-    main('--go' in sys.argv)
+    main('--go' in sys.argv, '--all' in sys.argv)
