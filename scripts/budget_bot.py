@@ -96,6 +96,12 @@ def send(text, **kw):
     # переписка — путаницы, к какому вопросу кнопки, быть не может.
     if 'reply_markup' not in kw and (DRAFT.get(ALLOWED) or {}).get('need') == 'category':
         kw['reply_markup'] = cat_keyboard()
+    # Пока операция ждёт «да», рядом висит кнопка сменить кошелёк: человек
+    # видит, откуда спишется, и может поправить одним нажатием, не набирая
+    # ничего. Спрашивать кошелёк у каждой траты нельзя — это лишний шаг
+    # там, где вся ценность в одной фразе.
+    elif 'reply_markup' not in kw and PENDING.get(ALLOWED):
+        kw['reply_markup'] = CHANGE_WALLET
     tg('sendMessage', chat_id=ALLOWED, text=text, parse_mode='HTML',
        disable_web_page_preview=True, **kw)
 
@@ -631,8 +637,16 @@ def quick_answer(data):
     if amt <= 0:
         send(draft_start('', category=cat))
         return
-    add_entry(amt, category=cat, kind='расход', comment=cat)
-    send(f'✅ {cat} · {_money(amt)}\n{left_line(cat)}')
+    # Быстрая кнопка — это и есть «один тап»: спрашивать кошелёк здесь
+    # нечего, берём тот, с которого платим чаще всего.
+    try:
+        w = default_wallet()
+    except Exception as e:
+        log.warning('кошелёк по умолчанию: %s', e)
+        w = ''
+    add_entry(amt, category=cat, kind='расход', comment=cat, wallet=w)
+    send(f'✅ {cat} · {_money(amt)}' + (f' · {w}' if w else '')
+         + f'\n{left_line(cat)}')
 
 
 def habit_loop():
@@ -653,7 +667,7 @@ def habit_loop():
 # Перевод между своими кошельками — не расход: снял с карты наличными, деньги
 # те же. Поэтому у него свой тип и вторая колонка «Куда».
 WALLET_TAB = 'Кошельки'
-WALLET_COLS = ['Кошелёк', 'Стартовый остаток', 'Активен']
+WALLET_COLS = ['Кошелёк', 'Стартовый остаток', 'Активен', 'По умолчанию']
 WALLETS_DEFAULT = ['Наличные', 'Алиф кошелёк', 'Алиф Visa',
                    'Алиф Master Card', 'ДС кошелёк',
                    'Эсхата кошелёк', 'Эсхата Visa']
@@ -671,7 +685,8 @@ def ensure_wallet_tab():
         {'addSheet': {'properties': {'title': WALLET_TAB, 'gridProperties': {
             'rowCount': 30, 'columnCount': 3, 'frozenRowCount': 1}}}}]},
         timeout=30).raise_for_status()
-    rows = [WALLET_COLS] + [[w, '', 'да'] for w in WALLETS_DEFAULT]
+    rows = [WALLET_COLS] + [[w, '', 'да', 'да' if i == 0 else '']
+                            for i, w in enumerate(WALLETS_DEFAULT)]
     SHEETS.put(API + BUDGET_SS + '/values/' + _q(f'{WALLET_TAB}!A1'),
                params={'valueInputOption': 'USER_ENTERED'},
                json={'values': rows}, timeout=30).raise_for_status()
@@ -683,10 +698,10 @@ def wallets(force=False):
     now = datetime.datetime.utcnow()
     if not force and _WAL['ts'] and (now - _WAL['ts']).seconds < 300:
         return _WAL['list']
-    out = []
+    out, default = [], ''
     try:
-        for row in (_rows(f'{WALLET_TAB}!A2:C30') or []):
-            row = list(row) + ['', '', '']
+        for row in (_rows(f'{WALLET_TAB}!A2:D30') or []):
+            row = list(row) + [''] * 4
             name = str(row[0]).strip()
             act = str(row[2]).strip().lower() or 'да'
             if not name or act not in ('да', 'yes', '1', 'true'):
@@ -695,11 +710,45 @@ def wallets(force=False):
                 start = float(str(row[1]).replace(' ', '').replace(',', '.'))
             except ValueError:
                 start = 0.0
+            if str(row[3]).strip().lower() in ('да', 'yes', '1', 'true') and not default:
+                default = name
             out.append((name, start))
     except Exception as e:
         log.warning('кошельки: %s', e)
     _WAL['ts'], _WAL['list'] = now, out
+    _WAL['default'] = default or (out[0][0] if out else '')
     return out
+
+
+def default_wallet():
+    """Кошелёк, с которого платим чаще всего.
+
+    Нужен переписке: спрашивать «с какого кошелька?» на каждую трату
+    значит убить то, ради чего бот и существует — одну фразу и «да».
+    Подставляем умолчание, показываем его в подтверждении и даём кнопку
+    сменить. Ошибиться не страшно: запись правится с экрана.
+    """
+    wallets()
+    return _WAL.get('default', '')
+
+
+def set_default_wallet(name):
+    """Запомнить кошелёк как основной — колонка «По умолчанию»."""
+    rows = _rows(f'{WALLET_TAB}!A2:D30') or []
+    data = []
+    for i, row in enumerate(rows):
+        row = list(row) + [''] * 4
+        if not str(row[0]).strip():
+            continue
+        want = 'да' if str(row[0]).strip() == name else ''
+        if str(row[3]).strip().lower() != want:
+            data.append({'range': f'{WALLET_TAB}!D{i + 2}', 'values': [[want]]})
+    if data:
+        SHEETS.post(API + BUDGET_SS + '/values:batchUpdate',
+                    json={'valueInputOption': 'USER_ENTERED', 'data': data},
+                    timeout=30).raise_for_status()
+    _WAL['ts'] = None
+    return name
 
 
 # Как тип операции двигает деньги в кошельке, из которого она сделана.
@@ -1110,8 +1159,10 @@ def describe(fn, args):
                'Накопление' if k.startswith('нак') else
                'Погашение' if k.startswith('пог') else 'Расход')
         c = args.get('comment', '')
+        w = args.get('wallet', '')
         return (f'💵 {typ}: {_money(args.get("amount", 0))} с · '
-                f'{args.get("category", "Прочее")}' + (f' · {c}' if c else ''))
+                f'{args.get("category", "Прочее")}' + (f' · {c}' if c else '')
+                + (f' · {w}' if w else ''))
     if fn == 'add_credit':
         return f'🏦 Кредит: {_money(args.get("amount", 0))} с · {args.get("name", "")}'
     return f'{fn}({args})'
@@ -1157,6 +1208,24 @@ def cat_keyboard():
     return {'inline_keyboard': rows}
 
 
+def wallet_keyboard():
+    """Кнопки выбора кошелька. В данных номер, а не имя: имена меняются,
+    а кнопка со старым именем записала бы не туда."""
+    ws = [w for w, _ in wallets()]
+    rows, row = [], []
+    for i, w in enumerate(ws):
+        row.append({'text': w, 'callback_data': f'w:{i}'})
+        if len(row) == 2:
+            rows.append(row); row = []
+    if row:
+        rows.append(row)
+    return {'inline_keyboard': rows}
+
+
+CHANGE_WALLET = {'inline_keyboard': [[
+    {'text': '💳 Другой кошелёк', 'callback_data': 'w:ask'}]]}
+
+
 def pend_add(acts):
     """Добавить операции к ожидающим подтверждения. → текст для человека.
 
@@ -1165,6 +1234,14 @@ def pend_add(acts):
     «предыдущая запись НЕ сохранена». Теперь они копятся, и одно «да»
     записывает все.
     """
+    try:
+        w = default_wallet()
+    except Exception as e:
+        log.warning('кошелёк по умолчанию: %s', e)
+        w = ''
+    for fn, a in acts:
+        if fn == 'add_entry' and w and not a.get('wallet'):
+            a['wallet'] = w
     cur = (PENDING.get(ALLOWED) or []) + list(acts)
     PENDING[ALLOWED] = cur
     if len(cur) == 1:
@@ -1897,6 +1974,35 @@ def handle(msg):
     audit(kind, text, reply)
 
 
+def wallet_answer(data):
+    """Нажата кнопка кошелька: показать список или выбрать из него."""
+    if data == 'w:ask':
+        kb = wallet_keyboard()
+        if not kb['inline_keyboard']:
+            return send('Кошельков нет — заведи их в листе «Кошельки».')
+        return send('С какого кошелька?', reply_markup=kb)
+    ws = [w for w, _ in wallets()]
+    try:
+        name = ws[int(data[2:])]
+    except (ValueError, IndexError):
+        # Список мог поменяться, пока сообщение висело. Молчать нельзя:
+        # человек нажал и ждёт.
+        return send('Этого кошелька больше нет — открой список заново.')
+    try:
+        set_default_wallet(name)
+    except Exception as e:
+        log.warning('кошелёк по умолчанию: %s', e)
+    for fn, a in (PENDING.get(ALLOWED) or []):
+        if fn == 'add_entry':
+            a['wallet'] = name
+    left = PENDING.get(ALLOWED) or []
+    if left:
+        return send(f'💳 Кошелёк: <b>{name}</b>\n\n'
+                    + '\n'.join(describe(fn, a) for fn, a in left)
+                    + '\n\n«да» — запишу, «нет» — отменю.')
+    send(f'💳 Теперь по умолчанию: <b>{name}</b>')
+
+
 def on_callback(cq):
     """Нажата кнопка категории."""
     tg('answerCallbackQuery', callback_query_id=cq.get('id'))
@@ -1914,6 +2020,8 @@ def on_callback(cq):
         return habit_answer(data)
     if data.startswith('q:'):
         return quick_answer(data)
+    if data.startswith('w:'):
+        return wallet_answer(data)
     if not data.startswith('c:'):
         return
     try:
