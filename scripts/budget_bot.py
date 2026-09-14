@@ -667,7 +667,14 @@ def _q(rng):
 
 
 def limits(force=False):
-    """{категория: лимит}. Пустой лимит — категория без ограничения."""
+    """{категория: лимит}. Пустая ячейка — категория без ограничения.
+
+    Ноль — это ноль, а не «без ограничения». 14.09.2026 Азиз поставил 0
+    восьми категориям: подарки, лечение, одежда, зал, гаджеты, свидания,
+    обучение, путешествия. Раньше такая строка просто выпадала из лимитов,
+    и категория, которую хотели закрыть, оставалась вообще без контроля —
+    ровно наоборот замыслу. Теперь любая трата в неё считается перебором.
+    """
     now = datetime.datetime.utcnow()
     if not force and _LIM['ts'] and (now - _LIM['ts']).seconds < 300:
         return _LIM['map']
@@ -685,7 +692,7 @@ def limits(force=False):
                 v = float(str(row[1]).replace(' ', '').replace(',', '.'))
             except ValueError:
                 continue
-            if v > 0:
+            if v >= 0:
                 m[cat] = v
     except Exception as e:
         log.warning('лимиты: %s', e)
@@ -732,10 +739,19 @@ def _row_date(x):
 def left_line(cat):
     """Строка «осталось» по категории — показывается сразу после записи."""
     lim = limits().get(cat)
-    if not lim:
+    # `is None`, а не `not lim`: ноль — настоящий лимит, и молчать о нём
+    # нельзя, иначе трата в закрытую категорию проходит незамеченной.
+    if lim is None:
         return ''
     used = spent_by_cat().get(cat, 0.0)
     left = lim - used
+    # Закрытая категория говорит словами, а не процентами: «0 из 0,
+    # потрачено 100 %» человек не понимает, а «решено не тратить» — да.
+    if not lim:
+        if not used:
+            return f'\n🟢 <b>{cat}</b>: закрыта — решено не тратить'
+        return (f'\n🔴 <b>{cat}</b>: {_money(used)} с в закрытой категории '
+                f'за месяц — решено было не тратить')
     pct = round(used / lim * 100)
     if left < 0:
         return (f'\n🔴 <b>{cat}</b>: перебор на {_money(-left)} с — '
@@ -754,20 +770,27 @@ def limits_report():
                 'Пустая строка — категория без ограничения.')
     used = spent_by_cat()
     ym = now_local().strftime('%m.%Y')
-    rows = sorted(lim.items(), key=lambda kv: -(used.get(kv[0], 0) / kv[1]))
+    # Доля от нулевого лимита не считается: любая трата там — сразу верх
+    # списка, потому что категория закрыта.
+    def share(cat, l):
+        u = used.get(cat, 0.0)
+        return u / l if l else (999 if u else 0)
+
+    rows = sorted(lim.items(), key=lambda kv: -share(*kv))
     out = [f'📊 <b>Лимиты за {ym}</b>', '']
     tot_l = tot_u = 0.0
     for cat, l in rows:
         u = used.get(cat, 0.0)
         tot_l += l
         tot_u += u
-        pct = round(u / l * 100)
+        pct = round(u / l * 100) if l else (100 if u else 0)
         mark = '🔴' if u > l else ('🟠' if pct >= 90 else '🟡' if pct >= 70 else '🟢')
         out.append(f'{mark} {cat}: <b>{_money(l - u)}</b> из {_money(l)} '
                    f'· {pct} %')
     out.append('')
     out.append(f'Итого: осталось <b>{_money(tot_l - tot_u)}</b> из '
-               f'{_money(tot_l)} с ({round(tot_u / tot_l * 100)} %)')
+               f'{_money(tot_l)} с '
+               f'({round(tot_u / tot_l * 100) if tot_l else 0} %)')
     no_limit = sorted(c for c in used if c not in lim and used[c] > 0)
     if no_limit:
         out.append('')

@@ -121,8 +121,12 @@ def payload():
         'cats': sorted(B.BUDGET_CATS),
         'income_cats': sorted(B.INCOME_CATS),
         'saving_cats': sorted(B.SAVINGS_CATS),
+        # Закрытая категория (лимит 0) с тратой — сразу наверх: это не
+        # «сто процентов израсходовано», а покупка там, где решено не тратить.
         'limits': [{'cat': c, 'limit': lim[c], 'used': round(used.get(c, 0.0), 2)}
-                   for c in sorted(lim, key=lambda c: -(used.get(c, 0.0) / lim[c]))],
+                   for c in sorted(lim, key=lambda c: -(
+                       used.get(c, 0.0) / lim[c] if lim[c]
+                       else (999 if used.get(c, 0.0) else 0)))],
         'no_limit': sorted(c for c in B.BUDGET_CATS if c not in lim),
         'month': month_numbers(),
         'last': list(reversed(rows))[:12],

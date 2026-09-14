@@ -225,9 +225,11 @@ function drawLimits(){
   const box = $('#limits'); box.innerHTML = '';
   if(!D.limits.length){ box.textContent = 'Лимиты не заданы.'; return; }
   D.limits.forEach(l => {
-    const pct = l.limit ? Math.round(l.used / l.limit * 100) : 0;
+    // Лимит 0 — категория закрыта: любая трата в ней перебор, а не «0 %».
+    const pct = l.limit ? Math.round(l.used / l.limit * 100)
+                        : (l.used ? 100 : 0);
     box.appendChild(line(l.cat, '', money(l.used) + ' / ' + money(l.limit),
-                         pct >= 100 ? 'over' : pct >= 80 ? 'near' : ''));
+                         pct >= 100 && l.used ? 'over' : pct >= 80 ? 'near' : ''));
   });
   $('#nolimit').textContent = D.no_limit.join(' · ') || 'нет';
 }
