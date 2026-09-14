@@ -1190,7 +1190,7 @@ def on_callback(cq):
         if not target:
             return ack('Не нашёл этого человека') or True
         from . import webapp as W
-        W.GEO_OK[target[0]] = (who[0], time.time() + W.GEO_TTL)
+        S.grant(target[0], 'геометка', who[0], W.GRANT_MIN)
         tg('editMessageText', chat_id=chat_id, message_id=mid,
            text=cq['message'].get('text', '') + f'\n\n✅ Разрешил: {who[0]}')
         say(data.split(':', 2)[2],
@@ -1207,7 +1207,7 @@ def on_callback(cq):
         if not target:
             return ack('Не нашёл этого человека') or True
         from . import webapp as W
-        W.LEAVE_OK[target[0]] = (who[0], time.time() + W.LEAVE_TTL)
+        S.grant(target[0], 'уход', who[0], W.GRANT_MIN)
         tg('editMessageText', chat_id=chat_id, message_id=mid,
            text=cq['message'].get('text', '') + f'\n\n✅ Разрешил: {who[0]}')
         say(data.split(':', 2)[2],

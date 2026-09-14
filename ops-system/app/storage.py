@@ -319,6 +319,9 @@ def ensure_structure():
             # Что расписание уже отправило за день. Переживает перезапуск:
             # без этого каждый деплой рассылал утренние напоминания заново.
             'Служебное': ['Дата', 'Уже отправлено'],
+            # Кому управляющий разрешил отметку мимо геометки или уход без
+            # приёма. Тоже переживает перезапуск — по той же причине.
+            GRANT_TAB: GRANT_COLS,
             'Станции': STATION_COLS}
     for key, cl in C.forms().items():
         cols = F.cols_for(cl)
@@ -984,6 +987,59 @@ def set_login(chat_id, login, password):
                 [[login.lower(), hash_password(password)]])
             return True
     return False
+
+
+# ── Разрешения управляющего ──────────────────────────────────────────────
+# Человек стоит на точке, а телефон молчит; или сменщик не пришёл, а надо
+# домой. Управляющий разрешает одну отметку, и его имя остаётся в таблице
+# рядом с ней.
+#
+# 14.09.2026 выяснилось, почему это не работало: разрешения жили в памяти
+# процесса, а Railway перезапускает службу на каждой выкатке. Управляющий
+# разрешал, человек жал кнопку — и упирался в ту же стену, потому что
+# разрешения больше не существовало. Та же история, что с напоминаниями
+# 31.08: память процесса — не место для того, что человеку уже пообещали.
+GRANT_TAB = 'Разрешения'
+GRANT_COLS = ['Дата', 'Кто', 'Что', 'Кто разрешил', 'Действует до']
+GRANT_FMT = '%d.%m.%Y %H:%M:%S'
+
+
+def _grant_rows():
+    return get(GRANT_TAB, 'A2:E200')
+
+
+@serial
+def grant(who, kind, by, minutes=30):
+    """Разрешить одну отметку. Строка на человека и вид — одна."""
+    until = (C.now() + datetime.timedelta(minutes=minutes)).strftime(GRANT_FMT)
+    row = [C.day_str(), who, kind, by, until]
+    for i, r in enumerate(_grant_rows()):
+        r = list(r) + [''] * 5
+        if str(r[1]).strip() == who and str(r[2]).strip() == kind:
+            return put(GRANT_TAB, f'A{i + 2}:E{i + 2}', [row])
+    return append(GRANT_TAB, [row])
+
+
+@serial
+def take_grant(who, kind):
+    """Кто разрешил, либо пусто. Забрали — стёрли: разрешение одноразовое."""
+    for i, r in enumerate(_grant_rows()):
+        r = list(r) + [''] * 5
+        if str(r[1]).strip() != who or str(r[2]).strip() != kind:
+            continue
+        until = str(r[4]).strip()
+        if not until:
+            return ''
+        try:
+            if datetime.datetime.strptime(until, GRANT_FMT) < C.now():
+                return ''
+        except ValueError:
+            return ''
+        # Срок гасим, а кто и когда разрешил — оставляем: по этой строке
+        # потом видно, кого и почему пускали мимо геометки.
+        put(GRANT_TAB, f'E{i + 2}:E{i + 2}', [['']])
+        return str(r[3]).strip()
+    return ''
 
 
 @serial
