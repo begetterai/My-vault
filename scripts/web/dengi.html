@@ -109,7 +109,7 @@
 <body>
 
 <div class="top">
-  <div class="lbl">На руках</div>
+  <div class="lbl">Свободно</div>
   <div class="big num" id="cash">—</div>
   <div class="sub num" id="sub">&nbsp;</div>
 </div>
@@ -306,10 +306,12 @@ function line(name, sub, val, cls){
 
 function drawTop(){
   const m = D.month;
-  $('#cash').textContent = money(m.cash) + ' с';
+  $('#cash').textContent = money(m.free ?? m.cash) + ' с';
   const plan = D.limits.reduce((s, l) => s + l.limit, 0);
-  $('#sub').textContent = 'Потрачено за месяц ' + money(m.spent)
-                        + ' из ' + money(plan);
+  const bits = ['Потрачено за месяц ' + money(m.spent) + ' из ' + money(plan)];
+  if(m.put_away) bits.push('отложено ' + money(m.put_away));
+  if(m.from_savings) bits.push('из накоплений ' + money(m.from_savings));
+  $('#sub').textContent = bits.join(' · ');
 }
 
 function drawLimits(){
@@ -322,6 +324,10 @@ function drawLimits(){
     box.appendChild(line(l.cat, '', money(l.used) + ' / ' + money(l.limit),
                          pct >= 100 && l.used ? 'over' : pct >= 80 ? 'near' : ''));
   });
+  if(D.month.from_savings){
+    box.appendChild(line('Из накоплений', 'в лимиты не входит',
+                         money(D.month.from_savings) + ' с'));
+  }
   $('#nolimit').textContent = D.no_limit.join(' · ') || 'нет';
 }
 
@@ -460,6 +466,17 @@ $('#save').onclick = async () => {
   BUSY = true; $('#save').disabled = true;
   try{
     const kind = $('#kind').value;
+    // Единственное место, где переспрашиваем: деньги из отложенного
+    // тратятся редко и осознанно, и комментарий тут нужен.
+    if(kind === 'расход' && D.save_wallet && WAL === D.save_wallet){
+      if(!$('#comment').value.trim()){
+        note('Трата из накоплений — напиши, на что'); BUSY = false;
+        $('#save').disabled = false; return;
+      }
+      if(!confirm(`Потратить ${amount} из накоплений?`)){
+        BUSY = false; $('#save').disabled = false; return;
+      }
+    }
     const j = kind === 'перевод'
       ? await post('/api/transfer', {amount, from: WAL, to: TO,
                                      comment: $('#comment').value.trim(),

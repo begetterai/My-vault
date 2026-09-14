@@ -667,10 +667,12 @@ def habit_loop():
 # Перевод между своими кошельками — не расход: снял с карты наличными, деньги
 # те же. Поэтому у него свой тип и вторая колонка «Куда».
 WALLET_TAB = 'Кошельки'
-WALLET_COLS = ['Кошелёк', 'Стартовый остаток', 'Активен', 'По умолчанию']
+WALLET_COLS = ['Кошелёк', 'Стартовый остаток', 'Активен', 'По умолчанию',
+               'Накопительный']
+SAVE_NAME = 'Накопления'
 WALLETS_DEFAULT = ['Наличные', 'Алиф кошелёк', 'Алиф Visa',
                    'Алиф Master Card', 'ДС кошелёк',
-                   'Эсхата кошелёк', 'Эсхата Visa']
+                   'Эсхата кошелёк', 'Эсхата Visa', SAVE_NAME]
 _WAL = {'ts': None, 'list': []}
 
 
@@ -685,7 +687,8 @@ def ensure_wallet_tab():
         {'addSheet': {'properties': {'title': WALLET_TAB, 'gridProperties': {
             'rowCount': 30, 'columnCount': 3, 'frozenRowCount': 1}}}}]},
         timeout=30).raise_for_status()
-    rows = [WALLET_COLS] + [[w, '', 'да', 'да' if i == 0 else '']
+    rows = [WALLET_COLS] + [[w, '', 'да', 'да' if i == 0 else '',
+                             'да' if w == SAVE_NAME else '']
                             for i, w in enumerate(WALLETS_DEFAULT)]
     SHEETS.put(API + BUDGET_SS + '/values/' + _q(f'{WALLET_TAB}!A1'),
                params={'valueInputOption': 'USER_ENTERED'},
@@ -698,10 +701,10 @@ def wallets(force=False):
     now = datetime.datetime.utcnow()
     if not force and _WAL['ts'] and (now - _WAL['ts']).seconds < 300:
         return _WAL['list']
-    out, default = [], ''
+    out, default, save = [], '', ''
     try:
-        for row in (_rows(f'{WALLET_TAB}!A2:D30') or []):
-            row = list(row) + [''] * 4
+        for row in (_rows(f'{WALLET_TAB}!A2:E30') or []):
+            row = list(row) + [''] * 5
             name = str(row[0]).strip()
             act = str(row[2]).strip().lower() or 'да'
             if not name or act not in ('да', 'yes', '1', 'true'):
@@ -712,12 +715,30 @@ def wallets(force=False):
                 start = 0.0
             if str(row[3]).strip().lower() in ('да', 'yes', '1', 'true') and not default:
                 default = name
+            if str(row[4]).strip().lower() in ('да', 'yes', '1', 'true') and not save:
+                save = name
             out.append((name, start))
     except Exception as e:
         log.warning('кошельки: %s', e)
     _WAL['ts'], _WAL['list'] = now, out
     _WAL['default'] = default or (out[0][0] if out else '')
+    # Накопительный кошелёк один. Если в таблице не помечен — ищем по имени,
+    # чтобы механика работала и до того, как Азиз дойдёт до настроек.
+    _WAL['save'] = save or (SAVE_NAME if any(n == SAVE_NAME for n, _ in out) else '')
     return out
+
+
+def save_wallet():
+    """Накопительный кошелёк. Пусто — накоплений ещё нет.
+
+    Зачем отдельно: крупная редкая трата (зубы, спортпит на год) идёт
+    из накопленного и в месячный лимит категории входить не должна.
+    Иначе лечение на 5 570 даст чудовищный перебор по категории,
+    и план месяца развалится, хотя человек сделал всё правильно.
+    Признак несёт сам кошелёк — отдельного поля у операции не нужно.
+    """
+    wallets()
+    return _WAL.get('save', '')
 
 
 def default_wallet():
@@ -941,15 +962,22 @@ def limits(force=False):
     return m
 
 
-def spent_by_cat(ym=None):
-    """{категория: потрачено} за месяц. Только строки типа «Расход»."""
+def spent_by_cat(ym=None, from_savings=False):
+    """{категория: потрачено} за месяц. Только строки типа «Расход».
+
+    По умолчанию траты с накопительного кошелька не считаются: они
+    не из месячного бюджета. `from_savings=True` — наоборот, только они.
+    """
     ym = ym or now_local().strftime('%Y-%m')
+    sav = save_wallet()
     out = {}
     r = SHEETS.get(API + BUDGET_SS + '/values/' + _q('Operations!A2:H'),
                    params={'valueRenderOption': 'UNFORMATTED_VALUE'}, timeout=60)
     for row in (r.json().get('values', []) if r.ok else []):
         row = list(row) + ['', '', '', '', '']
         if str(row[1]).strip() != 'Расход':
+            continue
+        if sav and (str(row[5]).strip() == sav) != from_savings:
             continue
         d = _row_date(row[0])
         if not d or d.strftime('%Y-%m') != ym:

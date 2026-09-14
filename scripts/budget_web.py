@@ -99,9 +99,18 @@ def month_numbers():
     # показывала −1, а список кошельков под ней — 1 385,85. Журнал знает
     # только движение; сколько было до первой записи, знают кошельки.
     start = sum(s for _, s in B.wallets())
+    # «Свободно» — всё, кроме накопительного кошелька. Отложенное лежит
+    # рядом, но это не деньги на жизнь, и показывать их одной суммой
+    # значит мешать откладывать.
+    bal, unknown = B.wallet_balances()
+    sav = B.save_wallet()
+    put_away = bal.get(sav, 0.0) if sav else 0.0
+    cash = start + carry + month
     return {'income': by.get('Доход', 0.0), 'spent': by.get('Расход', 0.0),
             'saved': by.get('Накопление', 0.0), 'debt': by.get('Погашение', 0.0),
-            'month': month, 'carry': start + carry, 'cash': start + carry + month}
+            'month': month, 'carry': start + carry, 'cash': cash,
+            'put_away': round(put_away, 2), 'free': round(cash - put_away, 2),
+            'from_savings': round(sum(B.spent_by_cat(from_savings=True).values()), 2)}
 
 
 def payload():
@@ -124,6 +133,7 @@ def payload():
         'month': month_numbers(),
         'last': list(reversed(rows))[:12],
         'wallets': [w for w, _ in B.wallets(force=True)],
+        'save_wallet': B.save_wallet(),
         'balances': wallet_lines(),
         'habits': habits(),
         'debts': B.debt_state(),
