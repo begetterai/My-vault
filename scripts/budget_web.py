@@ -15,6 +15,7 @@
 телеграма (initData) проверяем по его же токену бота: чужой браузер такую
 подпись не соберёт.
 """
+import collections
 import hashlib
 import hmac
 import json
@@ -208,6 +209,56 @@ def measures():
     return out
 
 
+MIN_DAYS = 30
+
+
+def links():
+    """Связки: что в дни с привычкой и что в дни без неё.
+
+    Только два измеренных средних и число дней, на которых они посчитаны.
+    Ни слова «корреляция», ни процентов значимости: они создают ощущение
+    науки там, где пока гадание. Пока дней меньше тридцати на группу,
+    экран сам говорит «мало данных» — 04.07 дашборд уже показывал
+    «прибыль», которая была выручкой без расходов.
+    """
+    closed = collections.Counter()
+    for t in B.tasks(done=True):
+        d = B._row_date(t['when']) if t['when'] else None
+        if d:
+            closed[d] += 1
+    meas = {}
+    for c in B.meas_cfg():
+        if c['on']:
+            meas[c['name']] = ({d: v for d, _n, v in B.meas_rows(c['name'])},
+                               c['unit'])
+    out = []
+    for cfg in B.habit_cfg():
+        if not cfg['on']:
+            continue
+        yes, no = [], []
+        for d, _n, ans, _w in B.habit_rows(cfg['name'], days_back=180):
+            (yes if ans == 'был' else no).append(d)
+        if not yes or not no:
+            continue
+        pairs = [('Закрыто дел', closed, '')]
+        pairs += [(name, vals, unit) for name, (vals, unit) in meas.items()]
+        rows = []
+        for name, vals, unit in pairs:
+            a = [vals.get(d, 0) if name == 'Закрыто дел' else vals[d]
+                 for d in yes if name == 'Закрыто дел' or d in vals]
+            b = [vals.get(d, 0) if name == 'Закрыто дел' else vals[d]
+                 for d in no if name == 'Закрыто дел' or d in vals]
+            if not a or not b:
+                continue
+            rows.append({'what': name, 'unit': unit,
+                         'with': round(sum(a) / len(a), 2), 'n_with': len(a),
+                         'without': round(sum(b) / len(b), 2), 'n_without': len(b),
+                         'thin': min(len(a), len(b)) < MIN_DAYS})
+        if rows:
+            out.append({'habit': cfg['name'], 'rows': rows})
+    return out
+
+
 def project_list():
     out = []
     for p in B.projects():
@@ -307,6 +358,7 @@ def payload():
         'projects': project_list(),
         'goals_money': B.money_goals(),
         'cycle': B.cycle_state(),
+        'links': links(),
         'screen': B.screen_items(),
     }
 

@@ -259,6 +259,7 @@
 
 <section id="pGoals" class="hide"></section>
 <section id="pCycle" class="hide"></section>
+<section id="pLinks" class="hide"></section>
 <section id="pMeas" class="hide"></section>
 <section id="pMatrix" class="hide"></section>
 <section id="pMGoals" class="hide"></section>
@@ -693,6 +694,7 @@ async function load(){
   drawLimits(); drawMonth(); drawLast(); drawHabits(); drawDebts();
   drawTasks(); drawQuick(); drawTiles(); drawTrend();
   drawMeas(); drawGoals(); drawMatrix(); drawMGoals(); drawCycle();
+  drawLinks();
   if(FIRST){ FIRST = false; show('today'); }
 }
 
@@ -708,14 +710,15 @@ const BLOCKS = {
     ['Month', 'Итог'], ['Set', 'Настроить']],
     settings: ['limits', 'wallets', 'debts', 'goals_money']},
   body: {name: 'Ритм', subs: [['Habits', 'Привычки'], ['Meas', 'Меры'],
-    ['Set', 'Настроить']], settings: ['habits', 'measures']},
+    ['Links', 'Связки'], ['Set', 'Настроить']],
+    settings: ['habits', 'measures']},
   todo: {name: 'Дела', subs: [['Tasks', 'Список'], ['Matrix', 'Матрица']]},
   goals: {name: 'Цели', subs: [['Goals', 'Проекты'], ['Cycle', 'Цикл'],
     ['Set', 'Настроить']], settings: ['projects', 'cycle']},
 };
 const PAGES = ['Quick', 'Write', 'Limits', 'Wallets', 'Debts', 'Trend',
                'Month', 'Habits', 'Meas', 'Tasks', 'Matrix', 'Goals', 'Set',
-               'MGoals', 'Cycle'];
+               'MGoals', 'Cycle', 'Links'];
 let TAB = 'today';
 
 function show(block, sub){
@@ -850,6 +853,38 @@ function drawGoals(){
                     + '%';
     bar.appendChild(i); c.appendChild(bar);
     box.appendChild(c);
+  });
+}
+
+/* Связки: что в дни с привычкой и что в дни без неё. Два измеренных
+   средних и число дней, на которых они посчитаны. Ни слова «корреляция»,
+   ни процентов значимости — они создают ощущение науки там, где гадание.
+   Пока дней мало, экран говорит об этом сам. */
+function drawLinks(){
+  const box = $('#pLinks'); box.innerHTML = '';
+  const list = D.links || [];
+  if(!list.length){
+    box.innerHTML = '<div class="card dim">Связок пока нет: нужны дни '
+                  + 'и с привычкой, и без неё. Появятся сами, как накопятся '
+                  + 'ответы.</div>';
+    return;
+  }
+  list.forEach(g => {
+    const h = document.createElement('h2'); h.textContent = g.habit;
+    const c = document.createElement('div'); c.className = 'card';
+    g.rows.forEach(r => {
+      const u = r.unit ? ' ' + r.unit : '';
+      c.appendChild(line(r.what,
+        'с привычкой — ' + r.n_with + ' дн., без — ' + r.n_without + ' дн.',
+        money(r.with) + u + ' / ' + money(r.without) + u));
+      if(r.thin){
+        const d = document.createElement('div');
+        d.className = 'dim'; d.style.fontSize = '12px';
+        d.textContent = 'мало данных — меньше 30 дней в группе';
+        c.appendChild(d);
+      }
+    });
+    box.append(h, c);
   });
 }
 
