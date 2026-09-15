@@ -258,6 +258,7 @@
 </section>
 
 <section id="pGoals" class="hide"></section>
+<section id="pCycle" class="hide"></section>
 <section id="pMeas" class="hide"></section>
 <section id="pMatrix" class="hide"></section>
 <section id="pMGoals" class="hide"></section>
@@ -691,7 +692,7 @@ async function load(){
   drawTop(); drawCats(); drawWallets(); drawBal();
   drawLimits(); drawMonth(); drawLast(); drawHabits(); drawDebts();
   drawTasks(); drawQuick(); drawTiles(); drawTrend();
-  drawMeas(); drawGoals(); drawMatrix(); drawMGoals();
+  drawMeas(); drawGoals(); drawMatrix(); drawMGoals(); drawCycle();
   if(FIRST){ FIRST = false; show('today'); }
 }
 
@@ -709,12 +710,12 @@ const BLOCKS = {
   body: {name: 'Ритм', subs: [['Habits', 'Привычки'], ['Meas', 'Меры'],
     ['Set', 'Настроить']], settings: ['habits', 'measures']},
   todo: {name: 'Дела', subs: [['Tasks', 'Список'], ['Matrix', 'Матрица']]},
-  goals: {name: 'Цели', subs: [['Goals', 'Проекты'], ['Set', 'Настроить']],
-    settings: ['projects']},
+  goals: {name: 'Цели', subs: [['Goals', 'Проекты'], ['Cycle', 'Цикл'],
+    ['Set', 'Настроить']], settings: ['projects', 'cycle']},
 };
 const PAGES = ['Quick', 'Write', 'Limits', 'Wallets', 'Debts', 'Trend',
                'Month', 'Habits', 'Meas', 'Tasks', 'Matrix', 'Goals', 'Set',
-               'MGoals'];
+               'MGoals', 'Cycle'];
 let TAB = 'today';
 
 function show(block, sub){
@@ -852,6 +853,47 @@ function drawGoals(){
   });
 }
 
+/* Цикл: гипотезы на 30 дней. Метрики разделены на опережающие («что я
+   делаю») и запаздывающие («что из этого вышло») — без этого деления
+   разбор не отвечает на вопрос «работало или нет»: можно было делать
+   и не получить, а можно не делать и получить случайно. */
+function drawCycle(){
+  const box = $('#pCycle'); box.innerHTML = '';
+  const C = D.cycle || {rows: [], ends: '', days_left: null};
+  if(!C.rows.length){
+    box.innerHTML = '<div class="card dim">Гипотез нет. Заведи '
+                  + 'в «Настроить → Цикл»: блок, гипотеза, метрика, вид '
+                  + '(опережающая или запаздывающая), план, источник '
+                  + '(привычка / мера / дела / записи трат), начало и конец.'
+                  + '</div>';
+    return;
+  }
+  if(C.days_left !== null){
+    const h = document.createElement('div'); h.className = 'card';
+    h.appendChild(line('Разбор', C.ends.split('-').reverse().join('.'),
+                       C.days_left >= 0 ? 'через ' + C.days_left + ' дн.'
+                                        : 'просрочен',
+                       C.days_left < 0 ? 'over'
+                                       : C.days_left <= 3 ? 'near' : ''));
+    box.appendChild(h);
+  }
+  [[true, 'Что делаю'], [false, 'Что выходит']].forEach(([lead, title]) => {
+    const list = C.rows.filter(r => r.lead === lead);
+    if(!list.length) return;
+    const h = document.createElement('h2'); h.textContent = title;
+    const c = document.createElement('div'); c.className = 'card';
+    list.forEach(r => {
+      c.appendChild(line(r.metric, r.block + (r.idea ? ' · ' + r.idea : ''),
+                         money(r.fact) + ' из ' + money(r.plan)));
+      const bar = document.createElement('div'); bar.className = 'mbar';
+      const i = document.createElement('i');
+      i.style.width = Math.min(r.pct, 100) + '%';
+      bar.appendChild(i); c.appendChild(bar);
+    });
+    box.append(h, c);
+  });
+}
+
 /* Матрица Эйзенхауэра — второй взгляд на тот же список. Срочность берём
    из срока, важность из пометки «главная». */
 function drawMatrix(){
@@ -889,7 +931,7 @@ async function drawSet(kind, kinds0){
   if(!kinds.includes(SET_KIND)) SET_KIND = kinds[0];
   const RU = {habits: 'Привычки', measures: 'Меры', limits: 'Категории',
               wallets: 'Кошельки', debts: 'Долги', projects: 'Проекты',
-              goals_money: 'Цели', screen: 'Экран «Сегодня»'};
+              goals_money: 'Цели', screen: 'Экран «Сегодня»', cycle: 'Цикл'};
   const chips = $('#setKinds'); chips.innerHTML = '';
   kinds.forEach(k => {
     const b = document.createElement('button');

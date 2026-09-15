@@ -306,6 +306,7 @@ def payload():
         'measures': measures(),
         'projects': project_list(),
         'goals_money': B.money_goals(),
+        'cycle': B.cycle_state(),
         'screen': B.screen_items(),
     }
 

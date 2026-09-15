@@ -352,13 +352,27 @@ _LIM = {'ts': None, 'map': {}}
 
 
 def _rows(rng):
-    """Строки диапазона. Пусто при сбое — читатель решает, что с этим делать."""
-    try:
-        r = SHEETS.get(API + BUDGET_SS + '/values/' + _q(rng), timeout=30)
-        return r.json().get('values', []) if r.ok else []
-    except Exception as e:
-        log.warning('чтение %s: %s', rng, e)
-        return []
+    """Строки диапазона. Пусто при сбое — читатель решает, что с этим делать.
+
+    У Google квота 60 чтений в минуту, а один экран читает полтора десятка
+    диапазонов. При отказе по квоте ответ раньше был пустым списком —
+    экран показывал «ничего нет» вместо «не прочиталось». Поэтому
+    повторяем дважды и сбой пишем в лог.
+    """
+    for wait in (1, 3, 0):
+        try:
+            r = SHEETS.get(API + BUDGET_SS + '/values/' + _q(rng), timeout=30)
+            if r.ok:
+                return r.json().get('values', [])
+            log.warning('чтение %s: %s %s', rng, r.status_code, r.text[:120])
+            if r.status_code not in (429, 500, 503) or not wait:
+                return []
+        except Exception as e:
+            log.warning('чтение %s: %s', rng, e)
+            if not wait:
+                return []
+        time.sleep(wait)
+    return []
 
 
 # ── привычки: один тап вместо силы воли ──────────────────────────────────────
@@ -630,6 +644,24 @@ def once(key):
     return True
 
 
+def cycle_tick():
+    """За три дня до разбора — напомнить с цифрами. Цикл 1 закрылся
+    без разбора именно потому, что напомнить было некому."""
+    now = now_local()
+    if now.strftime('%H:%M') < DUE_AT:
+        return
+    st = cycle_state()
+    if st['days_left'] is None or not 0 <= st['days_left'] <= 3:
+        return
+    if not once(f'cycle:{now.strftime("%d.%m")}'):
+        return
+    lines = [f'· {r["metric"]}: {_money(r["fact"])} из {_money(r["plan"])}'
+             for r in st['rows']]
+    send(f'🎯 <b>Разбор цикла {st["ends"]}</b> — осталось '
+         f'{st["days_left"]} дн.\n' + '\n'.join(lines),
+         reply_markup=screen_button())
+
+
 def evening_tick():
     """Вечером — выбрать три главные на завтра.
 
@@ -793,6 +825,7 @@ def habit_loop():
             habit_tick()
             meas_tick()
             due_tick()
+            cycle_tick()
             evening_tick()
         except Exception as e:
             log.warning('привычки: %s', e)
@@ -1423,7 +1456,86 @@ def screen_items():
     return out
 
 
-SETTINGS = {'goals_money': (GOAL_TAB, GOAL_COLS, 50),
+# ── цикл ────────────────────────────────────────────────────────────────────
+# Двигатель системы: 30 дней, гипотеза → действие с трекингом → анализ
+# по факту. Цикл 1 закрылся 25.07 без разбора, и полтора месяца работа шла
+# вообще без цикла — напомнить было некому. Теперь напоминает бот.
+#
+# Метрики делятся на два вида (из метода 12 Week Year): опережающие —
+# что я делаю, запаздывающие — что из этого выходит. Без разделения
+# разбор не отвечает на вопрос «работало или нет»: можно было делать
+# и не получить, а можно не делать и получить случайно.
+CYCLE_TAB = 'Цикл'
+CYCLE_COLS = ['Блок', 'Гипотеза', 'Метрика', 'Вид', 'План', 'Источник',
+              'Начало', 'Конец', 'Активен']
+CYCLE_SRC = ('привычка', 'мера', 'дела', 'записи трат', 'вручную')
+
+
+def ensure_cycle_tab():
+    meta = SHEETS.get(API + BUDGET_SS, params={'fields': 'sheets.properties'},
+                      timeout=30).json()
+    if CYCLE_TAB in {sh['properties']['title'] for sh in meta.get('sheets', [])}:
+        return
+    SHEETS.post(API + BUDGET_SS + ':batchUpdate', json={'requests': [
+        {'addSheet': {'properties': {'title': CYCLE_TAB, 'gridProperties': {
+            'rowCount': 60, 'columnCount': len(CYCLE_COLS),
+            'frozenRowCount': 1}}}}]}, timeout=30).raise_for_status()
+    SHEETS.put(API + BUDGET_SS + '/values/' + _q(f'{CYCLE_TAB}!A1'),
+               params={'valueInputOption': 'USER_ENTERED'},
+               json={'values': [CYCLE_COLS]}, timeout=30).raise_for_status()
+    log.info('создан лист «%s»', CYCLE_TAB)
+
+
+def cycle_state():
+    """Гипотезы цикла с посчитанным фактом и днями до разбора."""
+    today = today_local()
+    out, ends = [], None
+    for i, r in enumerate(_rows(f'{CYCLE_TAB}!A2:I60') or []):
+        r = list(r) + [''] * 9
+        if not str(r[0]).strip():
+            continue
+        act = str(r[8]).strip().lower() or 'да'
+        if act not in ('да', 'yes', '1', 'true'):
+            continue
+        start = _row_date(r[6]) or today
+        end = _row_date(r[7]) or today
+        ends = end if ends is None else max(ends, end)
+        src, metric = str(r[5]).strip().lower(), str(r[2]).strip()
+        plan = _num(r[4])
+        # Факт считается из уже собранных данных. Метрика, которую надо
+        # обновлять руками, к разбору всегда оказывается пустой.
+        if src.startswith('привыч'):
+            fact = sum(1 for d, _n, a, _w in habit_rows(metric, days_back=120)
+                       if a == 'был' and start <= d <= end)
+        elif src.startswith('мера'):
+            vals = [v for d, _n, v in meas_rows(metric, days_back=120)
+                    if start <= d <= end]
+            fact = round(sum(vals) / len(vals), 2) if vals else 0
+        elif src.startswith('дел'):
+            fact = sum(1 for t in tasks(done=True)
+                       if t['when'] and start <= (_row_date(t['when']) or today) <= end)
+        elif src.startswith('запис'):
+            seen = set()
+            for row in (_rows('Operations!A2:I2000') or []):
+                row = list(row) + [''] * 9
+                d = _row_date(row[0])
+                if d and start <= d <= end and str(row[1]).strip() == 'Расход':
+                    seen.add(d)
+            fact = len(seen)
+        else:
+            fact = 0                       # вручную — факта нет, честно 0
+        out.append({'line': i + 2, 'block': str(r[0]).strip(),
+                    'idea': str(r[1]).strip(), 'metric': metric,
+                    'lead': not str(r[3]).strip().lower().startswith('запаз'),
+                    'plan': plan, 'src': src, 'fact': fact,
+                    'start': str(start), 'end': str(end),
+                    'pct': round(fact / plan * 100) if plan else 0})
+    left = (ends - today).days if ends else None
+    return {'rows': out, 'ends': str(ends) if ends else '', 'days_left': left}
+
+
+SETTINGS = {'cycle': (CYCLE_TAB, CYCLE_COLS, 60),
+            'goals_money': (GOAL_TAB, GOAL_COLS, 50),
             'screen': (SCREEN_TAB, SCREEN_COLS, 20),
     'habits': (HABIT_CFG_TAB, HABIT_CFG_COLS, 20),
     'measures': (MEAS_CFG_TAB, MEAS_CFG_COLS, 30),
@@ -2787,6 +2899,7 @@ def run():
         ensure_meas_tabs()
         ensure_proj_tab()
         ensure_goal_tabs()
+        ensure_cycle_tab()
         # Вопрос про привычку должен приходить сам, а не ждать, пока
         # откроешь бота: в этом вся суть — не заставлять себя заходить.
         threading.Thread(target=habit_loop, daemon=True).start()
