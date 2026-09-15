@@ -19,6 +19,7 @@
     --on-accent:var(--tg-theme-button-text-color,#ffffff);
     --bad:var(--tg-theme-destructive-text-color,#e0705f);
     --warn:#d6a13f;
+    --ok:#4cc38a;
     --line:color-mix(in srgb, var(--ink) 14%, transparent);
     --sunk:color-mix(in srgb, var(--ink) 7%, transparent);
   }
@@ -26,7 +27,8 @@
   body{
     margin:0;background:var(--bg);color:var(--ink);
     font:15px/1.4 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
-    padding:10px 12px 36px;max-width:600px;margin:0 auto;
+    padding:10px 12px calc(86px + env(safe-area-inset-bottom));
+    max-width:600px;margin:0 auto;
   }
   .num{font-variant-numeric:tabular-nums}
   .dim{color:var(--dim)}
@@ -117,6 +119,49 @@
   .blk .t small{color:var(--dim);font-size:12.5px}
   .blk .go-arrow{color:var(--dim);font-size:18px}
 
+  /* Плитки-метрики 2×2: иконка в подложке, крупное число, подпись.
+     Взято у Lifehub — так число читается за полвзгляда. */
+  .tiles{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .tile{background:var(--card);border-radius:12px;padding:12px}
+  .tile .ic{width:30px;height:30px;border-radius:9px;display:grid;
+            place-items:center;font-size:15px;background:var(--sunk)}
+  .tile .v{font-size:21px;font-weight:700;margin-top:8px;
+           font-variant-numeric:tabular-nums}
+  .tile .c{color:var(--dim);font-size:12px;margin-top:2px}
+  .tile .v.good{color:var(--ok)} .tile .v.bad{color:var(--bad)}
+  .tile .v.warn{color:var(--warn)}
+
+  /* Столбики динамики. Рисуем сами: библиотека ради шести столбиков —
+     лишний вес и лишнее место, где ломается. */
+  .chart{display:flex;align-items:flex-end;gap:7px;height:110px;
+         margin-top:10px}
+  .chart .col{flex:1;display:flex;flex-direction:column;
+              justify-content:flex-end;gap:2px;height:100%}
+  .chart .col i{display:block;border-radius:3px;min-height:2px}
+  .chart .col i.inc{background:var(--ok)}
+  .chart .col i.sp{background:var(--accent)}
+  .chart .col i.sv{background:var(--warn)}
+  .chart .lab{text-align:center;color:var(--dim);font-size:11px;
+              margin-top:5px}
+  .legend{display:flex;gap:12px;color:var(--dim);font-size:12px;
+          margin-top:8px;flex-wrap:wrap}
+  .legend s{width:9px;height:9px;border-radius:3px;display:inline-block;
+            margin-right:4px;text-decoration:none}
+
+  /* Нижняя панель — как у Lifehub: палец достаёт, всегда на виду. */
+  .bar{position:fixed;left:0;right:0;bottom:0;display:flex;
+       background:var(--card);border-top:1px solid var(--line);
+       padding:6px 4px calc(6px + env(safe-area-inset-bottom));z-index:8}
+  .bar button{flex:1;border:0;background:none;color:var(--dim);
+              font:inherit;font-size:10.5px;padding:4px 0;cursor:pointer}
+  .bar button b{display:block;font-size:19px;line-height:1.15;
+                font-weight:400}
+  .bar button.on{color:var(--accent);font-weight:600}
+  .fab{position:fixed;right:16px;bottom:calc(72px + env(safe-area-inset-bottom));
+       width:54px;height:54px;border-radius:27px;border:0;z-index:9;
+       background:var(--accent);color:var(--on-accent);font-size:28px;
+       line-height:1;cursor:pointer;box-shadow:0 6px 18px rgba(0,0,0,.45)}
+
   .acc{display:flex;align-items:center;gap:8px;padding:5px 0}
   .acc span{flex:1}
   .acc input{width:44%;padding:8px;text-align:right}
@@ -136,6 +181,7 @@
 </div>
 
 <section id="pQuick">
+  <div class="tiles" id="qTiles"></div>
   <div id="qAsk"></div>
   <div id="qTop"></div>
   <div class="card">
@@ -148,19 +194,9 @@
       <button class="go flat" id="qIn">➕ Доход</button>
     </div>
   </div>
-  <button class="go flat" id="qMore">Всё остальное →</button>
-</section>
-
-<section id="pBlocks" class="hide">
-  <div id="blockList"></div>
-  <button class="go flat" id="bBack">← Сегодня</button>
 </section>
 
 <div class="hide" id="subHead">
-  <div class="crumb">
-    <button class="x" id="sBack">←</button>
-    <b id="sTitle"></b>
-  </div>
   <div class="chips" id="subs"></div>
 </div>
 
@@ -226,6 +262,31 @@
     Пока цикл живёт в заметках: 11.09–10.10, зал 17 за цикл,
     разбор 10.10.</div>
 </section>
+
+<section id="pTrend" class="hide">
+  <div class="card">
+    <b>Деньги по месяцам</b>
+    <div class="chart" id="chart"></div>
+    <div id="chartLabs" style="display:flex;gap:7px"></div>
+    <div class="legend">
+      <span><s style="background:var(--ok)"></s>заработано</span>
+      <span><s style="background:var(--accent)"></s>потрачено</span>
+      <span><s style="background:var(--warn)"></s>отложено</span>
+    </div>
+  </div>
+  <h2>Категории по месяцам</h2>
+  <div class="card" id="catTrend"></div>
+</section>
+
+<button class="fab" id="fab">+</button>
+
+<nav class="bar" id="bar">
+  <button data-b="today"><b>◎</b>Сегодня</button>
+  <button data-b="money"><b>₵</b>Деньги</button>
+  <button data-b="body"><b>♥</b>Тело</button>
+  <button data-b="todo"><b>✓</b>Дела</button>
+  <button data-b="goals"><b>◆</b>Цели</button>
+</nav>
 
 <div id="toast"></div>
 
@@ -617,105 +678,136 @@ async function load(){
   if(!$('#date').value) $('#date').value = j.today;
   drawTop(); drawCats(); drawWallets(); drawBal();
   drawLimits(); drawMonth(); drawLast(); drawHabits(); drawDebts();
-  drawTasks(); drawQuick();
-  if(FIRST){ FIRST = false; quick(); }
+  drawTasks(); drawQuick(); drawTiles(); drawTrend();
+  if(FIRST){ FIRST = false; show('today'); }
 }
 
-/* Три уровня. Вход — что нужно сделать. Блоки — куда пойти. Подраздел —
-   где работать. Раньше «Записать», «Лимиты» и «Месяц» (подразделы денег)
-   стояли в одной строке с «Залом» и «Делами» (самостоятельными блоками),
-   и было непонятно, где ты находишься. */
-const BLOCKS = [
-  {id: 'money', ic: '💰', name: 'Деньги', subs: [
+/* Навигация: нижняя панель как у Lifehub — палец достаёт, всегда видно,
+   где ты. Внутри раздела чипы подразделов. Верхняя полоса вкладок
+   этого не давала: она уезжала при прокрутке и мешала уровни. */
+const BLOCKS = {
+  today: {name: 'Сегодня', subs: [['Quick', 'Сегодня']]},
+  money: {name: 'Деньги', subs: [
     ['Write', 'Записать'], ['Limits', 'Лимиты'], ['Wallets', 'Кошельки'],
-    ['Debts', 'Долги'], ['Month', 'Итог месяца']]},
-  {id: 'body', ic: '🏋', name: 'Тело', subs: [['Habits', 'Привычки']]},
-  {id: 'todo', ic: '✓', name: 'Дела', subs: [['Tasks', 'Список']]},
-  {id: 'goals', ic: '🎯', name: 'Цели', subs: [['Goals', 'Цикл и проекты']]},
-];
-const PAGES = ['Write', 'Limits', 'Wallets', 'Debts', 'Month', 'Habits',
-               'Tasks', 'Goals'];
+    ['Debts', 'Долги'], ['Trend', 'Динамика'], ['Month', 'Итог']]},
+  body: {name: 'Тело', subs: [['Habits', 'Привычки']]},
+  todo: {name: 'Дела', subs: [['Tasks', 'Список']]},
+  goals: {name: 'Цели', subs: [['Goals', 'Цикл и проекты']]},
+};
+const PAGES = ['Quick', 'Write', 'Limits', 'Wallets', 'Debts', 'Trend',
+               'Month', 'Habits', 'Tasks', 'Goals'];
+let TAB = 'today';
 
-function hideAll(){
+function show(block, sub){
+  const b = BLOCKS[block]; if(!b) return;
+  TAB = block;
   PAGES.forEach(n => $('#p' + n).classList.add('hide'));
-  ['#pQuick', '#pBlocks', '#subHead'].forEach(x => $(x).classList.add('hide'));
-}
-
-function quick(){
-  hideAll();
-  $('#pQuick').classList.remove('hide');
-  window.scrollTo(0, 0);
-}
-
-function blocks(){
-  hideAll();
-  $('#pBlocks').classList.remove('hide');
-  drawBlocks();
-  window.scrollTo(0, 0);
-}
-
-/* Подраздел открывается вместе с шапкой блока: человек всегда видит,
-   в каком блоке находится и куда вернуться. */
-function openBlock(blockId, sub){
-  const b = BLOCKS.find(x => x.id === blockId);
-  if(!b) return;
-  hideAll();
-  $('#subHead').classList.remove('hide');
-  $('#sTitle').textContent = b.name;
-  const box = $('#subs'); box.innerHTML = '';
   const want = sub || b.subs[0][0];
-  b.subs.forEach(([id, label]) => {
+  $('#p' + want).classList.remove('hide');
+  // Чипы показываем только там, где подразделов больше одного.
+  const many = b.subs.length > 1;
+  $('#subHead').classList.toggle('hide', !many);
+  const box = $('#subs'); box.innerHTML = '';
+  if(many) b.subs.forEach(([id, label]) => {
     const btn = document.createElement('button');
     btn.type = 'button'; btn.textContent = label;
     if(id === want) btn.className = 'on';
-    btn.onclick = () => openBlock(blockId, id);
+    btn.onclick = () => show(block, id);
     box.appendChild(btn);
   });
-  $('#p' + want).classList.remove('hide');
+  document.querySelectorAll('#bar button').forEach(x =>
+    x.classList.toggle('on', x.dataset.b === block));
+  // Крупное число — про деньги, поэтому висит только там и на входе.
+  $('#topLine').classList.toggle('hide', !['today', 'money'].includes(block));
   window.scrollTo(0, 0);
 }
 
-function drawBlocks(){
-  const box = $('#blockList'); box.innerHTML = '';
-  const m = D.month, T = D.tasks || {late: [], today: []};
-  const plan = D.limits.reduce((s, l) => s + l.limit, 0);
-  const gym = (D.habits || [])[0];
-  const state = {
-    money: 'Свободно ' + money(m.free ?? m.cash) + ' · потрачено '
-           + money(m.spent) + ' из ' + money(plan),
-    body: gym ? gym.name + ': ' + gym.done_week + ' из ' + gym.plan
-                + ' на этой неделе'
-              : 'Привычек пока нет',
-    todo: 'Сегодня ' + T.today.length + ' · просрочено ' + T.late.length,
-    goals: 'Цикл 2 · разбор 10.10',
-  };
-  BLOCKS.forEach(b => {
-    const btn = document.createElement('button');
-    btn.className = 'blk'; btn.type = 'button';
-    btn.innerHTML = '<span class="ic">' + b.ic + '</span>'
-      + '<span class="t"><b>' + b.name + '</b><small>' + state[b.id]
-      + '</small></span><span class="go-arrow">\u203a</span>';
-    btn.onclick = () => openBlock(b.id);
-    box.appendChild(btn);
-  });
-}
+document.querySelectorAll('#bar button').forEach(x =>
+  x.onclick = () => show(x.dataset.b));
 
 /* Кнопки входа не заводят второй формы записи — открывают «Записать»
    с нужным типом и ставят курсор туда, где начинают. */
 function go(kind){
   $('#kind').value = kind;
   drawCats(); drawWallets();
-  openBlock('money', 'Write');
+  show('money', 'Write');
   $('#amount').focus();
 }
 
-$('#qMore').onclick = blocks;
-$('#bBack').onclick = quick;
-$('#sBack').onclick = blocks;
+$('#fab').onclick = () => go('расход');
 $('#qSpend').onclick = () => go('расход');
 $('#qMove').onclick = () => go('перевод');
 $('#qIn').onclick = () => go('доход');
-$('#qTask').onclick = () => { openBlock('todo'); $('#tText').focus(); };
+$('#qTask').onclick = () => { show('todo'); $('#tText').focus(); };
+
+/* Плитки-метрики: то, ради чего открывают приложение, без прокрутки. */
+function drawTiles(){
+  const m = D.month, T = D.tasks || {late: [], today: []};
+  const plan = D.limits.reduce((s, l) => s + l.limit, 0);
+  const left = plan - m.spent;
+  const debt = (D.debts || []).reduce((s, d) => s + d.left, 0);
+  const gym = (D.habits || [])[0];
+  // «Свободно» уже стоит крупно сверху — вторая такая же плитка была бы
+  // той самой второй правдой об одном числе.
+  const tiles = [
+    ['🐖', money(m.put_away) + ' с', 'Отложено', m.put_away ? 'good' : ''],
+    ['📉', money(left) + ' с', 'Осталось по плану', left < 0 ? 'bad' : ''],
+    ['🏦', debt ? money(debt) + ' с' : '—', 'Долг', debt ? 'warn' : ''],
+    [gym ? '🏋' : '✓',
+     gym ? gym.done_week + ' из ' + gym.plan : T.today.length,
+     gym ? gym.name + ' на неделе' : 'Дел сегодня', ''],
+  ];
+  const box = $('#qTiles'); box.innerHTML = '';
+  tiles.forEach(([ic, val, cap, cls]) => {
+    const d = document.createElement('div'); d.className = 'tile';
+    d.innerHTML = '<div class="ic">' + ic + '</div><div class="v ' + cls
+                + '">' + val + '</div><div class="c">' + cap + '</div>';
+    box.appendChild(d);
+  });
+}
+
+/* Столбики по месяцам. Высота от самого большого значения на экране —
+   иначе три похожих месяца выглядят одинаково. */
+function drawTrend(){
+  const t = D.trend || [];
+  const box = $('#chart'), labs = $('#chartLabs');
+  box.innerHTML = ''; labs.innerHTML = '';
+  const max = Math.max(1, ...t.map(x => Math.max(x.income, x.spent, x.saved)));
+  t.forEach(x => {
+    const col = document.createElement('div'); col.className = 'col';
+    [['inc', x.income], ['sp', x.spent], ['sv', x.saved]].forEach(([c, v]) => {
+      if(!v) return;
+      const i = document.createElement('i');
+      i.className = c; i.style.height = Math.round(v / max * 96) + 'px';
+      i.title = money(v);
+      col.appendChild(i);
+    });
+    box.appendChild(col);
+    const l = document.createElement('div');
+    l.className = 'lab'; l.style.flex = '1'; l.textContent = x.label;
+    labs.appendChild(l);
+  });
+
+  const ct = D.cat_trend || {months: [], rows: []};
+  const cbox = $('#catTrend'); cbox.innerHTML = '';
+  if(!ct.rows.length){
+    cbox.innerHTML = '<span class="dim">Записей пока нет.</span>';
+    return;
+  }
+  const head = document.createElement('div'); head.className = 'row';
+  head.innerHTML = '<div class="name dim" style="font-size:12px">Категория</div>'
+    + ct.months.map(mm => '<div class="val dim" style="font-size:12px;width:52px">'
+        + mm.slice(5) + '</div>').join('');
+  cbox.appendChild(head);
+  ct.rows.forEach(r => {
+    const d = document.createElement('div'); d.className = 'row';
+    d.innerHTML = '<div class="name">' + r.cat + '</div>'
+      + r.values.map(v => '<div class="val num" style="width:52px">'
+          + (v ? money(v) : '—') + '</div>').join('');
+    cbox.appendChild(d);
+  });
+}
+
 $('#kind').onchange = () => { drawCats(); drawWallets(); };
 
 $('#save').onclick = async () => {

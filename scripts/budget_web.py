@@ -113,6 +113,75 @@ def month_numbers():
             'from_savings': round(sum(B.spent_by_cat(from_savings=True).values()), 2)}
 
 
+def trend(months=6):
+    """Деньги по месяцам: заработано, потрачено, отложено.
+
+    Динамика — единственное, что показывает смысл цифры: 15 308
+    ничего не значит рядом с 7 912, пока их не поставить рядом.
+    """
+    rows = rows_with_lines()
+    now = B.now_local()
+    keys = []
+    y, m = now.year, now.month
+    for _ in range(months):
+        keys.append(f'{y:04d}-{m:02d}')
+        m -= 1
+        if m == 0:
+            m, y = 12, y - 1
+    keys.reverse()
+    out = {k: {'income': 0.0, 'spent': 0.0, 'saved': 0.0} for k in keys}
+    sav = B.save_wallet()
+    for r in rows:
+        k = (r['date'] or '')[:7]
+        if k not in out:
+            continue
+        try:
+            a = float(str(r['amount']).replace(',', '.'))
+        except (ValueError, TypeError):
+            continue
+        if r['kind'] == 'Доход':
+            out[k]['income'] += a
+        elif r['kind'] == 'Расход':
+            out[k]['spent'] += a
+        elif r['kind'] == 'Перевод' and sav and r.get('to') == sav:
+            out[k]['saved'] += a
+        elif r['kind'] == 'Накопление':
+            out[k]['saved'] += a
+    RU = ['', 'янв', 'фев', 'мар', 'апр', 'май', 'июн', 'июл', 'авг',
+          'сен', 'окт', 'ноя', 'дек']
+    return [{'ym': k, 'label': RU[int(k[5:])],
+             'income': round(out[k]['income'], 2),
+             'spent': round(out[k]['spent'], 2),
+             'saved': round(out[k]['saved'], 2)} for k in keys]
+
+
+def cat_trend(months=3, top=6):
+    """Крупнейшие категории по месяцам — что растёт, а что стоит."""
+    rows = [r for r in rows_with_lines() if r['kind'] == 'Расход']
+    now = B.now_local()
+    keys, y, m = [], now.year, now.month
+    for _ in range(months):
+        keys.append(f'{y:04d}-{m:02d}')
+        m -= 1
+        if m == 0:
+            m, y = 12, y - 1
+    keys.reverse()
+    by = {}
+    for r in rows:
+        k = (r['date'] or '')[:7]
+        if k not in keys:
+            continue
+        try:
+            a = float(str(r['amount']).replace(',', '.'))
+        except (ValueError, TypeError):
+            continue
+        by.setdefault(r['cat'], {kk: 0.0 for kk in keys})[k] += a
+    order = sorted(by, key=lambda c: -sum(by[c].values()))[:top]
+    return {'months': keys,
+            'rows': [{'cat': c, 'values': [round(by[c][k], 2) for k in keys]}
+                     for c in order]}
+
+
 def payload():
     """Всё, что нужно экрану за один запрос."""
     lim, used = B.limits(force=True), B.spent_by_cat()
@@ -138,6 +207,8 @@ def payload():
         'habits': habits(),
         'debts': B.debt_state(),
         'tasks': task_list(),
+        'trend': trend(),
+        'cat_trend': cat_trend(),
     }
 
 
