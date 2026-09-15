@@ -97,6 +97,26 @@
   .two-go{display:flex;gap:8px;margin-top:10px}
   .two-go button{flex:1}
 
+  /* Полоска месяца. Единственная уместная: календарный месяц назначен
+     извне, а не собой — в отличие от привычек, где полоска врёт. */
+  .mbar{height:3px;border-radius:2px;background:var(--sunk);margin-top:9px}
+  .mbar i{display:block;height:3px;border-radius:2px;background:var(--accent)}
+  .mbar i.w{background:var(--warn)} .mbar i.b{background:var(--bad)}
+
+  .crumb{display:flex;align-items:center;gap:8px;margin-bottom:2px}
+  .crumb b{font-size:17px}
+  .crumb .x{font-size:22px;color:var(--ink)}
+
+  /* Блок второго уровня: название, живое число, стрелка. */
+  .blk{display:flex;align-items:center;gap:10px;width:100%;text-align:left;
+       background:var(--card);border:0;border-radius:12px;padding:14px 13px;
+       margin-bottom:9px;color:var(--ink);font:inherit;cursor:pointer}
+  .blk .ic{font-size:22px;line-height:1}
+  .blk .t{flex:1;min-width:0}
+  .blk .t b{font-size:16px;display:block}
+  .blk .t small{color:var(--dim);font-size:12.5px}
+  .blk .go-arrow{color:var(--dim);font-size:18px}
+
   .acc{display:flex;align-items:center;gap:8px;padding:5px 0}
   .acc span{flex:1}
   .acc input{width:44%;padding:8px;text-align:right}
@@ -108,10 +128,11 @@
 </head>
 <body>
 
-<div class="top hide" id="topLine">
+<div class="top" id="topLine">
   <div class="lbl">Свободно</div>
   <div class="big num" id="cash">—</div>
   <div class="sub num" id="sub">&nbsp;</div>
+  <div class="mbar"><i id="mbar"></i></div>
 </div>
 
 <section id="pQuick">
@@ -127,17 +148,20 @@
       <button class="go flat" id="qIn">➕ Доход</button>
     </div>
   </div>
-  <p class="dim num" id="qSum" style="font-size:13px;margin:10px 2px 0"></p>
-  <button class="go flat" id="qMore" style="margin-top:6px">Всё остальное →</button>
+  <button class="go flat" id="qMore">Всё остальное →</button>
 </section>
 
-<div class="tabs hide" id="tabs">
-  <button id="tBack">←</button>
-  <button id="tWrite" class="on">Записать</button>
-  <button id="tLimits">Лимиты</button>
-  <button id="tMonth">Месяц</button>
-  <button id="tHabits">Зал</button>
-  <button id="tTasks">Дела</button>
+<section id="pBlocks" class="hide">
+  <div id="blockList"></div>
+  <button class="go flat" id="bBack">← Сегодня</button>
+</section>
+
+<div class="hide" id="subHead">
+  <div class="crumb">
+    <button class="x" id="sBack">←</button>
+    <b id="sTitle"></b>
+  </div>
+  <div class="chips" id="subs"></div>
 </div>
 
 <section id="pWrite" class="hide">
@@ -185,15 +209,22 @@
   <div class="card dim" id="nolimit"></div>
 </section>
 
-<section id="pMonth" class="hide">
-  <h2>Долги</h2>
+<section id="pDebts" class="hide">
   <div class="card" id="debts"></div>
+</section>
 
-  <h2>Кошельки — считается по журналу</h2>
+<section id="pWallets" class="hide">
   <div class="card" id="bal"></div>
+</section>
 
+<section id="pMonth" class="hide">
   <div class="card" id="month"></div>
+</section>
 
+<section id="pGoals" class="hide">
+  <div class="card dim">Цикл и проекты — следующим шагом.
+    Пока цикл живёт в заметках: 11.09–10.10, зал 17 за цикл,
+    разбор 10.10.</div>
 </section>
 
 <div id="toast"></div>
@@ -202,7 +233,7 @@
 const tg = window.Telegram?.WebApp || null;
 try{ tg?.ready(); tg?.expand(); }catch(e){}
 const initData = tg?.initData || '';
-let D = null, CAT = '', BUSY = false;
+let D = null, CAT = '', BUSY = false, FIRST = true;
 let WAL = '', TO = '';
 const WAL_KEY = 'dengi.wallet';
 try{ WAL = localStorage.getItem(WAL_KEY) || ''; }catch(e){}
@@ -331,12 +362,16 @@ function drawQuick(){
     top.append(h, c);
   }
 
-  const m = D.month;
-  const plan = D.limits.reduce((s, l) => s + l.limit, 0);
-  const bits = ['Свободно ' + money(m.free ?? m.cash)];
-  if(m.put_away) bits.push('отложено ' + money(m.put_away));
-  bits.push('потрачено ' + money(m.spent) + ' из ' + money(plan));
-  $('#qSum').textContent = bits.join(' · ');
+  // Если отвечать и делать нечего — так и говорим. Пустой экран без слов
+  // читается как поломка, а это хорошая новость.
+  if(!ask.children.length && !top.children.length){
+    const c = document.createElement('div');
+    c.className = 'card dim';
+    c.style.fontSize = '13.5px';
+    c.textContent = 'На сегодня ничего не ждёт. Запиши трату или заведи '
+                  + 'дело — или просто закрой.';
+    top.appendChild(c);
+  }
 }
 
 function drawTasks(){
@@ -445,6 +480,10 @@ function drawTop(){
   if(m.put_away) bits.push('отложено ' + money(m.put_away));
   if(m.from_savings) bits.push('из накоплений ' + money(m.from_savings));
   $('#sub').textContent = bits.join(' · ');
+  const pct = plan ? Math.round(m.spent / plan * 100) : 0;
+  const bar = $('#mbar');
+  bar.style.width = Math.min(pct, 100) + '%';
+  bar.className = pct >= 100 ? 'b' : pct >= 80 ? 'w' : '';
 }
 
 function drawLimits(){
@@ -579,50 +618,104 @@ async function load(){
   drawTop(); drawCats(); drawWallets(); drawBal();
   drawLimits(); drawMonth(); drawLast(); drawHabits(); drawDebts();
   drawTasks(); drawQuick();
+  if(FIRST){ FIRST = false; quick(); }
 }
 
-/* Два уровня. Вход — только то, что нужно сделать; разделы — чтобы
-   смотреть и разбирать. Полоса вкладок на входе спрятана: выбор вкладки
-   при открытии и есть то трение, от которого уходим. */
-function tab(name){
-  ['Write', 'Limits', 'Month', 'Habits', 'Tasks'].forEach(n => {
-    $('#p' + n).classList.toggle('hide', n !== name);
-    $('#t' + n).classList.toggle('on', n === name);
-  });
-  $('#pQuick').classList.add('hide');
-  $('#tabs').classList.remove('hide');
-  $('#topLine').classList.remove('hide');
-  window.scrollTo(0, 0);
+/* Три уровня. Вход — что нужно сделать. Блоки — куда пойти. Подраздел —
+   где работать. Раньше «Записать», «Лимиты» и «Месяц» (подразделы денег)
+   стояли в одной строке с «Залом» и «Делами» (самостоятельными блоками),
+   и было непонятно, где ты находишься. */
+const BLOCKS = [
+  {id: 'money', ic: '💰', name: 'Деньги', subs: [
+    ['Write', 'Записать'], ['Limits', 'Лимиты'], ['Wallets', 'Кошельки'],
+    ['Debts', 'Долги'], ['Month', 'Итог месяца']]},
+  {id: 'body', ic: '🏋', name: 'Тело', subs: [['Habits', 'Привычки']]},
+  {id: 'todo', ic: '✓', name: 'Дела', subs: [['Tasks', 'Список']]},
+  {id: 'goals', ic: '🎯', name: 'Цели', subs: [['Goals', 'Цикл и проекты']]},
+];
+const PAGES = ['Write', 'Limits', 'Wallets', 'Debts', 'Month', 'Habits',
+               'Tasks', 'Goals'];
+
+function hideAll(){
+  PAGES.forEach(n => $('#p' + n).classList.add('hide'));
+  ['#pQuick', '#pBlocks', '#subHead'].forEach(x => $(x).classList.add('hide'));
 }
 
 function quick(){
-  ['Write', 'Limits', 'Month', 'Habits', 'Tasks']
-    .forEach(n => $('#p' + n).classList.add('hide'));
+  hideAll();
   $('#pQuick').classList.remove('hide');
-  $('#tabs').classList.add('hide');
-  $('#topLine').classList.add('hide');
   window.scrollTo(0, 0);
 }
 
-/* Кнопки входа не заводят второй формы записи — они открывают ту же
-   вкладку с нужным типом и ставят курсор туда, где начинают. */
+function blocks(){
+  hideAll();
+  $('#pBlocks').classList.remove('hide');
+  drawBlocks();
+  window.scrollTo(0, 0);
+}
+
+/* Подраздел открывается вместе с шапкой блока: человек всегда видит,
+   в каком блоке находится и куда вернуться. */
+function openBlock(blockId, sub){
+  const b = BLOCKS.find(x => x.id === blockId);
+  if(!b) return;
+  hideAll();
+  $('#subHead').classList.remove('hide');
+  $('#sTitle').textContent = b.name;
+  const box = $('#subs'); box.innerHTML = '';
+  const want = sub || b.subs[0][0];
+  b.subs.forEach(([id, label]) => {
+    const btn = document.createElement('button');
+    btn.type = 'button'; btn.textContent = label;
+    if(id === want) btn.className = 'on';
+    btn.onclick = () => openBlock(blockId, id);
+    box.appendChild(btn);
+  });
+  $('#p' + want).classList.remove('hide');
+  window.scrollTo(0, 0);
+}
+
+function drawBlocks(){
+  const box = $('#blockList'); box.innerHTML = '';
+  const m = D.month, T = D.tasks || {late: [], today: []};
+  const plan = D.limits.reduce((s, l) => s + l.limit, 0);
+  const gym = (D.habits || [])[0];
+  const state = {
+    money: 'Свободно ' + money(m.free ?? m.cash) + ' · потрачено '
+           + money(m.spent) + ' из ' + money(plan),
+    body: gym ? gym.name + ': ' + gym.done_week + ' из ' + gym.plan
+                + ' на этой неделе'
+              : 'Привычек пока нет',
+    todo: 'Сегодня ' + T.today.length + ' · просрочено ' + T.late.length,
+    goals: 'Цикл 2 · разбор 10.10',
+  };
+  BLOCKS.forEach(b => {
+    const btn = document.createElement('button');
+    btn.className = 'blk'; btn.type = 'button';
+    btn.innerHTML = '<span class="ic">' + b.ic + '</span>'
+      + '<span class="t"><b>' + b.name + '</b><small>' + state[b.id]
+      + '</small></span><span class="go-arrow">\u203a</span>';
+    btn.onclick = () => openBlock(b.id);
+    box.appendChild(btn);
+  });
+}
+
+/* Кнопки входа не заводят второй формы записи — открывают «Записать»
+   с нужным типом и ставят курсор туда, где начинают. */
 function go(kind){
   $('#kind').value = kind;
   drawCats(); drawWallets();
-  tab('Write');
+  openBlock('money', 'Write');
   $('#amount').focus();
 }
-$('#tWrite').onclick = () => tab('Write');
-$('#tLimits').onclick = () => tab('Limits');
-$('#tMonth').onclick = () => tab('Month');
-$('#tHabits').onclick = () => tab('Habits');
-$('#tTasks').onclick = () => tab('Tasks');
-$('#tBack').onclick = quick;
-$('#qMore').onclick = () => tab('Write');
+
+$('#qMore').onclick = blocks;
+$('#bBack').onclick = quick;
+$('#sBack').onclick = blocks;
 $('#qSpend').onclick = () => go('расход');
 $('#qMove').onclick = () => go('перевод');
 $('#qIn').onclick = () => go('доход');
-$('#qTask').onclick = () => { tab('Tasks'); $('#tText').focus(); };
+$('#qTask').onclick = () => { openBlock('todo'); $('#tText').focus(); };
 $('#kind').onchange = () => { drawCats(); drawWallets(); };
 
 $('#save').onclick = async () => {
