@@ -63,7 +63,7 @@ def rows_with_lines():
     каждого добавления. Поэтому клиент всегда получает свежие номера, а
     перед правкой мы сверяем содержимое.
     """
-    r = B.SHEETS.get(B.API + B.BUDGET_SS + '/values/' + B._q('Operations!A2:H'),
+    r = B.SHEETS.get(B.API + B.BUDGET_SS + '/values/' + B._q('Operations!A2:I'),
                      params={'valueRenderOption': 'UNFORMATTED_VALUE'}, timeout=60)
     out = []
     for i, row in enumerate(r.json().get('values', []) if r.ok else []):
@@ -75,7 +75,8 @@ def rows_with_lines():
                     'kind': str(row[1]).strip(), 'cat': str(row[2]).strip(),
                     'amount': row[3], 'comment': str(row[4]).strip(),
                     'wallet': str(row[5]).strip(), 'to': str(row[6]).strip(),
-                    'debt': str(row[7]).strip()})
+                    'debt': str(row[7]).strip(),
+                    'project': str(row[8]).strip()})
     return out
 
 
@@ -182,6 +183,80 @@ def cat_trend(months=3, top=6):
                      for c in order]}
 
 
+def measures():
+    """Меры с целью и последними значениями. Цели нет — просто копим числа:
+    выдуманный ориентир хуже, чем его отсутствие."""
+    today = B.today_local()
+    out = []
+    for c in B.meas_cfg():
+        if not c['on']:
+            continue
+        rows = sorted(B.meas_rows(c['name']), key=lambda r: r[0], reverse=True)
+        last = rows[0] if rows else None
+        goal = B._num(c['goal']) if c['goal'] else None
+        hit = None
+        if last and goal is not None:
+            hit = last[2] <= goal if c['better'] == 'меньше' else last[2] >= goal
+        out.append({'name': c['name'], 'unit': c['unit'], 'goal': c['goal'],
+                    'better': c['better'], 'at': c['at'],
+                    'today': next((v for d, _n, v in rows if d == today), None),
+                    'last': None if not last else {'date': str(last[0]),
+                                                   'value': last[2]},
+                    'hit': hit,
+                    'history': [{'date': str(d), 'value': v}
+                                for d, _n, v in rows[:14]]})
+    return out
+
+
+def project_list():
+    out = []
+    for p in B.projects():
+        tasks = [t for t in B.tasks() if t['project'] == p['name']]
+        done = [t for t in B.tasks(done=True) if t['project'] == p['name']]
+        spent = B.project_spent(p)
+        out.append(dict(p, spent=spent,
+                        left=round(p['budget'] - spent, 2) if p['budget'] else None,
+                        steps_done=len(done), steps_total=len(done) + len(tasks),
+                        next_step=(sorted(tasks, key=lambda t: t['due'] or '9999')
+                                   or [None])[0]))
+    return out
+
+
+def measure(body):
+    name = str(body.get('name') or '').strip()
+    if name not in [c['name'] for c in B.meas_cfg()]:
+        return {'ok': False, 'error': 'Нет такой меры'}
+    try:
+        value = float(str(body.get('value', '')).replace(',', '.'))
+    except (ValueError, TypeError):
+        return {'ok': False, 'error': 'Нужно число'}
+    return {'ok': True, 'line': B.meas_write(name, value)}
+
+
+def settings_get(body):
+    kind = str(body.get('kind') or '')
+    if kind not in B.SETTINGS:
+        return {'ok': False, 'error': 'Нет таких настроек'}
+    return {'ok': True, **B.setting_rows(kind)}
+
+
+def settings_save(body):
+    kind = str(body.get('kind') or '')
+    if kind not in B.SETTINGS:
+        return {'ok': False, 'error': 'Нет таких настроек'}
+    line = B.setting_save(kind, int(body.get('line') or 0),
+                          body.get('values') or [])
+    return {'ok': not line.startswith('⚠️'), 'line': line,
+            'error': line.lstrip('⚠️ ') if line.startswith('⚠️') else ''}
+
+
+def settings_drop(body):
+    kind = str(body.get('kind') or '')
+    if kind not in B.SETTINGS or not int(body.get('line') or 0):
+        return {'ok': False, 'error': 'Нечего убирать'}
+    return {'ok': True, 'line': B.setting_drop(kind, int(body['line']))}
+
+
 def payload():
     """Всё, что нужно экрану за один запрос."""
     lim, used = B.limits(force=True), B.spent_by_cat()
@@ -209,6 +284,9 @@ def payload():
         'tasks': task_list(),
         'trend': trend(),
         'cat_trend': cat_trend(),
+        'measures': measures(),
+        'projects': project_list(),
+        'setting_kinds': sorted(B.SETTINGS),
     }
 
 
@@ -383,7 +461,8 @@ def add(body):
     kind = str(body.get('kind') or 'расход').strip()
     line = B.add_entry(amount, cat, kind, str(body.get('comment') or '').strip(),
                        str(body.get('date') or '').strip() or None,
-                       wallet=str(body.get('wallet') or '').strip())
+                       wallet=str(body.get('wallet') or '').strip(),
+                       project=str(body.get('project') or '').strip())
     return {'ok': True, 'line': line}
 
 
@@ -440,7 +519,9 @@ def edit(body):
 
 POST = {'/api/add': add, '/api/drop': drop, '/api/edit': edit,
         '/api/transfer': transfer, '/api/habit': habit,
-        '/api/debt_pay': debt_pay, '/api/task_add': task_add,
+        '/api/debt_pay': debt_pay, '/api/measure': measure,
+        '/api/settings': settings_get, '/api/settings_save': settings_save,
+        '/api/settings_drop': settings_drop, '/api/task_add': task_add,
         '/api/task_close': task_close, '/api/task_move': task_move,
         '/api/task_top': task_top}
 

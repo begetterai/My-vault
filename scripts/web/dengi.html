@@ -257,10 +257,12 @@
   <div class="card" id="month"></div>
 </section>
 
-<section id="pGoals" class="hide">
-  <div class="card dim">Цикл и проекты — следующим шагом.
-    Пока цикл живёт в заметках: 11.09–10.10, зал 17 за цикл,
-    разбор 10.10.</div>
+<section id="pGoals" class="hide"></section>
+<section id="pMeas" class="hide"></section>
+<section id="pMatrix" class="hide"></section>
+<section id="pSet" class="hide">
+  <div class="chips" id="setKinds"></div>
+  <div id="setList"></div>
 </section>
 
 <section id="pTrend" class="hide">
@@ -679,6 +681,7 @@ async function load(){
   drawTop(); drawCats(); drawWallets(); drawBal();
   drawLimits(); drawMonth(); drawLast(); drawHabits(); drawDebts();
   drawTasks(); drawQuick(); drawTiles(); drawTrend();
+  drawMeas(); drawGoals(); drawMatrix();
   if(FIRST){ FIRST = false; show('today'); }
 }
 
@@ -690,12 +693,12 @@ const BLOCKS = {
   money: {name: 'Деньги', subs: [
     ['Write', 'Записать'], ['Limits', 'Лимиты'], ['Wallets', 'Кошельки'],
     ['Debts', 'Долги'], ['Trend', 'Динамика'], ['Month', 'Итог']]},
-  body: {name: 'Тело', subs: [['Habits', 'Привычки']]},
-  todo: {name: 'Дела', subs: [['Tasks', 'Список']]},
-  goals: {name: 'Цели', subs: [['Goals', 'Цикл и проекты']]},
+  body: {name: 'Тело', subs: [['Habits', 'Привычки'], ['Meas', 'Меры']]},
+  todo: {name: 'Дела', subs: [['Tasks', 'Список'], ['Matrix', 'Матрица']]},
+  goals: {name: 'Цели', subs: [['Goals', 'Проекты'], ['Set', 'Настроить']]},
 };
 const PAGES = ['Quick', 'Write', 'Limits', 'Wallets', 'Debts', 'Trend',
-               'Month', 'Habits', 'Tasks', 'Goals'];
+               'Month', 'Habits', 'Meas', 'Tasks', 'Matrix', 'Goals', 'Set'];
 let TAB = 'today';
 
 function show(block, sub){
@@ -704,6 +707,7 @@ function show(block, sub){
   PAGES.forEach(n => $('#p' + n).classList.add('hide'));
   const want = sub || b.subs[0][0];
   $('#p' + want).classList.remove('hide');
+  if(want === 'Set') drawSet();
   // Чипы показываем только там, где подразделов больше одного.
   const many = b.subs.length > 1;
   $('#subHead').classList.toggle('hide', !many);
@@ -741,6 +745,193 @@ $('#qIn').onclick = () => go('доход');
 $('#qTask').onclick = () => { show('todo'); $('#tText').focus(); };
 
 /* Плитки-метрики: то, ради чего открывают приложение, без прокрутки. */
+/* Меры: число с целью. Цели нет — показываем «цель не задана» и просто
+   копим: выдуманный ориентир хуже, чем его отсутствие. */
+function drawMeas(){
+  const box = $('#pMeas'); box.innerHTML = '';
+  const list = D.measures || [];
+  if(!list.length){
+    box.innerHTML = '<div class="card dim">Мер пока нет. Заведи их '
+                  + 'в «Цели → Настроить → measures».</div>';
+    return;
+  }
+  list.forEach(m => {
+    const c = document.createElement('div'); c.className = 'card';
+    const head = document.createElement('div');
+    head.innerHTML = '<b>' + m.name + '</b> <span class="dim">· '
+      + (m.goal ? (m.better === 'меньше' ? 'не больше ' : 'не меньше ')
+                  + m.goal + ' ' + m.unit
+                : 'цель не задана') + '</span>';
+    const now = document.createElement('div');
+    now.className = 'big num';
+    now.style.fontSize = '30px'; now.style.margin = '8px 0 2px';
+    now.textContent = m.today != null ? m.today
+                    : (m.last ? m.last.value : '—');
+    if(m.hit === true) now.style.color = 'var(--ok)';
+    if(m.hit === false) now.style.color = 'var(--bad)';
+    const when = document.createElement('div');
+    when.className = 'dim'; when.style.fontSize = '12px';
+    when.textContent = m.today != null ? 'сегодня'
+      : (m.last ? 'последнее ' + m.last.date : 'ещё не вводилось');
+    const row = document.createElement('div'); row.className = 'two';
+    const inp = document.createElement('input');
+    inp.inputMode = 'decimal'; inp.placeholder = m.unit || 'значение';
+    inp.id = 'meas_' + m.name;
+    const b = document.createElement('button');
+    b.className = 'go'; b.style.marginTop = '0'; b.style.width = '40%';
+    b.textContent = 'Записать';
+    b.onclick = async () => {
+      const j = await post('/api/measure', {name: m.name, value: inp.value});
+      note(j.ok ? j.line : (j.error || 'Не вышло'));
+      if(j.ok) load();
+    };
+    row.append(inp, b);
+    c.append(head, now, when, row);
+    if(m.history.length > 1){
+      const h = document.createElement('div');
+      h.className = 'dim num'; h.style.fontSize = '12px';
+      h.style.marginTop = '8px';
+      h.textContent = m.history.slice(0, 7).map(x =>
+        x.date.slice(5) + ' ' + x.value).join(' · ');
+      c.appendChild(h);
+    }
+    box.appendChild(c);
+  });
+}
+
+/* Проекты. Этапы и деньги показываем рядом, но не делим одно на другое:
+   задачи не равны по весу, и «50 % задач» ничего не значит. */
+function drawGoals(){
+  const box = $('#pGoals'); box.innerHTML = '';
+  const list = D.projects || [];
+  if(!list.length){
+    box.innerHTML = '<div class="card dim">Проектов нет. Заведи '
+                  + 'в «Настроить → projects».</div>';
+    return;
+  }
+  list.forEach(p => {
+    const c = document.createElement('div'); c.className = 'card';
+    let html = '<b>' + p.name + '</b>';
+    if(p.goal) html += '<div class="dim" style="font-size:13px;margin-top:2px">'
+                     + p.goal + '</div>';
+    c.innerHTML = html;
+    c.appendChild(line('Этапы', p.next_step ? 'следующий: ' + p.next_step.text
+                                            : 'все закрыты',
+                       p.steps_done + ' из ' + p.steps_total));
+    c.appendChild(line('Потрачено',
+                       p.cat ? 'по категории «' + p.cat + '»' : '',
+                       money(p.spent) + ' с'));
+    if(p.budget) c.appendChild(line('Бюджет', '', money(p.budget) + ' с'));
+    if(p.due) c.appendChild(line('Срок', '', p.due));
+    // Полоска уместна: у этапов срок назначен извне, а не собой.
+    const bar = document.createElement('div'); bar.className = 'mbar';
+    const i = document.createElement('i');
+    i.style.width = (p.steps_total ? p.steps_done / p.steps_total * 100 : 0)
+                    + '%';
+    bar.appendChild(i); c.appendChild(bar);
+    box.appendChild(c);
+  });
+}
+
+/* Матрица Эйзенхауэра — второй взгляд на тот же список. Срочность берём
+   из срока, важность из пометки «главная». */
+function drawMatrix(){
+  const box = $('#pMatrix'); box.innerHTML = '';
+  const T = D.tasks || {late: [], today: [], later: []};
+  const all = [...T.late, ...T.today, ...T.later];
+  const urgent = t => !t.due || t.due <= D.today ? !!t.due : t.due <= D.today;
+  const quads = [
+    ['Срочно и важно', t => t.top && urgent(t), 'over'],
+    ['Важно, не срочно', t => t.top && !urgent(t), ''],
+    ['Срочно, не важно', t => !t.top && urgent(t), 'near'],
+    ['Ни то, ни другое', t => !t.top && !urgent(t), 'dim'],
+  ];
+  quads.forEach(([title, test, cls]) => {
+    const list = all.filter(test);
+    const h = document.createElement('h2');
+    h.textContent = title + ' · ' + list.length;
+    if(cls && cls !== 'dim') h.className = cls;
+    const c = document.createElement('div'); c.className = 'card';
+    if(!list.length) c.innerHTML = '<span class="dim">пусто</span>';
+    list.forEach(t => c.appendChild(taskRow(t)));
+    box.append(h, c);
+  });
+}
+
+/* Настройки. Одна форма на все виды: настройки — это строки в листах,
+   и своего экрана на каждый вид не нужно. */
+let SET_KIND = 'habits';
+async function drawSet(kind){
+  SET_KIND = kind || SET_KIND;
+  const kinds = D.setting_kinds || [];
+  const RU = {habits: 'Привычки', measures: 'Меры', limits: 'Категории',
+              wallets: 'Кошельки', debts: 'Долги', projects: 'Проекты'};
+  const chips = $('#setKinds'); chips.innerHTML = '';
+  kinds.forEach(k => {
+    const b = document.createElement('button');
+    b.type = 'button'; b.textContent = RU[k] || k;
+    if(k === SET_KIND) b.className = 'on';
+    b.onclick = () => drawSet(k);
+    chips.appendChild(b);
+  });
+  const box = $('#setList');
+  box.innerHTML = '<div class="card dim">Читаю…</div>';
+  const j = await post('/api/settings', {kind: SET_KIND});
+  box.innerHTML = '';
+  if(!j.ok){ box.innerHTML = '<div class="card">' + j.error + '</div>'; return; }
+  const form = (row) => {
+    const c = document.createElement('div'); c.className = 'card';
+    const ins = j.columns.map((col, i) => {
+      const w = document.createElement('div');
+      w.innerHTML = '<div class="dim" style="font-size:11.5px;margin-top:6px">'
+                  + col + '</div>';
+      const inp = document.createElement('input');
+      inp.value = row ? (row.values[i] || '') : '';
+      w.appendChild(inp); c.appendChild(w);
+      return inp;
+    });
+    const g = document.createElement('div'); g.className = 'two-go';
+    const save = document.createElement('button');
+    save.className = 'go'; save.textContent = row ? 'Сохранить' : 'Добавить';
+    save.onclick = async () => {
+      const r = await post('/api/settings_save', {kind: SET_KIND,
+        line: row ? row.line : 0, values: ins.map(x => x.value)});
+      note(r.ok ? r.line : (r.error || 'Не вышло'));
+      if(r.ok){ await load(); drawSet(); }
+    };
+    g.appendChild(save);
+    if(row){
+      const del = document.createElement('button');
+      del.className = 'go flat'; del.textContent = 'Убрать';
+      del.onclick = async () => {
+        if(!confirm('Убрать «' + row.values[0] + '»?')) return;
+        const r = await post('/api/settings_drop', {kind: SET_KIND, line: row.line});
+        note(r.ok ? r.line : (r.error || 'Не вышло'));
+        if(r.ok){ await load(); drawSet(); }
+      };
+      g.appendChild(del);
+    }
+    c.appendChild(g);
+    return c;
+  };
+  j.rows.forEach(r => {
+    const head = document.createElement('h2');
+    head.textContent = r.values[0];
+    const wrap = document.createElement('div');
+    wrap.className = 'hide';
+    wrap.appendChild(form(r));
+    head.style.cursor = 'pointer';
+    head.onclick = () => wrap.classList.toggle('hide');
+    box.append(head, wrap);
+  });
+  const add = document.createElement('h2'); add.textContent = '+ Добавить';
+  const wrap = document.createElement('div'); wrap.className = 'hide';
+  wrap.appendChild(form(null));
+  add.style.cursor = 'pointer';
+  add.onclick = () => wrap.classList.toggle('hide');
+  box.append(add, wrap);
+}
+
 function drawTiles(){
   const m = D.month, T = D.tasks || {late: [], today: []};
   const plan = D.limits.reduce((s, l) => s + l.limit, 0);

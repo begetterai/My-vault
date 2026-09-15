@@ -118,7 +118,7 @@ def _budget_append(tab, row):
     gid={'Operations':0,'Loans':215071340}.get(tab.split('!')[0])
     if gid is not None:
         SHEETS.post(f'https://sheets.googleapis.com/v4/spreadsheets/{BUDGET_SS}:batchUpdate',
-            json={'requests':[{'sortRange':{'range':{'sheetId':gid,'startRowIndex':1,'startColumnIndex':0,'endColumnIndex':8},
+            json={'requests':[{'sortRange':{'range':{'sheetId':gid,'startRowIndex':1,'startColumnIndex':0,'endColumnIndex':9},
                 'sortSpecs':[{'dimensionIndex':0,'sortOrder':'ASCENDING'}]}}]}, timeout=30).raise_for_status()
 _cap = lambda x: (x[:1].upper()+x[1:]) if x else x
 def _money(n):
@@ -373,7 +373,8 @@ def _rows(rng):
 HABIT_TAB = 'Привычки'
 HABIT_COLS = ['Дата', 'Направление', 'Ответ', 'Причина', 'Время ответа']
 HABIT_CFG_TAB = 'Настройки привычек'
-HABIT_CFG_COLS = ['Направление', 'Дни', 'Время', 'План в неделю', 'Активно']
+HABIT_CFG_COLS = ['Направление', 'Дни', 'Время', 'План в неделю', 'Активно',
+                  'Плохая', 'Проект', 'До даты']
 
 # Причины пропуска. Список короткий намеренно: длинный превращает ответ
 # в выбор, а выбор — это уже усилие.
@@ -412,15 +413,19 @@ def ensure_habit_tabs():
 def habit_cfg():
     """[{направление, дни, время, план, активно}] из таблицы."""
     out = []
-    for r in (_rows(f'{HABIT_CFG_TAB}!A2:E20') or []):
-        r = list(r) + [''] * 5
+    for r in (_rows(f'{HABIT_CFG_TAB}!A2:H20') or []):
+        r = list(r) + [''] * 8
         if not str(r[0]).strip():
             continue
         days = [d.strip().lower() for d in str(r[1]).split(',') if d.strip()]
         out.append({'name': str(r[0]).strip(), 'days': days,
                     'at': str(r[2]).strip() or '19:00',
                     'plan': int(float(str(r[3]).replace(',', '.') or 0) or 0),
-                    'on': str(r[4]).strip().lower() in ('да', 'yes', '1', 'true')})
+                    'on': str(r[4]).strip().lower() in ('да', 'yes', '1', 'true'),
+                    # «Плохая привычка» — курение: цель меньше, а не больше.
+                    # Без пометки система умела бы только «больше».
+                    'bad': str(r[5]).strip().lower() in ('да', 'yes', '1', 'true'),
+                    'project': str(r[6]).strip(), 'until': str(r[7]).strip()})
     return out
 
 
@@ -586,7 +591,7 @@ def quick_keyboard():
     в один тап не даёт бросить на полпути и не зависит от того,
     разберёт ли бот текст.
     """
-    rows = _rows('Operations!A2:H2000') or []
+    rows = _rows('Operations!A2:I2000') or []
     pairs, cats = collections.Counter(), collections.Counter()
     for r in rows:
         r = list(r) + [''] * 5
@@ -781,7 +786,7 @@ def wallet_balances():
     """{кошелёк: остаток}. Стартовый остаток плюс всё движение по журналу."""
     bal = {name: start for name, start in wallets()}
     unknown = 0.0
-    for row in (_rows('Operations!A2:H2000') or []):
+    for row in (_rows('Operations!A2:I2000') or []):
         row = list(row) + [''] * 7
         try:
             amount = float(str(row[3]).replace(',', '.'))
@@ -862,7 +867,7 @@ def debt_paid(name, ym=None):
     """Сколько заплачено по этому долгу за месяц."""
     ym = ym or now_local().strftime('%Y-%m')
     total = 0.0
-    for row in (_rows('Operations!A2:H2000') or []):
+    for row in (_rows('Operations!A2:I2000') or []):
         row = list(row) + [''] * 8
         if str(row[1]).strip() != 'Погашение' or str(row[7]).strip() != name:
             continue
@@ -895,7 +900,7 @@ def pay_debt(name, amount, wallet='', comment=''):
     com = _cap((comment or '').strip()) or name
     _budget_append('Operations!A:H',
                    [d, 'Погашение', 'Оплата кредита', float(amount), com,
-                    str(wallet or '').strip(), '', name])
+                    str(wallet or '').strip(), '', name, ''])
     LAST['data'] = [d, 'Погашение', 'Оплата кредита', float(amount), com]
     st = next((x for x in debt_state() if x['name'] == name), None)
     line = f'🏦 Погашение: {_money(amount)} с · {name}'
@@ -1050,6 +1055,204 @@ def set_top(lines):
     return len(lines)
 
 
+# ── меры ────────────────────────────────────────────────────────────────────
+# Привычка отвечает «да/нет», мера — числом: во сколько лёг, сколько вешу,
+# насколько хватило сил. У каждой меры есть цель, иначе число ничего
+# не значит: «вес 82» — это хорошо или плохо?
+MEAS_TAB = 'Меры'
+MEAS_COLS = ['Дата', 'Мера', 'Значение']
+MEAS_CFG_TAB = 'Настройки мер'
+MEAS_CFG_COLS = ['Мера', 'Единица', 'Цель', 'Лучше', 'Дни', 'Время', 'Активно']
+
+
+def ensure_meas_tabs():
+    """Листы мер. Идемпотентно."""
+    meta = SHEETS.get(API + BUDGET_SS, params={'fields': 'sheets.properties'},
+                      timeout=30).json()
+    have = {sh['properties']['title'] for sh in meta.get('sheets', [])}
+    for title, cols, rows in ((MEAS_TAB, MEAS_COLS, 2000),
+                              (MEAS_CFG_TAB, MEAS_CFG_COLS, 30)):
+        if title in have:
+            continue
+        SHEETS.post(API + BUDGET_SS + ':batchUpdate', json={'requests': [
+            {'addSheet': {'properties': {'title': title, 'gridProperties': {
+                'rowCount': rows, 'columnCount': len(cols),
+                'frozenRowCount': 1}}}}]}, timeout=30).raise_for_status()
+        SHEETS.put(API + BUDGET_SS + '/values/' + _q(f'{title}!A1'),
+                   params={'valueInputOption': 'USER_ENTERED'},
+                   json={'values': [cols]}, timeout=30).raise_for_status()
+        log.info('создан лист «%s»', title)
+
+
+def meas_cfg():
+    """[{мера, единица, цель, лучше, дни, время, активно}]."""
+    out = []
+    for r in (_rows(f'{MEAS_CFG_TAB}!A2:G30') or []):
+        r = list(r) + [''] * 7
+        if not str(r[0]).strip():
+            continue
+        out.append({'name': str(r[0]).strip(), 'unit': str(r[1]).strip(),
+                    'goal': str(r[2]).strip(),
+                    # «Лучше» — больше или меньше. Без этого система не знает,
+                    # радоваться росту веса или огорчаться.
+                    'better': str(r[3]).strip().lower() or 'меньше',
+                    'days': [d.strip().lower() for d in str(r[4]).split(',') if d.strip()],
+                    'at': str(r[5]).strip() or '21:00',
+                    'on': str(r[6]).strip().lower() in ('да', 'yes', '1', 'true')})
+    return out
+
+
+def meas_rows(name=None, days_back=90):
+    since = today_local() - datetime.timedelta(days=days_back)
+    out = []
+    for r in (_rows(f'{MEAS_TAB}!A2:C2000') or []):
+        r = list(r) + [''] * 3
+        d = _row_date(r[0])
+        if not d or d < since:
+            continue
+        if name and str(r[1]).strip().lower() != name.lower():
+            continue
+        out.append((d, str(r[1]).strip(), _num(r[2])))
+    return out
+
+
+def meas_write(name, value):
+    """Значение за сегодня. Повторный ответ переписывает, а не плодит строку."""
+    rows = _rows(f'{MEAS_TAB}!A2:C2000') or []
+    today = str(today_local())
+    for i, r in enumerate(rows):
+        r = list(r) + [''] * 3
+        d = _row_date(r[0])
+        if d and str(d) == today and str(r[1]).strip().lower() == name.lower():
+            SHEETS.put(API + BUDGET_SS + '/values/' + _q(f'{MEAS_TAB}!C{i + 2}'),
+                       params={'valueInputOption': 'USER_ENTERED'},
+                       json={'values': [[float(value)]]}, timeout=30
+                       ).raise_for_status()
+            return f'{name}: {value}'
+    _budget_append(f'{MEAS_TAB}!A1', [today, name, float(value)])
+    return f'{name}: {value}'
+
+
+# ── проекты ─────────────────────────────────────────────────────────────────
+# Проект ничего не хранит сам: этапы — дела, деньги — операции с пометкой,
+# задачи — те же дела. Он только склеивает. Поэтому новый лист один,
+# а логика уже написана.
+PROJ_TAB = 'Проекты'
+PROJ_COLS = ['Проект', 'Область', 'Цель', 'Статус', 'Начат', 'Срок',
+             'Бюджет', 'Категория расходов']
+
+
+def ensure_proj_tab():
+    meta = SHEETS.get(API + BUDGET_SS, params={'fields': 'sheets.properties'},
+                      timeout=30).json()
+    if PROJ_TAB in {sh['properties']['title'] for sh in meta.get('sheets', [])}:
+        return
+    SHEETS.post(API + BUDGET_SS + ':batchUpdate', json={'requests': [
+        {'addSheet': {'properties': {'title': PROJ_TAB, 'gridProperties': {
+            'rowCount': 100, 'columnCount': len(PROJ_COLS),
+            'frozenRowCount': 1}}}}]}, timeout=30).raise_for_status()
+    SHEETS.put(API + BUDGET_SS + '/values/' + _q(f'{PROJ_TAB}!A1'),
+               params={'valueInputOption': 'USER_ENTERED'},
+               json={'values': [PROJ_COLS]}, timeout=30).raise_for_status()
+    log.info('создан лист «%s»', PROJ_TAB)
+
+
+def projects(active_only=True):
+    out = []
+    for i, r in enumerate(_rows(f'{PROJ_TAB}!A2:H100') or []):
+        r = list(r) + [''] * 8
+        if not str(r[0]).strip():
+            continue
+        st = str(r[3]).strip().lower() or 'идёт'
+        if active_only and st in ('закрыт', 'отменён'):
+            continue
+        out.append({'line': i + 2, 'name': str(r[0]).strip(),
+                    'area': str(r[1]).strip(), 'goal': str(r[2]).strip(),
+                    'status': st, 'start': str(r[4]).strip(),
+                    'due': str(r[5]).strip(), 'budget': _num(r[6]),
+                    'cat': str(r[7]).strip()})
+    return out
+
+
+def project_spent(p):
+    """Сколько уже ушло на проект: по пометке в журнале или по категории."""
+    total = 0.0
+    for row in (_rows('Operations!A2:I2000') or []):
+        row = list(row) + [''] * 9
+        if str(row[1]).strip() != 'Расход':
+            continue
+        if str(row[8]).strip() == p['name'] or (
+                p['cat'] and str(row[2]).strip() == p['cat']):
+            total += _num(row[3])
+    return round(total, 2)
+
+
+# ── настройки изнутри приложения ────────────────────────────────────────────
+# Требование Азиза 14.09: новую привычку, меру, категорию, кошелёк, долг
+# или проект он заводит кнопкой в приложении, а не правкой ячеек.
+# Причина простая: если для новой привычки надо открыть Google-таблицу
+# на телефоне, найти лист и вписать строку — новой привычки не будет.
+# Это то же трение, от которого уходим, только в настройках.
+#
+# Всё держится на том, что настройки — это строки в листах, а код их
+# только читает. Значит одна общая пара «прочитать/записать» закрывает
+# все виды сразу; своего кода на каждый вид не нужно.
+SETTINGS = {
+    'habits': (HABIT_CFG_TAB, HABIT_CFG_COLS, 20),
+    'measures': (MEAS_CFG_TAB, MEAS_CFG_COLS, 30),
+    'limits': (LIMITS_TAB, LIMIT_COLS, 60),
+    'wallets': (WALLET_TAB, WALLET_COLS, 30),
+    'debts': (DEBT_TAB, DEBT_COLS, 30),
+    'projects': (PROJ_TAB, PROJ_COLS, 100),
+}
+
+
+def setting_rows(kind):
+    """{columns, rows} — как есть, чтобы экран нарисовал форму сам."""
+    tab, cols, limit = SETTINGS[kind]
+    last = chr(ord('A') + len(cols) - 1)
+    out = []
+    for i, r in enumerate(_rows(f'{tab}!A2:{last}{limit}') or []):
+        r = [str(x) for x in (list(r) + [''] * len(cols))][:len(cols)]
+        if not r[0].strip():
+            continue
+        out.append({'line': i + 2, 'values': r})
+    return {'columns': cols, 'rows': out}
+
+
+def setting_save(kind, line, values):
+    """Записать строку настроек. line=0 — добавить новую."""
+    tab, cols, limit = SETTINGS[kind]
+    last = chr(ord('A') + len(cols) - 1)
+    vals = [str(v).strip() for v in list(values)[:len(cols)]]
+    vals += [''] * (len(cols) - len(vals))
+    if not vals[0]:
+        return '⚠️ Название пустое.'
+    if line:
+        SHEETS.put(API + BUDGET_SS + '/values/' + _q(f'{tab}!A{line}:{last}{line}'),
+                   params={'valueInputOption': 'USER_ENTERED'},
+                   json={'values': [vals]}, timeout=30).raise_for_status()
+    else:
+        SHEETS.post(API + BUDGET_SS + '/values/' + _q(f'{tab}!A1') + ':append',
+                    params={'valueInputOption': 'USER_ENTERED',
+                            'insertDataOption': 'INSERT_ROWS'},
+                    json={'values': [vals]}, timeout=30).raise_for_status()
+    # Кэши читают эти же листы — сбрасываем, иначе правка «не применилась».
+    _LIM['ts'] = _WAL['ts'] = _DEBT['ts'] = None
+    return f'✅ {vals[0]}'
+
+
+def setting_drop(kind, line):
+    """Убрать строку настроек. Чистим содержимое, а не двигаем строки:
+    номера строк живут у клиента, и сдвиг попал бы не туда."""
+    tab, cols, limit = SETTINGS[kind]
+    last = chr(ord('A') + len(cols) - 1)
+    SHEETS.post(API + BUDGET_SS + '/values/' + _q(f'{tab}!A{line}:{last}{line}')
+                + ':clear', json={}, timeout=30).raise_for_status()
+    _LIM['ts'] = _WAL['ts'] = _DEBT['ts'] = None
+    return '🗑 Убрано'
+
+
 def ensure_limits_tab():
     """Создаёт лист «Лимиты» со всеми категориями расходов. Идемпотентно."""
     meta = SHEETS.get(API + BUDGET_SS, params={'fields': 'sheets.properties'},
@@ -1115,7 +1318,7 @@ def spent_by_cat(ym=None, from_savings=False):
     ym = ym or now_local().strftime('%Y-%m')
     sav = save_wallet()
     out = {}
-    r = SHEETS.get(API + BUDGET_SS + '/values/' + _q('Operations!A2:H'),
+    r = SHEETS.get(API + BUDGET_SS + '/values/' + _q('Operations!A2:I'),
                    params={'valueRenderOption': 'UNFORMATTED_VALUE'}, timeout=60)
     for row in (r.json().get('values', []) if r.ok else []):
         row = list(row) + ['', '', '', '', '']
@@ -1227,7 +1430,7 @@ def month_report():
     называем своими именами; «Остаток (кэш)» сходится с таблицей.
     """
     ym = now_local().strftime('%Y-%m')
-    r = SHEETS.get(API + BUDGET_SS + '/values/' + _q('Operations!A2:H'),
+    r = SHEETS.get(API + BUDGET_SS + '/values/' + _q('Operations!A2:I'),
                    params={'valueRenderOption': 'UNFORMATTED_VALUE'}, timeout=60)
     by, carry = {}, 0.0
     for row in (r.json().get('values', []) if r.ok else []):
@@ -1261,7 +1464,7 @@ def month_report():
 def _row_exists(d, typ, cat, amount, com):
     """Есть ли уже точно такая строка в журнале."""
     try:
-        r = SHEETS.get(API + BUDGET_SS + '/values/' + _q('Operations!A2:H'),
+        r = SHEETS.get(API + BUDGET_SS + '/values/' + _q('Operations!A2:I'),
                        params={'valueRenderOption': 'UNFORMATTED_VALUE'},
                        timeout=60)
         for row in (r.json().get('values', []) if r.ok else []):
@@ -1281,7 +1484,7 @@ def _row_exists(d, typ, cat, amount, com):
 
 
 def add_entry(amount, category='Прочее', kind='расход', comment='', date=None,
-              wallet='', **_):
+              wallet='', project='', **_):
     """Строка в лист Operations. Тип нормализуется, комментарий с заглавной."""
     k = str(kind).lower()
     if k.startswith('пог') or category == 'Оплата кредита':
@@ -1305,7 +1508,8 @@ def add_entry(amount, category='Прочее', kind='расход', comment='', 
                 + '\nВторой раз не пишу. Если трата и правда повторилась — '
                   'добавь пояснение в комментарий.')
     w = str(wallet or '').strip()
-    _budget_append('Operations!A:H', [d, typ, cat, float(amount), com, w, '', ''])
+    proj = str(project or '').strip()
+    _budget_append('Operations!A:I', [d, typ, cat, float(amount), com, w, '', '', proj])
     # Запоминаем СОДЕРЖИМОЕ, а не номер строки: _budget_append сразу
     # сортирует журнал по дате, и номер протухает в тот же миг.
     LAST['data'] = [d, typ, cat, float(amount), com]
@@ -1339,7 +1543,8 @@ def add_transfer(amount, src, dst, comment='', date=None):
     d, _m = _resolve_date(date)
     com = _cap((comment or '').strip())
     _budget_append('Operations!A:H',
-                   [d, 'Перевод', 'Перевод', float(amount), com, src, dst, ''])
+                   [d, 'Перевод', 'Перевод', float(amount), com, src, dst,
+                    '', ''])
     LAST['data'] = [d, 'Перевод', 'Перевод', float(amount), com]
     return f'🔁 Перевод: {_money(amount)} с · {src} → {dst}'
 
@@ -1354,7 +1559,7 @@ def _find_last_row():
     want = LAST.get('data')
     if not want:
         return 0
-    r = SHEETS.get(API + BUDGET_SS + '/values/' + _q('Operations!A2:H'),
+    r = SHEETS.get(API + BUDGET_SS + '/values/' + _q('Operations!A2:I'),
                    params={'valueRenderOption': 'UNFORMATTED_VALUE'}, timeout=60)
     rows = r.json().get('values', []) if r.ok else []
     for i in range(len(rows) - 1, -1, -1):
@@ -2338,6 +2543,8 @@ def run():
         ensure_wallet_tab()
         ensure_debt_tab()
         ensure_task_tab()
+        ensure_meas_tabs()
+        ensure_proj_tab()
         # Вопрос про привычку должен приходить сам, а не ждать, пока
         # откроешь бота: в этом вся суть — не заставлять себя заходить.
         threading.Thread(target=habit_loop, daemon=True).start()
