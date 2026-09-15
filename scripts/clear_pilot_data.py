@@ -26,9 +26,12 @@
         python3 scripts/clear_pilot_data.py --go    — сделать
         python3 scripts/clear_pilot_data.py --all   — стереть и сегодня
 """
-import sys, datetime, urllib.parse
-sys.path.insert(0, '/home/user/My-vault/scripts')
-sys.path.insert(0, '/home/user/My-vault/ops-system')
+import os, sys, datetime, urllib.parse
+# Пути от самого файла, а не от /home/user: на GitHub Actions каталог
+# другой, и с абсолютным путём импорт app.config не находится.
+_HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, _HERE)
+sys.path.insert(0, os.path.join(os.path.dirname(_HERE), 'ops-system'))
 from ops_docs import session
 from app import config as C
 

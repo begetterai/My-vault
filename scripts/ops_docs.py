@@ -19,8 +19,18 @@ SC = ['https://www.googleapis.com/auth/drive',
       'https://www.googleapis.com/auth/documents']
 
 def session():
-    return AuthorizedSession(service_account.Credentials
-        .from_service_account_file(CRED, scopes=SC).with_subject(USER))
+    """Ключ из файла, а если его нет — из переменной окружения.
+
+    Файл лежит в .gitignore, и в свежем клоне (GitHub Actions, новый
+    контейнер) его не будет. Тот же приём уже используется
+    в sync_sistema.py.
+    """
+    raw = os.environ.get('ROMASHKA_SA_JSON')
+    cr = (service_account.Credentials.from_service_account_info(
+              json.loads(raw), scopes=SC) if raw
+          else service_account.Credentials.from_service_account_file(
+              CRED, scopes=SC))
+    return AuthorizedSession(cr.with_subject(USER))
 
 COMPANY = 'РОМАШКА СТРИТ ФУД'
 
