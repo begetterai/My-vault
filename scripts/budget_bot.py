@@ -1139,7 +1139,7 @@ def meas_write(name, value):
 # а логика уже написана.
 PROJ_TAB = 'Проекты'
 PROJ_COLS = ['Проект', 'Область', 'Цель', 'Статус', 'Начат', 'Срок',
-             'Бюджет', 'Категория расходов']
+             'Бюджет', 'Категория расходов', 'Привычка']
 
 
 def ensure_proj_tab():
@@ -1159,8 +1159,8 @@ def ensure_proj_tab():
 
 def projects(active_only=True):
     out = []
-    for i, r in enumerate(_rows(f'{PROJ_TAB}!A2:H100') or []):
-        r = list(r) + [''] * 8
+    for i, r in enumerate(_rows(f'{PROJ_TAB}!A2:I100') or []):
+        r = list(r) + [''] * 9
         if not str(r[0]).strip():
             continue
         st = str(r[3]).strip().lower() or 'идёт'
@@ -1170,7 +1170,7 @@ def projects(active_only=True):
                     'area': str(r[1]).strip(), 'goal': str(r[2]).strip(),
                     'status': st, 'start': str(r[4]).strip(),
                     'due': str(r[5]).strip(), 'budget': _num(r[6]),
-                    'cat': str(r[7]).strip()})
+                    'cat': str(r[7]).strip(), 'habit': str(r[8]).strip()})
     return out
 
 
@@ -1197,7 +1197,96 @@ def project_spent(p):
 # Всё держится на том, что настройки — это строки в листах, а код их
 # только читает. Значит одна общая пара «прочитать/записать» закрывает
 # все виды сразу; своего кода на каждый вид не нужно.
-SETTINGS = {
+# ── цели по деньгам ─────────────────────────────────────────────────────────
+# Лимит говорит «не больше», цель — «достигни». Разные вещи: лимит держит
+# месяц, цель тянет вперёд. Факт по цели не вводится, а считается — иначе
+# это была бы ещё одна строка, которую надо не забыть обновить.
+GOAL_TAB = 'Цели денег'
+GOAL_COLS = ['Цель', 'Тип', 'Сумма', 'Срок', 'Активна']
+GOAL_KINDS = ('откладывать в месяц', 'накопить', 'закрыть долг')
+
+# ── что показывать на экране «Сегодня» ──────────────────────────────────────
+SCREEN_TAB = 'Настройки экрана'
+SCREEN_COLS = ['Элемент', 'Показывать']
+SCREEN_ITEMS = ['Плитки', 'Полоска месяца', 'Вопросы дня', 'Главные дела',
+                'Кнопки действий']
+
+
+def ensure_goal_tabs():
+    meta = SHEETS.get(API + BUDGET_SS, params={'fields': 'sheets.properties'},
+                      timeout=30).json()
+    have = {sh['properties']['title'] for sh in meta.get('sheets', [])}
+    for title, cols, rows, seed in (
+            (GOAL_TAB, GOAL_COLS, 50, []),
+            (SCREEN_TAB, SCREEN_COLS, 20,
+             [[i, 'да'] for i in SCREEN_ITEMS])):
+        if title in have:
+            continue
+        SHEETS.post(API + BUDGET_SS + ':batchUpdate', json={'requests': [
+            {'addSheet': {'properties': {'title': title, 'gridProperties': {
+                'rowCount': rows, 'columnCount': len(cols),
+                'frozenRowCount': 1}}}}]}, timeout=30).raise_for_status()
+        SHEETS.put(API + BUDGET_SS + '/values/' + _q(f'{title}!A1'),
+                   params={'valueInputOption': 'USER_ENTERED'},
+                   json={'values': [cols] + seed}, timeout=30).raise_for_status()
+        log.info('создан лист «%s»', title)
+
+
+def money_goals():
+    """Цели по деньгам с посчитанным фактом."""
+    bal, _ = wallet_balances()
+    sav = save_wallet()
+    put_away = bal.get(sav, 0.0) if sav else 0.0
+    ym = now_local().strftime('%Y-%m')
+    saved_month = 0.0
+    for row in (_rows('Operations!A2:I2000') or []):
+        row = list(row) + [''] * 9
+        d = _row_date(row[0])
+        if not d or d.strftime('%Y-%m') != ym:
+            continue
+        if str(row[1]).strip() == 'Накопление' or (
+                str(row[1]).strip() == 'Перевод' and str(row[6]).strip() == sav):
+            saved_month += _num(row[3])
+    debts_left = {d['name']: d['left'] for d in debt_state()}
+    out = []
+    for i, r in enumerate(_rows(f'{GOAL_TAB}!A2:E50') or []):
+        r = list(r) + [''] * 5
+        name = str(r[0]).strip()
+        act = str(r[4]).strip().lower() or 'да'
+        if not name or act not in ('да', 'yes', '1', 'true'):
+            continue
+        kind, amount = str(r[1]).strip().lower(), _num(r[2])
+        if kind.startswith('отклад'):
+            fact, unit = round(saved_month, 2), 'за этот месяц'
+        elif kind.startswith('накоп'):
+            fact, unit = round(put_away, 2), 'на накопительном'
+        elif kind.startswith('закр'):
+            # У цели «закрыть долг» движение вниз: факт — сколько уже нет.
+            left = debts_left.get(name, amount)
+            fact, unit = round(amount - left, 2), 'погашено'
+        else:
+            fact, unit = 0.0, ''
+        pct = round(fact / amount * 100) if amount else 0
+        out.append({'line': i + 2, 'name': name, 'kind': kind,
+                    'amount': amount, 'due': str(r[3]).strip(),
+                    'fact': fact, 'unit': unit, 'pct': pct,
+                    'done': amount and fact >= amount})
+    return out
+
+
+def screen_items():
+    """{элемент: показывать}. Азиз решает, что видит на входе."""
+    out = {i: True for i in SCREEN_ITEMS}
+    for r in (_rows(f'{SCREEN_TAB}!A2:B20') or []):
+        r = list(r) + ['', '']
+        if str(r[0]).strip():
+            out[str(r[0]).strip()] = str(r[1]).strip().lower() in (
+                'да', 'yes', '1', 'true')
+    return out
+
+
+SETTINGS = {'goals_money': (GOAL_TAB, GOAL_COLS, 50),
+            'screen': (SCREEN_TAB, SCREEN_COLS, 20),
     'habits': (HABIT_CFG_TAB, HABIT_CFG_COLS, 20),
     'measures': (MEAS_CFG_TAB, MEAS_CFG_COLS, 30),
     'limits': (LIMITS_TAB, LIMIT_COLS, 60),
@@ -2545,6 +2634,7 @@ def run():
         ensure_task_tab()
         ensure_meas_tabs()
         ensure_proj_tab()
+        ensure_goal_tabs()
         # Вопрос про привычку должен приходить сам, а не ждать, пока
         # откроешь бота: в этом вся суть — не заставлять себя заходить.
         threading.Thread(target=habit_loop, daemon=True).start()

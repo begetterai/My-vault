@@ -214,7 +214,12 @@ def project_list():
         tasks = [t for t in B.tasks() if t['project'] == p['name']]
         done = [t for t in B.tasks(done=True) if t['project'] == p['name']]
         spent = B.project_spent(p)
-        out.append(dict(p, spent=spent,
+        hb = next((h for h in habits() if h['name'] == p['habit']), None)
+        out.append(dict(p, spent=spent, habit_state=hb and {
+                            'name': hb['name'], 'done_week': hb['done_week'],
+                            'plan': hb['plan']},
+                        tasks=[{'line': t['line'], 'text': t['text'],
+                                'due': t['due']} for t in tasks],
                         left=round(p['budget'] - spent, 2) if p['budget'] else None,
                         steps_done=len(done), steps_total=len(done) + len(tasks),
                         next_step=(sorted(tasks, key=lambda t: t['due'] or '9999')
@@ -257,6 +262,20 @@ def settings_drop(body):
     return {'ok': True, 'line': B.setting_drop(kind, int(body['line']))}
 
 
+def goal_add(body):
+    """Цель по деньгам — как обычная настройка, но с проверкой типа."""
+    kind = str(body.get('kind') or '').strip().lower()
+    if not any(kind.startswith(k[:6]) for k in B.GOAL_KINDS):
+        return {'ok': False, 'error': 'Тип: откладывать в месяц, накопить '
+                                      'или закрыть долг'}
+    line = B.setting_save('goals_money', int(body.get('line') or 0),
+                          [str(body.get('name') or ''), kind,
+                           str(body.get('amount') or ''),
+                           str(body.get('due') or ''), 'да'])
+    return {'ok': not line.startswith('⚠️'), 'line': line,
+            'error': line.lstrip('⚠️ ') if line.startswith('⚠️') else ''}
+
+
 def payload():
     """Всё, что нужно экрану за один запрос."""
     lim, used = B.limits(force=True), B.spent_by_cat()
@@ -286,7 +305,8 @@ def payload():
         'cat_trend': cat_trend(),
         'measures': measures(),
         'projects': project_list(),
-        'setting_kinds': sorted(B.SETTINGS),
+        'goals_money': B.money_goals(),
+        'screen': B.screen_items(),
     }
 
 
@@ -521,7 +541,7 @@ POST = {'/api/add': add, '/api/drop': drop, '/api/edit': edit,
         '/api/transfer': transfer, '/api/habit': habit,
         '/api/debt_pay': debt_pay, '/api/measure': measure,
         '/api/settings': settings_get, '/api/settings_save': settings_save,
-        '/api/settings_drop': settings_drop, '/api/task_add': task_add,
+        '/api/settings_drop': settings_drop, '/api/goal_add': goal_add, '/api/task_add': task_add,
         '/api/task_close': task_close, '/api/task_move': task_move,
         '/api/task_top': task_top}
 

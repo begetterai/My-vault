@@ -184,7 +184,7 @@
   <div class="tiles" id="qTiles"></div>
   <div id="qAsk"></div>
   <div id="qTop"></div>
-  <div class="card">
+  <div class="card" id="qBtns">
     <div class="two-go">
       <button class="go" id="qSpend">➖ Расход</button>
       <button class="go flat" id="qTask">✚ Задача</button>
@@ -260,6 +260,7 @@
 <section id="pGoals" class="hide"></section>
 <section id="pMeas" class="hide"></section>
 <section id="pMatrix" class="hide"></section>
+<section id="pMGoals" class="hide"></section>
 <section id="pSet" class="hide">
   <div class="chips" id="setKinds"></div>
   <div id="setList"></div>
@@ -285,7 +286,7 @@
 <nav class="bar" id="bar">
   <button data-b="today"><b>◎</b>Сегодня</button>
   <button data-b="money"><b>₵</b>Деньги</button>
-  <button data-b="body"><b>♥</b>Тело</button>
+  <button data-b="body"><b>♥</b>Ритм</button>
   <button data-b="todo"><b>✓</b>Дела</button>
   <button data-b="goals"><b>◆</b>Цели</button>
 </nav>
@@ -398,7 +399,15 @@ function taskRow(t){
 /* Экран входа. Каждый блок исчезает, когда в нём пусто: пустой вход —
    хорошая новость, а не недоработка. */
 function drawQuick(){
+  // Что показывать — решает Азиз в «Сегодня → Настроить».
+  const on = D.screen || {};
+  const vis = (k, sel) => $(sel).classList.toggle('hide', on[k] === false);
+  vis('Плитки', '#qTiles');
+  vis('Полоска месяца', '.mbar');
+  vis('Кнопки действий', '#qBtns');
   const ask = $('#qAsk'); ask.innerHTML = '';
+  if(on['Вопросы дня'] === false) ask.classList.add('hide');
+  else ask.classList.remove('hide');
   (D.habits || []).forEach(h => {
     const planned = h.week.find(d => d.date === D.today);
     if(h.today || !planned || !planned.planned) return;
@@ -417,6 +426,7 @@ function drawQuick(){
   });
 
   const top = $('#qTop'); top.innerHTML = '';
+  top.classList.toggle('hide', on['Главные дела'] === false);
   const list = (D.tasks && D.tasks.top) || [];
   if(list.length){
     const h = document.createElement('h2'); h.textContent = 'Главные на сегодня';
@@ -681,7 +691,7 @@ async function load(){
   drawTop(); drawCats(); drawWallets(); drawBal();
   drawLimits(); drawMonth(); drawLast(); drawHabits(); drawDebts();
   drawTasks(); drawQuick(); drawTiles(); drawTrend();
-  drawMeas(); drawGoals(); drawMatrix();
+  drawMeas(); drawGoals(); drawMatrix(); drawMGoals();
   if(FIRST){ FIRST = false; show('today'); }
 }
 
@@ -689,16 +699,22 @@ async function load(){
    где ты. Внутри раздела чипы подразделов. Верхняя полоса вкладок
    этого не давала: она уезжала при прокрутке и мешала уровни. */
 const BLOCKS = {
-  today: {name: 'Сегодня', subs: [['Quick', 'Сегодня']]},
+  today: {name: 'Сегодня', subs: [['Quick', 'Сегодня'], ['Set', 'Настроить']],
+    settings: ['screen']},
   money: {name: 'Деньги', subs: [
     ['Write', 'Записать'], ['Limits', 'Лимиты'], ['Wallets', 'Кошельки'],
-    ['Debts', 'Долги'], ['Trend', 'Динамика'], ['Month', 'Итог']]},
-  body: {name: 'Тело', subs: [['Habits', 'Привычки'], ['Meas', 'Меры']]},
+    ['Debts', 'Долги'], ['MGoals', 'Цели'], ['Trend', 'Динамика'],
+    ['Month', 'Итог'], ['Set', 'Настроить']],
+    settings: ['limits', 'wallets', 'debts', 'goals_money']},
+  body: {name: 'Ритм', subs: [['Habits', 'Привычки'], ['Meas', 'Меры'],
+    ['Set', 'Настроить']], settings: ['habits', 'measures']},
   todo: {name: 'Дела', subs: [['Tasks', 'Список'], ['Matrix', 'Матрица']]},
-  goals: {name: 'Цели', subs: [['Goals', 'Проекты'], ['Set', 'Настроить']]},
+  goals: {name: 'Цели', subs: [['Goals', 'Проекты'], ['Set', 'Настроить']],
+    settings: ['projects']},
 };
 const PAGES = ['Quick', 'Write', 'Limits', 'Wallets', 'Debts', 'Trend',
-               'Month', 'Habits', 'Meas', 'Tasks', 'Matrix', 'Goals', 'Set'];
+               'Month', 'Habits', 'Meas', 'Tasks', 'Matrix', 'Goals', 'Set',
+               'MGoals'];
 let TAB = 'today';
 
 function show(block, sub){
@@ -707,7 +723,7 @@ function show(block, sub){
   PAGES.forEach(n => $('#p' + n).classList.add('hide'));
   const want = sub || b.subs[0][0];
   $('#p' + want).classList.remove('hide');
-  if(want === 'Set') drawSet();
+  if(want === 'Set') drawSet(null, b.settings || []);
   // Чипы показываем только там, где подразделов больше одного.
   const many = b.subs.length > 1;
   $('#subHead').classList.toggle('hide', !many);
@@ -823,6 +839,9 @@ function drawGoals(){
                        money(p.spent) + ' с'));
     if(p.budget) c.appendChild(line('Бюджет', '', money(p.budget) + ' с'));
     if(p.due) c.appendChild(line('Срок', '', p.due));
+    if(p.habit_state) c.appendChild(line('Привычка',
+      p.habit_state.name, p.habit_state.done_week + ' из '
+      + p.habit_state.plan + ' на неделе'));
     // Полоска уместна: у этапов срок назначен извне, а не собой.
     const bar = document.createElement('div'); bar.className = 'mbar';
     const i = document.createElement('i');
@@ -860,12 +879,17 @@ function drawMatrix(){
 
 /* Настройки. Одна форма на все виды: настройки — это строки в листах,
    и своего экрана на каждый вид не нужно. */
-let SET_KIND = 'habits';
-async function drawSet(kind){
-  SET_KIND = kind || SET_KIND;
-  const kinds = D.setting_kinds || [];
+let SET_KIND = 'habits', SET_KINDS = [];
+async function drawSet(kind, kinds0){
+  // Виды приходят от блока: категории настраиваются там, где ими
+  // пользуются, а не в одной общей свалке.
+  if(kinds0) SET_KINDS = kinds0;
+  const kinds = SET_KINDS;
+  if(kind) SET_KIND = kind;
+  if(!kinds.includes(SET_KIND)) SET_KIND = kinds[0];
   const RU = {habits: 'Привычки', measures: 'Меры', limits: 'Категории',
-              wallets: 'Кошельки', debts: 'Долги', projects: 'Проекты'};
+              wallets: 'Кошельки', debts: 'Долги', projects: 'Проекты',
+              goals_money: 'Цели', screen: 'Экран «Сегодня»'};
   const chips = $('#setKinds'); chips.innerHTML = '';
   kinds.forEach(k => {
     const b = document.createElement('button');
@@ -930,6 +954,33 @@ async function drawSet(kind){
   add.style.cursor = 'pointer';
   add.onclick = () => wrap.classList.toggle('hide');
   box.append(add, wrap);
+}
+
+/* Цели по деньгам. Лимит говорит «не больше», цель — «достигни».
+   Факт считается сам: цель, которую надо обновлять руками, не живёт. */
+function drawMGoals(){
+  const box = $('#pMGoals'); box.innerHTML = '';
+  const list = D.goals_money || [];
+  if(!list.length){
+    box.innerHTML = '<div class="card dim">Целей нет. Заведи в «Настроить → '
+                  + 'Цели»: тип — откладывать в месяц, накопить или '
+                  + 'закрыть долг.</div>';
+    return;
+  }
+  list.forEach(g => {
+    const c = document.createElement('div'); c.className = 'card';
+    c.innerHTML = '<b>' + g.name + '</b>'
+      + '<div class="dim" style="font-size:12.5px">' + g.kind
+      + (g.due ? ' · до ' + g.due : '') + '</div>';
+    c.appendChild(line(money(g.fact) + ' из ' + money(g.amount), g.unit,
+                       g.pct + ' %', g.done ? '' : g.pct < 50 ? 'near' : ''));
+    const bar = document.createElement('div'); bar.className = 'mbar';
+    const i = document.createElement('i');
+    i.style.width = Math.min(g.pct, 100) + '%';
+    if(g.done) i.style.background = 'var(--ok)';
+    bar.appendChild(i); c.appendChild(bar);
+    box.appendChild(c);
+  });
 }
 
 function drawTiles(){
