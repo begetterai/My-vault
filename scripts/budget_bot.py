@@ -498,6 +498,16 @@ def habit_streak(name, plan=4):
     return part + (f' · подряд {streak}' if streak > 1 else '')
 
 
+def _hhmm(t):
+    """«9:30» → «09:30». Google хранит время без ведущего нуля, а сравнение
+    строк тогда врёт: '14:50' < '9:30' — правда, потому что '1' меньше '9'.
+    15.09.2026 из-за этого медитация в 7:00 и БАДы в 9:00 не спросились бы
+    никогда, а весь смысл системы в том, что бот спрашивает сам."""
+    t = str(t).strip()
+    m = re.match(r'^(\d{1,2}):(\d{2})', t)
+    return f'{int(m.group(1)):02d}:{m.group(2)}' if m else t
+
+
 def habit_tick():
     """Раз в минуту: пора ли спрашивать. Вызывается фоновым потоком."""
     now = now_local()
@@ -505,7 +515,7 @@ def habit_tick():
     for c in habit_cfg():
         if not c['on'] or dow not in c['days']:
             continue
-        if now.strftime('%H:%M') < c['at']:
+        if now.strftime('%H:%M') < _hhmm(c['at']):
             continue
         if habit_asked_today(c['name']):
             continue
@@ -516,6 +526,129 @@ def habit_tick():
         # Строку пишем сразу пустым ответом: она же и есть защита от того,
         # что вопрос придёт второй раз после перезапуска.
         habit_write(c['name'], 'спросили')
+
+
+def meas_asked_today(name):
+    """Спрашивали ли сегодня. Строка есть — спрашивали; значение в ней
+    есть — ответили. Пустое значение и есть «вопрос задан, ответа нет»."""
+    today = str(today_local())
+    for r in (_rows(f'{MEAS_TAB}!A2:C2000') or []):
+        r = list(r) + [''] * 3
+        d = _row_date(r[0])
+        if d and str(d) == today and str(r[1]).strip().lower() == name.lower():
+            return True
+    return False
+
+
+def meas_ask_mark(name):
+    """Пометить, что вопрос задан. Защита от повтора после перезапуска —
+    та же, что у привычек: помним фактом записи, а не памятью процесса."""
+    if not meas_asked_today(name):
+        _budget_append(f'{MEAS_TAB}!A1', [str(today_local()), name, ''])
+
+
+def meas_tick():
+    """Вопросы по мерам: сон, вес, энергия. Механика та же, что у привычек —
+    бот спрашивает сам, человек отвечает одним числом или тапом."""
+    now = now_local()
+    dow = WEEK_RU[now.weekday()]
+    for c in meas_cfg():
+        if not c['on'] or (c['days'] and dow not in c['days']):
+            continue
+        if now.strftime('%H:%M') < _hhmm(c['at']) or meas_asked_today(c['name']):
+            continue
+        cue = f'📏 <b>{c["name"]}</b> сегодня?'
+        if c['unit']:
+            cue += f' ({c["unit"]})'
+        if c['goal']:
+            word = 'не больше' if c['better'] == 'меньше' else 'не меньше'
+            cue += f'\nЦель: {word} {c["goal"]}'
+        if c['name'].lower().startswith('энерг'):
+            # Энергия — пять кнопок: один тап вместо набора числа.
+            send(cue, reply_markup={'inline_keyboard': [[
+                {'text': str(i), 'callback_data': f'm:{c["name"]}:{i}'}
+                for i in range(1, 6)]]})
+        else:
+            send(cue + '\n\nОтветь числом — запишу.')
+            WAIT_MEAS[ALLOWED] = c['name']
+        meas_ask_mark(c['name'])
+
+
+WAIT_MEAS = {}          # ждём ответ числом на вопрос по мере
+
+
+def meas_answer(data):
+    """Нажата кнопка меры: m:Энергия:4."""
+    try:
+        _, name, value = data.split(':', 2)
+    except ValueError:
+        return
+    try:
+        send('📏 ' + meas_write(name, float(value)))
+    except Exception as e:
+        log.warning('мера: %s', e)
+        send('⚠️ Не записал меру.')
+
+
+def due_tick():
+    """Напоминания по срокам: платёж по долгу и просроченные дела.
+
+    Просрочка по кредиту стоит денег, и это ровно тот случай, когда
+    напоминание уместно: срок назначен банком, а не настроением.
+    """
+    now = now_local()
+    if now.strftime('%H:%M') < DUE_AT:
+        return
+    soon = []
+    for d in debt_state():
+        if not d['day'] or d['done']:
+            continue
+        # За два дня: успеть дойти до банка.
+        days = d['day'] - now.day
+        if 0 <= days <= 2:
+            soon.append(f'{d["name"]}: {_money(d["pay"])} с {d["day"]}-го, '
+                        f'остаток {_money(d["left"])}')
+    if soon and once(f'debt:{now.strftime("%d.%m")}'):
+        send('🏦 <b>Скоро платёж</b>\n' + '\n'.join(soon))
+    late = [t for t in tasks() if t['due'] and t['due'] < str(today_local())]
+    if late and once(f'late:{now.strftime("%d.%m")}'):
+        send(f'⏰ Просрочено дел: {len(late)}\n'
+             + '\n'.join('· ' + t['text'] for t in late[:5]),
+             reply_markup=screen_button())
+
+
+DUE_AT = '10:00'
+_DONE_ONCE = set()
+
+
+def once(key):
+    """Один раз за день. В памяти: пропущенное напоминание не страшно,
+    а второе за день — раздражает."""
+    if key in _DONE_ONCE:
+        return False
+    _DONE_ONCE.add(key)
+    return True
+
+
+def evening_tick():
+    """Вечером — выбрать три главные на завтра.
+
+    Решение принимается вечером, а утром только исполняется: утренний
+    выбор съедает волю в худшее время дня (метод Айви Ли).
+    """
+    now = now_local()
+    if now.strftime('%H:%M') < EVENING_AT:
+        return
+    if not once(f'evening:{now.strftime("%d.%m")}'):
+        return
+    open_tasks = [t for t in tasks() if not t['top']]
+    if not open_tasks:
+        return
+    send('🌙 <b>Что завтра главное?</b>\nОтметь до трёх дел — утром они '
+         'будут сверху.', reply_markup=screen_button())
+
+
+EVENING_AT = '21:00'
 
 
 def habit_answer(data):
@@ -658,6 +791,9 @@ def habit_loop():
     while True:
         try:
             habit_tick()
+            meas_tick()
+            due_tick()
+            evening_tick()
         except Exception as e:
             log.warning('привычки: %s', e)
         time.sleep(60)
@@ -1112,6 +1248,8 @@ def meas_rows(name=None, days_back=90):
             continue
         if name and str(r[1]).strip().lower() != name.lower():
             continue
+        if str(r[2]).strip() == '':
+            continue        # вопрос задан, ответа ещё нет
         out.append((d, str(r[1]).strip(), _num(r[2])))
     return out
 
@@ -2415,6 +2553,18 @@ def handle(msg):
         send('Жду ответа: <b>да</b> — записать, <b>нет</b> — отменить.')
         return
 
+    # Бот только что спросил меру и ждёт число. Одинокое число здесь —
+    # ответ на вопрос, а не трата: иначе «7» после «во сколько лёг?»
+    # уехало бы в расходы.
+    if WAIT_MEAS.get(ALLOWED) and re.fullmatch(r'\d+([.,]\d+)?', low):
+        name = WAIT_MEAS.pop(ALLOWED)
+        try:
+            send('📏 ' + meas_write(name, float(low.replace(',', '.'))))
+        except Exception as e:
+            log.warning('мера: %s', e)
+            send('⚠️ Не записал меру.')
+        return
+
     if low in HELP_WORDS:
         send(HELP, reply_markup=screen_button())
         return
@@ -2595,6 +2745,8 @@ def on_callback(cq):
         return quick_answer(data)
     if data.startswith('w:'):
         return wallet_answer(data)
+    if data.startswith('m:'):
+        return meas_answer(data)
     if not data.startswith('c:'):
         return
     try:
