@@ -351,6 +351,24 @@ LIMIT_COLS = ['Категория', 'Лимит в месяц', 'Активен'
 _LIM = {'ts': None, 'map': {}}
 
 
+_CACHE = threading.local()
+
+
+def cache_on():
+    """Одно чтение диапазона на одну сборку экрана.
+
+    Экран читает «Operations» четыре раза и «Дела» четыре раза — это одни
+    и те же данные, а у Google квота 60 чтений в минуту. Кэш живёт только
+    между cache_on и cache_off, то есть внутри сборки, где записи не
+    бывает: устареть не успевает. Свой на поток — сервер многопоточный.
+    """
+    _CACHE.d = {}
+
+
+def cache_off():
+    _CACHE.d = None
+
+
 def _rows(rng):
     """Строки диапазона. Пусто при сбое — читатель решает, что с этим делать.
 
@@ -359,11 +377,17 @@ def _rows(rng):
     экран показывал «ничего нет» вместо «не прочиталось». Поэтому
     повторяем дважды и сбой пишем в лог.
     """
+    box = getattr(_CACHE, 'd', None)
+    if box is not None and rng in box:
+        return box[rng]
     for wait in (1, 3, 0):
         try:
             r = SHEETS.get(API + BUDGET_SS + '/values/' + _q(rng), timeout=30)
             if r.ok:
-                return r.json().get('values', [])
+                vals = r.json().get('values', [])
+                if box is not None:
+                    box[rng] = vals
+                return vals
             log.warning('чтение %s: %s %s', rng, r.status_code, r.text[:120])
             if r.status_code not in (429, 500, 503) or not wait:
                 return []

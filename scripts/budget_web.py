@@ -329,6 +329,14 @@ def goal_add(body):
 
 def payload():
     """Всё, что нужно экрану за один запрос."""
+    B.cache_on()
+    try:
+        return _payload()
+    finally:
+        B.cache_off()
+
+
+def _payload():
     lim, used = B.limits(force=True), B.spent_by_cat()
     rows = rows_with_lines()
     return {
