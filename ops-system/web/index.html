@@ -1100,10 +1100,9 @@ function showLogin(){
     if(!login || !pass) return note('Введи логин и пароль.', 'err');
     go.disabled = true; go.textContent = 'Проверяю…';
     try{
-      const r = await fetch('/api/login', {method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({login, password: pass})});
-      const j = await r.json();
+      // Через jpost: он уже превращает перезапуск сервера и обрыв связи
+      // в понятную причину вместо ошибки разбора JSON.
+      const j = await jpost('/api/login', {login, password: pass});
       if(!j.ok){ note(j.error || 'Не вышло.', 'err'); return; }
       $('#logPass').value = '';
       $('#loginBox').classList.add('hidden');
@@ -1355,7 +1354,18 @@ async function boot(){
   if(!MYGEO) gate(true);      // спросим разрешение, но ждать не будем
   try{
     const r = await fetch('/api/init?initData=' + encodeURIComponent(initData));
-    const j = await r.json();
+    // Railway при перезапуске отдаёт HTML, а не JSON. Без этого разбора
+    // человек видел «Не открылось: Unexpected token '<'» — строку для
+    // разработчика вместо понятной причины и подсказки, что делать.
+    const txt = await r.text();
+    let j;
+    try{ j = JSON.parse(txt); }
+    catch(_){
+      console.error('не JSON от /api/init', r.status, txt.slice(0, 200));
+      return fail(r.status === 502 || r.status === 503
+        ? 'Сервер перезапускается. Подожди полминуты и открой заново.'
+        : 'Сервер ответил непонятно. Закрой и открой приложение.');
+    }
     if(!r.ok){
       // На сайте «ещё не вошёл» — не ошибка, а обычное начало: показываем
       // вход, а не красную полосу. В Telegram этого экрана не бывает.
