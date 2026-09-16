@@ -143,6 +143,12 @@ def password_reset(who, body):
     # Управляющий распоряжается своей точкой, директор — всеми.
     if S.role_of(who) != 'coo' and team[cid][1] != who[1]:
         return {'ok': False, 'error': 'Это человек другой точки'}
+    # Но не паролем того, кто выше или равен. Раньше проверялась только
+    # точка: управляющий ЗБ мог сбросить пароль директору, который в той же
+    # «Команде» с той же точкой, получить его открытым текстом в ответе
+    # и войти директором — все точки, снятие любых списаний, раздача паролей.
+    if S.role_of(who) != 'coo' and S.role_of(team[cid]) in ('manager', 'coo'):
+        return {'ok': False, 'error': 'Пароль руководителя выдаёт только директор'}
     try:
         login = S.login_of(cid) or make_login(target, set(S.logins()))
         password = make_password()
@@ -1046,7 +1052,18 @@ def shift(who, body):
         except (ValueError, TypeError, IndexError):
             late = 0
         if late > 0:
-            SC.add(point, who[0], 'late', qty=late)
+            # Приход уже записан. Если списание не легло в «Баллы», рвать
+            # ответ нельзя — человек решит, что не отметился, и отметится
+            # второй раз. Но и молчать нельзя: раньше отказ уходил в лог,
+            # а человеку приходило «−45», которых в ведомости нет.
+            try:
+                SC.add(point, who[0], 'late', qty=late)
+            except Exception as e:
+                print('опоздание не записано:', e)
+                for cid in S.managers_of(point):
+                    BOT.say(cid, f'⚠️ <b>Опоздание не записалось</b> · {point}\n'
+                                 f'{who[0]}, {late} мин. Таблица не ответила. '
+                                 f'Начисли вручную или скажи Азизу.')
     if flag:
         txt = f'📍 <b>Явка</b> · {point} · {who[0]}\n' + msg.replace('✅ ', '')
         for cid in S.managers_of(point):
@@ -1968,15 +1985,28 @@ def dispute_resolve(who, body):
     line = str(body.get('line', ''))
     verdict = 'drop' if body.get('verdict') == 'drop' else 'keep'
     # Спор чужой точки разбирает её управляющий, а не любой руководитель.
+    # И не свой собственный: иначе управляющий получает списание, сам
+    # жмёт «Не согласен», сам «Снять» — и оно исчезает из ведомости,
+    # а директору об этом не сообщает ничто.
     try:
-        r = S.get(C.TABS['score'], f'B{line}:B{line}')
-        pt = str(r[0][0]).strip() if r and r[0] else ''
+        r = S.get(C.TABS['score'], f'B{line}:C{line}', strict=True)
+        row = (r[0] if r and r[0] else [])
+        pt = str(row[0]).strip() if len(row) > 0 else ''
+        owner = str(row[1]).strip() if len(row) > 1 else ''
+        if owner and owner == who[0] and S.role_of(who) != 'coo':
+            return {'ok': False,
+                    'error': 'Своё списание разбирает директор, не ты.'}
         if (pt and S.role_of(who) != 'coo' and pt != who[1]
                 and S.standin_of(pt) != who[0]):
             return {'ok': False, 'error': f'Это списание на точке '
                                           f'{S.point_label(pt)}.'}
     except Exception as e:
+        # Раньше сбой чтения печатался и проваливался дальше к снятию —
+        # то есть при недоступной таблице любой управляющий снимал любое
+        # списание на любой точке. Не прочитали — не разбираем.
         print('точка списания:', e)
+        return {'ok': False, 'error': 'Не могу прочитать это списание. '
+                                      'Попробуй ещё раз через минуту.'}
     if not SC.resolve(line, verdict, str(body.get('note', ''))):
         return {'ok': False, 'error': 'Это списание не найдено. Обнови баллы — возможно, '
                                  'спор уже разобрали.'}

@@ -99,7 +99,13 @@ def add(point, who, event, link='', qty=1):
                  [[C.day_str(), point, who, event, total, why, link,
                    kind, period_of()[2], '', '']])
     except Exception as e:
+        # Не записалось — значит начисления не было. Раньше отказ уходил
+        # в лог, функция возвращала баллы как ни в чём не бывало, бот писал
+        # человеку «+20», а в ведомости этой строки не существовало. Спорить
+        # человеку было не о чем, а найти расхождение можно было только
+        # сверкой логов Railway с таблицей.
         print('баллы:', e)
+        raise
     if total < 0:
         _tell(point, who, total, why)
     return total

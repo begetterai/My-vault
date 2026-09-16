@@ -1183,37 +1183,35 @@ def on_callback(cq):
     # Человек стоит на точке, а телефон показывает километры: разрешаем ему
     # одну отметку. Разрешение именное — имя разрешившего уходит в таблицу
     # рядом с отметкой, чтобы это не стало тихой кнопкой «пропустить всех».
-    if data.startswith('cl:geo:'):
+    if data.startswith('cl:geo:') or data.startswith('cl:leave:'):
+        kind = 'геометка' if data.startswith('cl:geo:') else 'уход'
         if S.role_of(who or ('', '', '')) not in ('manager', 'coo'):
             return ack('Разрешает руководитель') or True
-        target = S.team().get(data.split(':', 2)[2])
+        tid = data.split(':', 2)[2]
+        target = S.team().get(tid)
         if not target:
             return ack('Не нашёл этого человека') or True
+        # Сам себе — нельзя. Иначе управляющий шлёт запрос из своего же
+        # приложения, жмёт «Разрешить» на нём и отмечает приход из дома:
+        # в таблице останется «разрешил он же», но запрета не было.
+        if str(tid) == str(chat_id) or target[0] == who[0]:
+            return ack('Себе разрешить нельзя — попроси директора') or True
+        # И только своей точке: кнопка живёт вечно, чужую нажимать нечего.
+        if S.role_of(who) != 'coo' and target[1] != who[1]:
+            return ack('Это человек другой точки') or True
         from . import webapp as W
-        S.grant(target[0], 'геометка', who[0], W.GRANT_MIN)
+        S.grant(target[0], kind, who[0], W.GRANT_MIN)
+        what = ('отметку вне точки' if kind == 'геометка'
+                else 'уход без приёма')
+        press = 'Нажми ещё раз' if kind == 'геометка' else 'Нажми «Ушёл» ещё раз'
         tg('editMessageText', chat_id=chat_id, message_id=mid,
            text=cq['message'].get('text', '') + f'\n\n✅ Разрешил: {who[0]}')
-        say(data.split(':', 2)[2],
-            f'✅ {who[0]} разрешил отметку вне точки. Нажми ещё раз — '
-            f'разрешение действует 30 минут.')
+        say(tid, f'✅ {who[0]} разрешил {what}. {press} — '
+                 f'разрешение действует 30 минут.')
         return ack('Разрешил') or True
 
     # Сменщик не принял передачу, а человеку надо домой. Разрешение именное
     # и на один уход: имя разрешившего уходит в таблицу рядом с отметкой.
-    if data.startswith('cl:leave:'):
-        if S.role_of(who or ('', '', '')) not in ('manager', 'coo'):
-            return ack('Разрешает руководитель') or True
-        target = S.team().get(data.split(':', 2)[2])
-        if not target:
-            return ack('Не нашёл этого человека') or True
-        from . import webapp as W
-        S.grant(target[0], 'уход', who[0], W.GRANT_MIN)
-        tg('editMessageText', chat_id=chat_id, message_id=mid,
-           text=cq['message'].get('text', '') + f'\n\n✅ Разрешил: {who[0]}')
-        say(data.split(':', 2)[2],
-            f'✅ {who[0]} разрешил уход без приёма. Нажми «Ушёл» ещё раз — '
-            f'разрешение действует 30 минут.')
-        return ack('Разрешил') or True
 
     if data.startswith('cl:go:'):
         kind = data.split(':')[2]
