@@ -766,7 +766,10 @@
 <details class="blk" id="blkTeam">
       <summary>Люди и смена</summary>
     <div id="rosterBox" class="hidden">
-      <h2>Смена завтра <span id="rosterDay" class="badge"></span></h2>
+      <h2><span id="rosterWhen">Смена завтра</span> <span id="rosterDay" class="badge"></span></h2>
+      <div id="rosterSwap" class="hidden" style="margin-bottom:10px">
+        <button type="button" id="rosterToday" class="ghost">Править сегодняшний состав</button>
+      </div>
       <div id="rosterBody"></div>
     </div>
 
@@ -3400,14 +3403,32 @@ async function loadRoster(){
   // Сотруднику состав виден только для чтения: он должен знать, кто завтра
   // в смене, но менять его — работа управляющего.
   try{
-    ROSTER = await jpost('/api/roster', {initData, point});
+    ROSTER = await jpost('/api/roster', {initData, point, day: ROSTER_DAY});
     if(ROSTER.ok) renderRoster();
   }catch(e){ /* состав не критичен для остального экрана */ }
+}
+
+/* Какой день правим. «today» нужен, когда подмена случилась сейчас:
+   бариста не вышел, на бар встал кассир — листы бара должны открыться
+   ему сегодня, а не завтра. */
+let ROSTER_DAY = 'tomorrow';
+
+function rosterSwap(){
+  ROSTER_DAY = ROSTER_DAY === 'today' ? 'tomorrow' : 'today';
+  loadRoster();
 }
 
 function renderRoster(){
   const box = $('#rosterBody'); box.innerHTML = '';
   $('#rosterDay').textContent = ROSTER.day;
+  const now = ROSTER_DAY === 'today';
+  $('#rosterWhen').textContent = now ? 'Смена сегодня' : 'Смена завтра';
+  const sw = $('#rosterSwap');
+  sw.classList.toggle('hidden', !ROSTER.boss);
+  $('#rosterToday').textContent = now
+    ? 'Вернуться к завтрашнему составу'
+    : 'Править сегодняшний состав';
+  $('#rosterToday').onclick = rosterSwap;
   if(ROSTER.boss) renderRosterBoss(box); else renderRosterMine(box);
   $('#rosterBox').classList.remove('hidden');
 }
@@ -3613,7 +3634,8 @@ async function sendRoster(btn){
     was.push(part);
   }
   btn.disabled = true; btn.textContent = 'Отправляю…';
-  const j = await jpost('/api/roster_save', {initData, point, people: ROSTER.people});
+  const j = await jpost('/api/roster_save',
+                        {initData, point, day: ROSTER_DAY, people: ROSTER.people});
   btn.disabled = false;
   if(!j.ok){
     // Флаг снимаем в любом случае: пока он поднят, refresh() не обновляет

@@ -138,6 +138,12 @@ def on_station(point, cl, key):
 def ready_workers(point, cl, key=''):
     """Кто на точке реально должен сдать этот чек-лист.
 
+    Позицию берём из состава смены, а не из «Команды»: на бар мог встать
+    кассир, а бариста сегодня не вышел. Раньше напоминание и просрочка
+    уходили по отделу из «Команды» — то есть отсутствующему, а тот, кто
+    реально стоит на позиции, не получал ничего. Состава на день нет —
+    возвращаемся к «Команде», как было.
+
     Новичок, не сдавший тренинги позиции, из счёта выпадает: приложение
     ему чек-листы ещё не показывает, спрашивать за них нечестно.
     """
@@ -149,8 +155,11 @@ def ready_workers(point, cl, key=''):
         if live:
             return [cid for cid, v in S.team().items()
                     if v[0] == live and v[1] == point] or []
+    cand = None if cl.get('roles') else _by_roster(point, cl.get('dept'))
+    if cand is None:
+        cand = S.workers_of(point, cl.get('dept'), cl.get('roles'))
     out = []
-    for cid in S.workers_of(point, cl.get('dept'), cl.get('roles')):
+    for cid in cand:
         v = S.team().get(str(cid))
         if not v:
             continue
@@ -161,6 +170,26 @@ def ready_workers(point, cl, key=''):
             pass
         out.append(cid)
     return out
+
+
+def _by_roster(point, dept):
+    """Кто сегодня стоит на этой позиции по составу. None — состава нет."""
+    ds = [x.lower() for x in ([dept] if isinstance(dept, str) else (dept or [])) if x]
+    if not ds:
+        return None
+    try:
+        from . import roster as RS
+        today = RS.rows(C.today(), point)
+    except Exception as e:
+        print('позиция из состава:', e)
+        return None
+    if not today:
+        return None
+    names = {r['who'] for r in today if r['dept'] in ds}
+    if not names:
+        return None
+    return [cid for cid, v in S.team().items()
+            if v[0] in names and S.role_of(v) not in ('manager', 'coo')]
 
 
 def remind(key, cl, point, left):

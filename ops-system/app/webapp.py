@@ -1781,11 +1781,17 @@ def roster(who, body):
 
 
 def roster_save(who, body):
-    """Управляющий отправил состав — людям сразу уходит вопрос «Буду / Не смогу»."""
+    """Управляющий отправил состав — людям сразу уходит вопрос «Буду / Не смогу».
+
+    Состав на сегодня правится тоже: бариста не вышел, на бар встаёт кассир —
+    и листы бара должны открыться ему сейчас, а не завтра. Такую правку
+    не спрашивают «Буду / Не смогу»: люди уже на смене.
+    """
     if S.role_of(who) not in ('manager', 'coo'):
         return {'ok': False, 'error': 'Состав смены собирает руководитель'}
     from . import roster as RS
-    day = C.today() + datetime.timedelta(days=1)
+    now = str(body.get('day') or '') == 'today'
+    day = C.today() if now else C.today() + datetime.timedelta(days=1)
     point = pick_point(who, body)
     people = [p for p in (body.get('people') or [])
               if str(p.get('who', '')).strip()]
@@ -1814,7 +1820,10 @@ def roster_save(who, body):
         return {'ok': False, 'error': bad}
     ask = RS.save(day, point, people, who[0])
     sent = 0
-    for name in ask:
+    # Сегодняшняя правка — это не план на завтра, а факт: люди уже на точке.
+    # Вопрос «Буду / Не смогу» тут бессмыслен, а подтверждать смену, которая
+    # идёт, человек не станет. Вместо него — короткое уведомление о позиции.
+    for name in (ask if not now else [p['who'] for p in people]):
         cid = names.get(name)
         if not cid:
             continue
@@ -1826,7 +1835,8 @@ def roster_save(who, body):
             part = str(p.get('part') or 'one')
             tag = f'{S.PART_RU[part]}: ' if part in ('open', 'close') else ''
             lines.append(f'{tag}{p.get("dept", "—")} · с {p.get("start") or "—"}')
-        line = f'📅 <b>Завтра, {RS.day_str(day)}</b>\n' + '\n'.join(lines)
+        line = (f'📅 <b>Сегодня, {RS.day_str(day)}</b>\n' if now
+                else f'📅 <b>Завтра, {RS.day_str(day)}</b>\n') + '\n'.join(lines)
         # Не своя точка — говорим об этом первой строкой и называем адрес:
         # человек должен ехать в другое место, а не на привычное.
         if home.get(name) != point:
@@ -1834,18 +1844,26 @@ def roster_save(who, body):
         for p in mine:
             if p.get('instead'):
                 line += f'\nЗамена: вместо {p["instead"]}'
-        BOT.say(cid, line + '\n\nПодтверди до 21:30.',
-                reply_markup={'inline_keyboard': [[
-                    {'text': '✅ Буду', 'callback_data': 'rs:y'},
-                    {'text': '❌ Не смогу', 'callback_data': 'rs:n'}]]})
+        if now:
+            BOT.say(cid, line + '\n\nЧек-листы этой позиции уже открыты '
+                                'в приложении.',
+                    reply_markup=BOT.menu_kb(
+                        S.role_of(S.team().get(str(cid))) if S.team().get(str(cid))
+                        else 'staff', '', point))
+        else:
+            BOT.say(cid, line + '\n\nПодтверди до 21:30.',
+                    reply_markup={'inline_keyboard': [[
+                        {'text': '✅ Буду', 'callback_data': 'rs:y'},
+                        {'text': '❌ Не смогу', 'callback_data': 'rs:n'}]]})
         sent += 1
     # Забрали человека с соседней точки — её управляющий должен знать:
-    # завтра он на него не рассчитывает.
+    # он на него не рассчитывает.
     guests = dict.fromkeys(p['who'] for p in people
                            if home.get(p['who']) != point)
+    when = 'Сегодня' if now else 'Завтра'
     for g in guests:
         for cid in S.managers_of(home.get(g, '')):
-            BOT.say(cid, f'📅 <b>Завтра, {RS.day_str(day)}</b>\n{g} стоит '
+            BOT.say(cid, f'📅 <b>{when}, {RS.day_str(day)}</b>\n{g} стоит '
                          f'в составе точки {S.point_label(point)} — '
                          f'поставил {who[0]}.')
     return {'ok': True, 'sent': sent, 'total': len(people)}
