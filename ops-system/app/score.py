@@ -132,14 +132,20 @@ def _tell(point, who, pts, why):
 
 
 def today_count(who, event):
-    """Сколько раз событие уже начислено человеку сегодня."""
+    """Сколько раз событие уже начислено человеку сегодня.
+
+    Читаем строго: по этому счёту работает потолок в день. Сбой чтения
+    раньше выглядел как «сегодня ещё ничего не начисляли», и потолок
+    переставал держать ровно тогда, когда кончалась квота Google.
+    """
     d = C.today()
-    return sum(1 for r in rows(since=d, until=d, who=who) if r['event'] == event)
+    return sum(1 for r in rows(since=d, until=d, who=who, strict=True)
+               if r['event'] == event)
 
 
-def rows(since=None, until=None, point=None, who=None):
+def rows(since=None, until=None, point=None, who=None, strict=False):
     out = []
-    for i, r in enumerate(S.get(C.TABS['score'], 'A2:K'), start=2):
+    for i, r in enumerate(S.get(C.TABS['score'], 'A2:K', strict=strict), start=2):
         if len(r) < 5:
             continue
         r = list(r) + [''] * (11 - len(r))
@@ -177,9 +183,12 @@ def balance(who, point=None, d=None):
     """Итог периода по правилу приоритета.
 
     Возвращает оба счёта и то, что реально пойдёт в ведомость.
+
+    Читаем строго: показать человеку «баланс 0» вместо «не прочиталось» —
+    это соврать про его деньги. Приложение поймает ошибку и скажет прямо.
     """
     a, b, label = period_of(d)
-    rs = [r for r in rows(since=a, until=b, point=point, who=who)
+    rs = [r for r in rows(since=a, until=b, point=point, who=who, strict=True)
           if not _dropped(r)]
     base = sum(r['pts'] for r in rs if r['kind'] != EXTRA)
     extra = sum(r['pts'] for r in rs if r['kind'] == EXTRA)
@@ -339,7 +348,11 @@ def close_day(d=None):
         point_closed(point)
         if not closed_own(point, who) or not confirmed_own(point, who):
             continue
-        if any(x['event'] == 'day_closed' for x in rows(since=d, until=d, who=who)):
+        # Строго: сбой чтения читался как «+5 ещё не начисляли», и человек
+        # получал его второй раз. Лист «Баллы» здесь перечитывается на
+        # каждого — это ровно тот режим, где квота и кончается.
+        if any(x['event'] == 'day_closed'
+               for x in rows(since=d, until=d, who=who, strict=True)):
             continue
         add(point, who, 'day_closed')
         done += 1

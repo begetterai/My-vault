@@ -47,7 +47,11 @@ def geo_check(point, lat, lon):
         return 'место не подтверждено', True
     ref = S.point_geo(point)
     if not ref:
-        return f'{lat:.5f}, {lon:.5f}', False
+        # У точки нет координат — значит сверять не с чем, и «на месте»
+        # сказать нельзя. Раньше здесь возвращалось far=False: отметка
+        # проходила откуда угодно и выглядела в таблице обычной геометкой.
+        # Человек не заперт — он просит управляющего, как и при севшем GPS.
+        return f'{lat:.5f}, {lon:.5f} — у точки нет координат', True
     plat, plon, radius = ref
     d = distance_m(float(lat), float(lon), plat, plon)
     if d <= radius:
@@ -193,7 +197,11 @@ def save_journal(key, point, who, values, photo_link, lat, lon):
     cl = C.form(key)
     geo, _ = geo_check(point, lat, lon)
     n = C.now()
-    row = [n.strftime('%d.%m.%Y'), n.strftime('%H:%M'), point, who,
+    # Дата операционная, как у баллов: находка в 03:10 на ОВИР
+    # принадлежит уходящим суткам, а не следующим. Раньше журнал писал
+    # календарный день, а «+5» за него — операционный, и сверка
+    # «сколько находок / сколько за них начислено» не сходилась.
+    row = [C.day_str(), n.strftime('%H:%M'), point, who,
            values.get('what', ''), values.get('where', ''),
            values.get('details', ''), values.get('action', ''),
            values.get('severity', ''), photo_link, geo, 'Новая', '']
@@ -206,7 +214,7 @@ def save_form(key, point, who, lines, photo_link, lat, lon):
     cl = C.form(key)
     geo, _ = geo_check(point, lat, lon)
     n = C.now()
-    day, tm = n.strftime('%d.%m.%Y'), n.strftime('%H:%M')
+    day, tm = C.day_str(), n.strftime('%H:%M')
     rows = [[day, tm, point, who, cl['title'], i + 1,
              ln.get('item', ''), ln.get('qty', ''), ln.get('unit', ''),
              ln.get('reason', ''), ln.get('note', ''),
@@ -282,7 +290,7 @@ def training_left(role, dept, point, who):
 def save_quiz(key, point, who, right, total, need, wrong, seconds, attempt):
     cl = C.form(key)
     n = C.now()
-    row = [n.strftime('%d.%m.%Y'), n.strftime('%H:%M'), point, who, cl['title'],
+    row = [C.day_str(), n.strftime('%H:%M'), point, who, cl['title'],
            right, total, need, 'да' if right >= need else 'нет', attempt,
            round(seconds / 60, 1), ', '.join(str(x) for x in wrong)]
     return S.append(cl['tab'], [row])

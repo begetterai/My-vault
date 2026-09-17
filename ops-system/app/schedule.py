@@ -155,7 +155,8 @@ def ready_workers(point, cl, key=''):
         if live:
             return [cid for cid, v in S.team().items()
                     if v[0] == live and v[1] == point] or []
-    cand = None if cl.get('roles') else _by_roster(point, cl.get('dept'))
+    cand = None if cl.get('roles') else _by_roster(point, cl.get('dept'),
+                                                   cl.get('stage') or '')
     if cand is None:
         cand = S.workers_of(point, cl.get('dept'), cl.get('roles'))
     out = []
@@ -172,8 +173,14 @@ def ready_workers(point, cl, key=''):
     return out
 
 
-def _by_roster(point, dept):
-    """Кто сегодня стоит на этой позиции по составу. None — состава нет."""
+def _by_roster(point, dept, stage=''):
+    """Кто сегодня стоит на этой позиции по составу. None — состава нет.
+
+    Этап листа отсекает чужую смену: лист открытия — к тем, кто стоит
+    на первую, закрытия — к тем, кто на вторую. Иначе утреннее напоминание
+    уходило и тому, кто выходит в 17:00. Кто стоит на весь день («one»),
+    попадает в оба.
+    """
     ds = [x.lower() for x in ([dept] if isinstance(dept, str) else (dept or [])) if x]
     if not ds:
         return None
@@ -185,7 +192,14 @@ def _by_roster(point, dept):
         return None
     if not today:
         return None
-    names = {r['who'] for r in today if r['dept'] in ds}
+    mine = [r for r in today if r['dept'] in ds]
+    parts = {'open': ('open', 'one'), 'give': ('open', 'one'),
+             'take': ('close', 'one'), 'close': ('close', 'one')}.get(stage)
+    if parts:
+        by_part = [r for r in mine if (r['part'] or 'one') in parts]
+        if by_part:
+            mine = by_part
+    names = {r['who'] for r in mine}
     if not names:
         return None
     return [cid for cid, v in S.team().items()

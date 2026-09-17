@@ -469,7 +469,18 @@ def points_map(force=False):
     if not force and _PTS['ts'] and (now - _PTS['ts']).seconds < 60:
         return _PTS['map']
     m, geo, standin = {}, {}, {}
-    for r in get(C.TABS['points'], 'A2:H50'):
+    # Читаем строго. Без этого сбой возвращал пустой список, а защита ниже
+    # («пустой ответ — это сбой») требует непустую прошлую карту — после
+    # перезапуска её нет. В кэш ложилось geo={} на минуту, и всю эту минуту
+    # проверка места была выключена на всех точках сразу.
+    try:
+        rows = get(C.TABS['points'], 'A2:H50', strict=True)
+    except Exception as e:
+        print('точки:', e)
+        if _PTS['map']:
+            return _PTS['map']
+        raise
+    for r in rows:
         r = list(r) + [''] * (8 - len(r))
         code = str(r[0]).strip()
         if not code:

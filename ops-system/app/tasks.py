@@ -134,17 +134,26 @@ def overdue(point=None):
     today = C.today()
     out = []
     for t in all_tasks(only_open=True, point=point):
-        d = None
-        for f in ('%d.%m.%Y', '%Y-%m-%d'):
-            try:
-                d = datetime.datetime.strptime(t['due'], f).date()
-                break
-            except ValueError:
-                pass
+        d = _day(t['due'])
         if d and d < today:
             t['late'] = (today - d).days
             out.append(t)
     return sorted(out, key=lambda x: -x['late'])
+
+
+def _day(s):
+    """«17.09.2026» или «2026-09-17» → дата. Не разобрали — None.
+
+    Нужна и для сортировки: сроки лежат строками, а «01.10.2026» как
+    строка меньше «16.09.2026» — список задач вставал в неверном порядке
+    и просроченное пряталось в середине.
+    """
+    for f in ('%d.%m.%Y', '%Y-%m-%d'):
+        try:
+            return datetime.datetime.strptime(str(s).strip(), f).date()
+        except ValueError:
+            pass
+    return None
 
 
 # ── откуда задачи берутся ────────────────────────────────────────────────────
@@ -206,7 +215,8 @@ def text(point=None):
     late = {x['line'] for x in overdue(point)}
     L = [f'📌 <b>Задачи: {len(t)}</b>'
          + (f' · просрочено {len(late)}' if late else ''), '']
-    for x in sorted(t, key=lambda x: (x['line'] not in late, x['due'])):
+    for x in sorted(t, key=lambda x: (x['line'] not in late,
+                                      _day(x['due']) or datetime.date.max)):
         mark = '🔴' if x['line'] in late else (
             '🟠' if x['severity'] in ('Критично', 'Серьёзное') else '🟡')
         L.append(f'{mark} <b>{x["what"]}</b>')

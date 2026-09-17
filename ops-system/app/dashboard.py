@@ -223,12 +223,18 @@ def refresh():
     s = S.session()
     gid = _sheet_id(s)
     rows = build()
-    # чистим старое, пишем новое
-    s.post(S.B + C.DATA_SHEET + '/values/' + S._rng(TAB, f'A1:I400') + ':clear',
-           timeout=60)
+    # Сначала пишем, потом стираем хвост. Раньше было наоборот: чистили,
+    # потом писали — и если запись падала на квоте, лист оставался пустым
+    # до следующего часа, а ключ часа был уже израсходован. Теперь
+    # неудачная запись оставляет прошлый дашборд на месте.
     s.put(S.B + C.DATA_SHEET + '/values/' + S._rng(TAB, 'A1'),
           params={'valueInputOption': 'RAW'}, json={'values': rows},
           timeout=60).raise_for_status()
+    tail = len(rows) + 1
+    if tail < 400:
+        s.post(S.B + C.DATA_SHEET + '/values/'
+               + S._rng(TAB, f'A{tail}:I400') + ':clear',
+               timeout=60).raise_for_status()
 
     # Оформление: без заливок, Times New Roman 13 — по правилу Азиза.
     heads = [i for i, r in enumerate(rows)
