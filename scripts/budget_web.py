@@ -342,7 +342,7 @@ def _payload():
     return {
         'ok': True,
         'today': str(B.today_local()),
-        'cats': sorted(B.BUDGET_CATS),
+        'cats': sorted(B.budget_cats()),
         'income_cats': sorted(B.INCOME_CATS),
         'saving_cats': sorted(B.SAVINGS_CATS),
         # Закрытая категория (лимит 0) с тратой — сразу наверх: это не
@@ -351,7 +351,7 @@ def _payload():
                    for c in sorted(lim, key=lambda c: -(
                        used.get(c, 0.0) / lim[c] if lim[c]
                        else (999 if used.get(c, 0.0) else 0)))],
-        'no_limit': sorted(c for c in B.BUDGET_CATS if c not in lim),
+        'no_limit': sorted(c for c in B.budget_cats() if c not in lim),
         'month': month_numbers(),
         'last': list(reversed(rows))[:12],
         'wallets': [w for w, _ in B.wallets(force=True)],
@@ -587,7 +587,7 @@ def edit(body):
             value = float(str(value).replace(',', '.'))
         except (ValueError, TypeError):
             return {'ok': False, 'error': 'Нужно число'}
-    elif field == 'cat' and str(value) not in (B.BUDGET_CATS | B.INCOME_CATS
+    elif field == 'cat' and str(value) not in (B.budget_cats() | B.INCOME_CATS
                                                | B.SAVINGS_CATS | B.DEBT_CATS):
         return {'ok': False, 'error': 'Нет такой категории'}
     else:

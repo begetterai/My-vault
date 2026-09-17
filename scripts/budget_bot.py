@@ -74,7 +74,11 @@ BUDGET_SS = '1Cn3QwTy2AiW4Kjw2PLNniZuB_2LyQ2ES8nOCgHPKDIE'
 # «Связь», «Уход за собой» и «Свидания» заведены 04.09.2026 по разбору:
 # в «Прочее» падали стрижка, баланс телефона и вечера с девушкой — не потому
 # что непонятно, а потому что подходящей категории не было.
-BUDGET_CATS = {'Дом','Машина','Гаджеты','Подписки','Рассрочка','Связь','Кафе','Продукты','Лечение / Медикаменты','Спортивное питание','Абонемент в зал','БАДы','Массаж / Сауна','Уход за собой','Курение','Одежда/Обувь','Развлечение','Свидания','Обучение','Семья','Подарки','Путешествие','Прочее'}
+# Это ЗЕРНО, а не источник правды. Им один раз заполняется лист «Лимиты»,
+# дальше категории живут там и правятся из настроек приложения.
+# 17.09.2026: Азиз переименовал «Продукты» в «Магазин», в листе имя
+# поменялось, а кнопки остались прежними — потому что читались отсюда.
+BUDGET_SEED = {'Дом','Машина','Гаджеты','Подписки','Рассрочка','Связь','Кафе','Продукты','Лечение / Медикаменты','Спортивное питание','Абонемент в зал','БАДы','Массаж / Сауна','Уход за собой','Курение','Одежда/Обувь','Развлечение','Свидания','Обучение','Семья','Подарки','Путешествие','Прочее'}
 DEBT_CATS = {'Оплата кредита'}  # тип «Погашение» — вне расходов (зона «Сбережения и долг»)
 INCOME_CATS = {'Зарплата','Прочий доход'}
 SAVINGS_CATS = {'Накопления / Подушка','Инвестиции'}  # тип «Накопление» — вне расходов
@@ -138,7 +142,7 @@ def _quick_map():
     m={}
     def add(name, kind, canon):
         m[name.lower().replace('ё','е')] = (kind, canon)
-    for c in BUDGET_CATS: add(c,'расход',c)
+    for c in budget_cats(): add(c,'расход',c)
     for c in INCOME_CATS: add(c,'доход',c)
     add('Кредит','доход','Кредит')
     for c in SAVINGS_CATS: add(c,'накопление',c)
@@ -158,12 +162,15 @@ def _quick_map():
       'одежда':('расход','Одежда/Обувь'),'обувь':('расход','Одежда/Обувь'),
       'сигареты':('расход','Курение'),'стики':('расход','Курение'),
       'бензин':('расход','Машина'),'авто':('расход','Машина'),
-      'продукты':('расход','Продукты'),'базар':('расход','Продукты'),
+      # 17.09.2026 категория «Продукты» переименована в «Магазин» —
+      # слова значат то же, поэтому переведены следом. Подсказка,
+      # потерявшая категорию, выбрасывается в конце _quick_map().
+      'продукты':('расход','Магазин'),'базар':('расход','Магазин'),
       'аренда':('расход','Дом'),'коммуналка':('расход','Дом'),
       'такси':('расход','Прочее'),
       'парковка':('расход','Машина'),'оплата парковка':('расход','Машина'),
-      'вода':('расход','Продукты'),'вода с магазина':('расход','Продукты'),
-      'еда':('расход','Продукты'),'еда с магазина':('расход','Продукты'),
+      'вода':('расход','Магазин'),'вода с магазина':('расход','Магазин'),
+      'еда':('расход','Магазин'),'еда с магазина':('расход','Магазин'),
       'стройматериал':('расход','Дом'),'стройматериалы':('расход','Дом'),
       'помощь брату':('расход','Семья'),'помощь родителям':('расход','Семья'),
       'подарок':('расход','Подарки'),'цветы':('расход','Подарки'),
@@ -183,7 +190,7 @@ def _quick_map():
       'telegram':('расход','Подписки'),'google':('расход','Подписки'),
       'чатгпт':('расход','Подписки'),'нейросеть':('расход','Подписки'),
       # прочие частые
-      'вода и стики':('расход','Продукты'),
+      'вода и стики':('расход','Магазин'),
       'проезд':('расход','Прочее'),'маршрутка':('расход','Прочее'),
       'штраф':('расход','Прочее'),'комиссия':('расход','Прочее'),
       'стоматолог':('расход','Лечение / Медикаменты'),
@@ -195,8 +202,23 @@ def _quick_map():
       'отец':('расход','Семья'),'родители':('расход','Семья'),
       'билет':('расход','Путешествие'),'отель':('расход','Путешествие'),
     }.items(): add(alias,k,c)
-    return m
-QUICK_CATS=_quick_map()
+    # Слова-подсказки написаны руками и привязаны к именам категорий.
+    # Категорию переименовали — подсказка ведёт в никуда, и трата легла бы
+    # в несуществующую категорию: ни кнопки, ни лимита. Такие выбрасываем —
+    # бот просто спросит категорию кнопками, как при незнакомом слове.
+    live = budget_cats() | INCOME_CATS | SAVINGS_CATS | DEBT_CATS | {'Кредит'}
+    return {w: v for w, v in m.items() if v[1] in live}
+_QCACHE = {'cats': None, 'map': {}}
+
+
+def QUICK_CATS_now():
+    """Словарь «слово → (тип, категория)». Пересобирается, когда список
+    категорий изменился: раньше он строился один раз при импорте, и
+    переименованная категория доходила до разбора только после перезапуска."""
+    cats = frozenset(budget_cats())
+    if _QCACHE['cats'] != cats:
+        _QCACHE['cats'], _QCACHE['map'] = cats, _quick_map()
+    return _QCACHE['map']
 
 CURRENCY = {'см','сом','сомони','смн','tjs','с','c'}
 # Слова, после которых строка — не трата, а вопрос или задача
@@ -244,11 +266,12 @@ def _parse_quick(text):
     low=t.lower().replace('ё','е')
     # самое длинное совпадение имени категории в начале строки
     best=None
-    for name in QUICK_CATS:
+    Q = QUICK_CATS_now()
+    for name in Q:
         if low.startswith(name) and (len(low)==len(name) or not low[len(name)].isalpha()):
             if best is None or len(name)>len(best): best=name
     if not best: return None
-    kind,cat=QUICK_CATS[best]
+    kind,cat=Q[best]
     rest=t[len(best):].strip(' ,;:-')
     # сумма — первое число в остатке (не обязательно сразу после категории)
     m=re.search(r'(\d+(?:[.,]\d+)?)', rest)
@@ -1591,7 +1614,15 @@ def setting_save(kind, line, values):
     vals += [''] * (len(cols) - len(vals))
     if not vals[0]:
         return '⚠️ Название пустое.'
+    moved = 0
     if line:
+        # Правка существующей строки может оказаться переименованием.
+        # Тогда старое имя остаётся в журнале и в проектах, трата перестаёт
+        # попадать под лимит, а месячный итог разваливается на два имени.
+        # Добавление новой категории приходит с line=0 и истории не трогает.
+        old = _setting_name(tab, line)
+        if old and old != vals[0]:
+            moved = rename_category(old, vals[0]) if kind == 'limits' else 0
         SHEETS.put(API + BUDGET_SS + '/values/' + _q(f'{tab}!A{line}:{last}{line}'),
                    params={'valueInputOption': 'USER_ENTERED'},
                    json={'values': [vals]}, timeout=30).raise_for_status()
@@ -1602,7 +1633,41 @@ def setting_save(kind, line, values):
                     json={'values': [vals]}, timeout=30).raise_for_status()
     # Кэши читают эти же листы — сбрасываем, иначе правка «не применилась».
     _LIM['ts'] = _WAL['ts'] = _DEBT['ts'] = None
-    return f'✅ {vals[0]}'
+    return f'✅ {vals[0]}' + (f' · перенесено записей: {moved}' if moved else '')
+
+
+def _setting_name(tab, line):
+    """Имя в первой колонке строки настроек, либо пусто."""
+    r = _rows(f'{tab}!A{line}:A{line}')
+    return str(r[0][0]).strip() if r and r[0] else ''
+
+
+def rename_category(old, new):
+    """Переименовать категорию везде, где хранится её имя. → сколько строк.
+
+    Имя категории лежит не только в настройках: в журнале (колонка
+    «Категория») и в проектах (поле «Категория расходов»). Без переноса
+    старые траты выпадают из-под лимита нового имени, а месяц делится
+    надвое.
+    """
+    n = 0
+    ops = _rows('Operations!A2:I3000') or []
+    upd = [{'range': f'Operations!C{i + 2}', 'values': [[new]]}
+           for i, r in enumerate(ops)
+           if len(r) > 2 and str(r[2]).strip() == old]
+    prj = _rows(f'{PROJ_TAB}!A2:Z100') or []
+    ci = PROJ_COLS.index('Категория расходов')
+    upd += [{'range': f'{PROJ_TAB}!{chr(ord("A") + ci)}{i + 2}',
+             'values': [[new]]}
+            for i, r in enumerate(prj)
+            if len(r) > ci and str(r[ci]).strip() == old]
+    if upd:
+        SHEETS.post(API + BUDGET_SS + '/values:batchUpdate',
+                    json={'valueInputOption': 'USER_ENTERED', 'data': upd},
+                    timeout=60).raise_for_status()
+        n = len(upd)
+    log.info('категория «%s» → «%s»: перенесено строк %d', old, new, n)
+    return n
 
 
 def setting_drop(kind, line):
@@ -1626,11 +1691,11 @@ def ensure_limits_tab():
             {'addSheet': {'properties': {'title': LIMITS_TAB, 'gridProperties': {
                 'rowCount': 60, 'columnCount': 4, 'frozenRowCount': 1}}}}]},
             timeout=30).raise_for_status()
-        rows = [LIMIT_COLS] + [[c, '', 'да'] for c in sorted(BUDGET_CATS)]
+        rows = [LIMIT_COLS] + [[c, '', 'да'] for c in sorted(BUDGET_SEED)]
         SHEETS.put(API + BUDGET_SS + '/values/' + _q(f'{LIMITS_TAB}!A1'),
                    params={'valueInputOption': 'USER_ENTERED'},
                    json={'values': rows}, timeout=30).raise_for_status()
-        log.info('создан лист «Лимиты» с %d категориями', len(BUDGET_CATS))
+        log.info('создан лист «Лимиты» с %d категориями', len(BUDGET_SEED))
 
 
 def _q(rng):
@@ -1650,7 +1715,7 @@ def limits(force=False):
     now = datetime.datetime.utcnow()
     if not force and _LIM['ts'] and (now - _LIM['ts']).seconds < 300:
         return _LIM['map']
-    m = {}
+    m, cats = {}, []
     try:
         r = SHEETS.get(API + BUDGET_SS + '/values/' + _q(f'{LIMITS_TAB}!A2:C60'),
                        timeout=30)
@@ -1660,6 +1725,9 @@ def limits(force=False):
             act = str(row[2]).strip().lower() or 'да'
             if not cat or act not in ('да', 'yes', '1', 'true'):
                 continue
+            # Категория считается заведённой независимо от того, задан ли
+            # ей лимит: список кнопок и список ограничений — разные вещи.
+            cats.append(cat)
             try:
                 v = float(str(row[1]).replace(' ', '').replace(',', '.'))
             except ValueError:
@@ -1668,8 +1736,23 @@ def limits(force=False):
                 m[cat] = v
     except Exception as e:
         log.warning('лимиты: %s', e)
-    _LIM['ts'], _LIM['map'] = now, m
+    _LIM['ts'], _LIM['map'], _LIM['cats'] = now, m, cats
     return m
+
+
+def budget_cats(force=False):
+    """Расходные категории — из листа «Лимиты», а не из кода.
+
+    Раньше список был константой, и правка в настройках до кнопок
+    не доходила: человек переименовывал категорию, лимит вставал на новое
+    имя, а записать трату по-прежнему можно было только на старое — и она
+    ни под какой лимит не попадала.
+
+    Лист не прочитался или пуст — отдаём зерно: остаться совсем без
+    категорий хуже, чем показать прежние.
+    """
+    limits(force=force)
+    return set(_LIM.get('cats') or ()) or set(BUDGET_SEED)
 
 
 def spent_by_cat(ym=None, from_savings=False):
@@ -1860,7 +1943,7 @@ def add_entry(amount, category='Прочее', kind='расход', comment='', 
         cat = category if category in INCOME_CATS else 'Зарплата'
     else:
         typ = 'Расход'
-        cat = category if category in BUDGET_CATS else 'Прочее'
+        cat = category if category in budget_cats() else 'Прочее'
     d, _m = _resolve_date(date)
     com = _cap((comment or '').strip())
     # Вторая опора против дублей: даже если сообщение придёт дважды,
@@ -1975,7 +2058,7 @@ def fix_last(what, value):
             return 'Нужно число.'
         new = float(m.group(1).replace(',', '.'))
     elif key == 'категор':
-        hit = QUICK_CATS.get(value.strip().lower().replace('ё', 'е'))
+        hit = QUICK_CATS_now().get(value.strip().lower().replace('ё', 'е'))
         if not hit:
             return 'Такой категории нет. Напиши название из списка.'
         new = hit[1]
@@ -2039,13 +2122,18 @@ ASK = {'amount': 'Сколько? Ответь числом.',
 
 # Порядок кнопок фиксирован: положение категории не должно прыгать
 # от раза к разу, иначе рука не запоминает, куда жать.
-CAT_LIST = sorted(BUDGET_CATS) + sorted(SAVINGS_CATS) + sorted(INCOME_CATS)
+def cat_list():
+    """Порядок кнопок. Считается на лету: раньше список замирал
+    на момент импорта, и переименованная категория появлялась
+    на клавиатуре только после перезапуска бота."""
+    return (sorted(budget_cats()) + sorted(SAVINGS_CATS)
+            + sorted(INCOME_CATS))
 
 
 def cat_keyboard():
     """Кнопки категорий — по две в ряд, чтобы названия помещались."""
     rows, row = [], []
-    for i, c in enumerate(CAT_LIST):
+    for i, c in enumerate(cat_list()):
         row.append({'text': c, 'callback_data': f'c:{i}'})
         if len(row) == 2:
             rows.append(row)
@@ -2184,12 +2272,12 @@ def draft_fill(d, text):
         d['comment'] = com
         # Ответ мог заодно назвать категорию: «кафе» → и комментарий, и она.
         if not d.get('category'):
-            hit = QUICK_CATS.get(com.lower().replace('ё', 'е'))
+            hit = QUICK_CATS_now().get(com.lower().replace('ё', 'е'))
             if hit:
                 d['kind'], d['category'] = hit
     elif need == 'category':
         # Кнопкой быстрее, но набрать название тоже можно.
-        hit = QUICK_CATS.get(t.lower().replace('ё', 'е'))
+        hit = QUICK_CATS_now().get(t.lower().replace('ё', 'е'))
         if not hit:
             return 'Не нашёл такой категории. Нажми кнопку ниже.'
         d['kind'], d['category'] = hit
@@ -2233,7 +2321,7 @@ TOOLS_SPEC = [
         'parameters': {'type': 'object', 'properties': {
             'amount': {'type': 'number', 'description': 'Сумма в сомони'},
             'category': {'type': 'string',
-                         'description': 'Категория: ' + ', '.join(sorted(BUDGET_CATS))},
+                         'description': 'Категория: ' + ', '.join(sorted(budget_cats()))},
             'kind': {'type': 'string', 'enum': ['расход', 'доход', 'накопление',
                                                 'погашение']},
             'comment': {'type': 'string', 'description': 'На что именно — обязательно'},
@@ -2439,7 +2527,7 @@ def read_receipt(content):
     import base64
     q = ('Это фото чека. Верни СТРОГО JSON без пояснений: '
          '{"total": число_итого, "merchant": "магазин", '
-         f'"category": "одна из: {", ".join(sorted(BUDGET_CATS))}", '
+         f'"category": "одна из: {", ".join(sorted(budget_cats()))}", '
          '"summary": "кратко что куплено"}. Сумму не видно — total:0.')
     b64 = base64.b64encode(content).decode()
     try:
@@ -2609,9 +2697,9 @@ def handle(msg):
                 send('🧾 Сумму на чеке не разобрал.\n'
                      + draft_start('', comment=shop,
                                    category=rc.get('category')
-                                   if rc.get('category') in BUDGET_CATS else ''))
+                                   if rc.get('category') in budget_cats() else ''))
                 return
-            cat = rc.get('category') if rc.get('category') in BUDGET_CATS else 'Прочее'
+            cat = rc.get('category') if rc.get('category') in budget_cats() else 'Прочее'
             com = _cap((rc.get('merchant') or rc.get('summary') or 'чек').strip())
             args = {'amount': total, 'category': cat, 'kind': 'расход', 'comment': com}
             send('🧾 Чек прочитан.\n' + pend_add([('add_entry', args)]))
@@ -2886,15 +2974,18 @@ def on_callback(cq):
     if not data.startswith('c:'):
         return
     try:
-        cat = CAT_LIST[int(data[2:])]
+        cat = cat_list()[int(data[2:])]
     except (ValueError, IndexError):
         return
+    # Кнопка несёт номер, а не имя: имена длинные, а callback_data
+    # у телеграма всего 64 байта. Список берём тот же и через общий кэш —
+    # между показом клавиатуры и нажатием он не успевает поехать.
     d = DRAFT.get(ALLOWED)
     if not d or d.get('need') != 'category':
         send(f'Этот вопрос уже закрыт. Если нужно поправить последнюю запись — '
              f'«поправь категорию {cat}».')
         return
-    d['kind'], d['category'] = QUICK_CATS.get(
+    d['kind'], d['category'] = QUICK_CATS_now().get(
         cat.lower().replace('ё', 'е'), ('расход', cat))
     out = draft_ask(d)
     send(out)
