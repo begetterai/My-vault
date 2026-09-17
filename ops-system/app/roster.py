@@ -99,7 +99,7 @@ def planned(day, point=None):
     return rows(day, point)
 
 
-def for_person(day, who, part=''):
+def for_person(day, who, part='', at=''):
     """Строка состава конкретного человека или None.
 
     Строк у человека теперь может быть две — первая и вторая смена.
@@ -111,13 +111,38 @@ def for_person(day, who, part=''):
     её и записала опоздание 456 минут человеку, пришедшему вовремя.
     Правило Азиза: считаем только от той смены, на которую человек
     поставлен; нет такой — опоздания нет.
+
+    16.09 то же повторилось втроём — Бозорова −528, Фаёзова −500,
+    Джураев −491, вместе 1 519 сомони за день. Причина глубже: смену
+    выбирают уже ПОСЛЕ отметки прихода, поэтому в момент расчёта она
+    не известна никогда, и бралась самая ранняя строка. Теперь при
+    неизвестной смене берём ту, чьё начало ближе к фактическому приходу:
+    пришёл в 17:05 при строках 09:00 и 17:00 — считаем от 17:00.
+    Решение Азиза 17.09; потолка на опоздание он ставить не стал, так что
+    этот выбор — единственное, что стоит между ошибкой в составе
+    и сотнями сомони у человека.
     """
     mine = [r for r in rows(day) if r['who'] == who]
     if not mine:
         return None
     if part:
         return next((r for r in mine if r['part'] == part), None)
+    if at and len(mine) > 1:
+        a = _mins(at)
+        if a is not None:
+            near = [r for r in mine if _mins(r['start']) is not None]
+            if near:
+                return min(near, key=lambda r: abs(_mins(r['start']) - a))
     return sorted(mine, key=lambda r: r['start'] or '99:99')[0]
+
+
+def _mins(t):
+    """«17:05» → 1025. Не разобрали — None, чтобы не считать от полуночи."""
+    try:
+        h, m = str(t).strip().split(':')[:2]
+        return int(h) * 60 + int(m)
+    except Exception:
+        return None
 
 
 def dept_of(day, who, fallback='', part=''):
@@ -130,14 +155,16 @@ def dept_of(day, who, fallback='', part=''):
     return (r['dept'] if r and r['dept'] else fallback)
 
 
-def start_of(day, who, fallback='', part=''):
+def start_of(day, who, fallback='', part='', at=''):
     """Во сколько у человека начинается смена — от этого считается опоздание.
 
     Смену передавать обязательно, если человек стоит в составе дважды:
     иначе вечерний выход посчитается от утреннего времени, и человек
     получит минус за опоздание, которого не было.
+
+    Смена не названа — берём ближайшую к фактическому приходу `at`.
     """
-    r = for_person(day, who, part)
+    r = for_person(day, who, part, at)
     return (r['start'] if r and r['start'] else fallback)
 
 

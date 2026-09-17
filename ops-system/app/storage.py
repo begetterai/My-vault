@@ -650,9 +650,14 @@ def already_filled(key, day, point):
 
     Этапы дня разведены по разным листам, и каждый этап делает одна смена —
     повтор здесь означает именно повтор, а не вторую смену.
+
+    Читаем строго: без этого сбой чтения возвращал пустоту, она читалась
+    как «сегодня не сдавали», и в лист ложилась вторая строка — со вторым
+    уведомлением управляющему и вторым начислением. Рядом filled_today
+    уже фейлится закрыто, берём тот же порядок.
     """
     cl = C.checklists()[key]
-    for r in get(cl['tab'], 'A2:D'):
+    for r in get(cl['tab'], 'A2:D', strict=True):
         if len(r) >= 4 and str(r[0]).strip() == day and str(r[1]).strip() == point:
             return f'{r[2]} в {r[3]}'
     return None
@@ -1023,6 +1028,21 @@ def grant(who, kind, by, minutes=30):
 @serial
 def take_grant(who, kind):
     """Кто разрешил, либо пусто. Забрали — стёрли: разрешение одноразовое."""
+    return _grant(who, kind, burn=True)
+
+
+def peek_grant(who, kind):
+    """Кто разрешил, либо пусто. Не гасит — только смотрит.
+
+    Нужно там, где разрешение может и не понадобиться: приложение
+    спрашивало его первой строкой на каждой отметке, и если GPS в этот
+    момент поймал, разрешение сгорало впустую. Вечером человек упирался
+    в стену и просил управляющего второй раз.
+    """
+    return _grant(who, kind, burn=False)
+
+
+def _grant(who, kind, burn):
     for i, r in enumerate(_grant_rows()):
         r = list(r) + [''] * 5
         if str(r[1]).strip() != who or str(r[2]).strip() != kind:
@@ -1037,7 +1057,8 @@ def take_grant(who, kind):
             return ''
         # Срок гасим, а кто и когда разрешил — оставляем: по этой строке
         # потом видно, кого и почему пускали мимо геометки.
-        put(GRANT_TAB, f'E{i + 2}:E{i + 2}', [['']])
+        if burn:
+            put(GRANT_TAB, f'E{i + 2}:E{i + 2}', [['']])
         return str(r[3]).strip()
     return ''
 

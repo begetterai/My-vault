@@ -434,8 +434,13 @@ def finish(chat_id, st):
     sec = (C.now() - st['started']).total_seconds()
     try:
         dup = S.already_filled(st['kind'], st['day'], st['point'])
-    except Exception:
-        dup = None
+    except Exception as e:
+        # Не прочитали — не сохраняем. Раньше сбой превращался в «сегодня
+        # не сдавали», и лист ложился второй строкой со вторым начислением.
+        print('проверка повтора:', e)
+        return say(chat_id, 'Не могу проверить, сдан ли уже этот лист — '
+                            'таблица не ответила. Нажми «Готово» ещё раз '
+                            'через минуту, заполненное не потерялось.')
     try:
         ok, tot, fails, line = S.save_fill(
             st['kind'], st['day'], st['point'], st['who'], st['marks'],
@@ -556,23 +561,29 @@ def _num(x):
 
 
 def already_checked(kind, line):
-    """Строку уже подтвердили. Второе нажатие дало бы второй «+5»."""
+    """Строку уже подтвердили. Второе нажатие дало бы второй «+5».
+
+    Читаем строго и при сбое считаем, что подтверждено. Раньше сбой
+    возвращал «ещё не проверяли» — то есть защита открывалась ровно тогда,
+    когда квота Google кончилась. В приложении тот же путь читает строго
+    и отказывает честно; в боте было наоборот.
+    """
     try:
-        r = S.get(C.checklists()[kind]['tab'], f'N{line}:N{line}')
+        r = S.get(C.checklists()[kind]['tab'], f'N{line}:N{line}', strict=True)
         return bool(r and r[0] and str(r[0][0]).strip())
     except Exception as e:
         print('повторная проверка:', e)
-        return False
+        return True
 
 
 def filler_of(kind, line):
-    """Кто заполнил строку."""
-    try:
-        r = S.get(C.checklists()[kind]['tab'], f'C{line}:C{line}')
-        return str(r[0][0]).strip() if r and r[0] else ''
-    except Exception as e:
-        print('автор заполнения:', e)
-        return ''
+    """Кто заполнил строку. Сбой чтения — исключение, а не «никто».
+
+    Пустая строка здесь читалась как «заполнил никто», и управляющий
+    подтверждал собственный лист: проверка «не свой» сравнивает имена.
+    """
+    r = S.get(C.checklists()[kind]['tab'], f'C{line}:C{line}', strict=True)
+    return str(r[0][0]).strip() if r and r[0] else ''
 
 
 def _award_check(kind, line, checker, verdict):
@@ -1163,7 +1174,15 @@ def on_callback(cq):
         with S.WRITE_LOCK:
             if already_checked(kind, line):
                 return ack('Уже подтверждён') or True
-            if filler_of(kind, line) == who[0]:
+            # Не прочитали, кто заполнял, — не подтверждаем. Пустое имя
+            # раньше означало «заполнил никто», и проверка «не свой лист»
+            # переставала работать при первом же сбое связи.
+            try:
+                filler = filler_of(kind, line)
+            except Exception as e:
+                print('автор заполнения:', e)
+                return ack('Не читается лист — попробуй через минуту') or True
+            if filler == who[0]:
                 return ack('Свой лист подтверждает тот, кто выше') or True
             if verdict == 'ok':
                 S.save_check(kind, line, who[0], 'ok')
