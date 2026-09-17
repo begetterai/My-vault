@@ -171,6 +171,25 @@
   #toast{position:fixed;left:12px;right:12px;bottom:12px;
          background:var(--ink);color:var(--bg);padding:11px;border-radius:11px;
          display:none;z-index:9;max-width:576px;margin:0 auto;font-size:14px}
+
+  /* ── планшет ────────────────────────────────────────────────
+     На iPad приложение разворачивается во весь экран, но колонка
+     оставалась телефонной — 600 пикселей посередине пустого поля.
+     Здесь она шире, плитки ложатся в один ряд, а панель и кнопка «+»
+     держатся контента, а не краёв экрана.
+
+     Ширину всё равно ограничиваем: строка длиной в метр читается хуже
+     короткой. Телефона это ничего не касается — ниже 720 правил нет. */
+  @media (min-width: 720px){
+    body{max-width:860px}
+    .tiles{grid-template-columns:repeat(4, 1fr)}
+    .bar{left:50%;right:auto;width:100%;max-width:860px;
+         transform:translateX(-50%);border-radius:16px 16px 0 0}
+    /* Правый край колонки, а не экрана: иначе «+» уезжает в угол,
+       далеко от того, что человек в этот момент читает. */
+    .fab{right:max(16px, calc(50% - 430px + 16px))}
+    #toast{left:0;right:0}
+  }
 </style>
 </head>
 <body>
