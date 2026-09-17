@@ -27,7 +27,8 @@
   body{
     margin:0;background:var(--bg);color:var(--ink);
     font:15px/1.4 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
-    padding:10px 12px calc(86px + env(safe-area-inset-bottom));
+    padding:calc(10px + var(--top-safe, 0px)) 12px
+            calc(86px + env(safe-area-inset-bottom) + var(--bottom-safe, 0px));
     max-width:600px;margin:0 auto;
   }
   .num{font-variant-numeric:tabular-nums}
@@ -151,13 +152,14 @@
   /* Нижняя панель — как у Lifehub: палец достаёт, всегда на виду. */
   .bar{position:fixed;left:0;right:0;bottom:0;display:flex;
        background:var(--card);border-top:1px solid var(--line);
-       padding:6px 4px calc(6px + env(safe-area-inset-bottom));z-index:8}
+       padding:6px 4px calc(6px + env(safe-area-inset-bottom) + var(--bottom-safe, 0px));z-index:8}
   .bar button{flex:1;border:0;background:none;color:var(--dim);
               font:inherit;font-size:10.5px;padding:4px 0;cursor:pointer}
   .bar button b{display:block;font-size:19px;line-height:1.15;
                 font-weight:400}
   .bar button.on{color:var(--accent);font-weight:600}
-  .fab{position:fixed;right:16px;bottom:calc(72px + env(safe-area-inset-bottom));
+  .fab{position:fixed;right:16px;
+       bottom:calc(72px + env(safe-area-inset-bottom) + var(--bottom-safe, 0px));
        width:54px;height:54px;border-radius:27px;border:0;z-index:9;
        background:var(--accent);color:var(--on-accent);font-size:28px;
        line-height:1;cursor:pointer;box-shadow:0 6px 18px rgba(0,0,0,.45)}
@@ -297,7 +299,40 @@
 
 <script>
 const tg = window.Telegram?.WebApp || null;
-try{ tg?.ready(); tg?.expand(); }catch(e){}
+
+/* Во весь экран. expand() на телефоне разворачивает лист до верха,
+   а на планшете оставляет окно посередине — именно так приложение
+   и открывалось на iPad. requestFullscreen() появился в Bot API 8.0
+   и разворачивает по-настоящему; на старых телеграмах его нет, поэтому
+   expand() остаётся запасным вариантом.
+
+   В полноэкранном режиме приложение залезает под статус-бар и под
+   «чёлку», а сверху ложится плавающая кнопка закрытия. Отступы берём
+   у самого телеграма и кладём в CSS-переменные — иначе первая строка
+   окажется под часами, а нижняя панель под полосой жеста. */
+function fitScreen(){
+  if(!tg) return;
+  try{
+    const top = Math.max(tg.safeAreaInset?.top || 0,
+                         tg.contentSafeAreaInset?.top || 0);
+    const bot = Math.max(tg.safeAreaInset?.bottom || 0,
+                         tg.contentSafeAreaInset?.bottom || 0);
+    const r = document.documentElement.style;
+    r.setProperty('--top-safe', (tg.isFullscreen ? top : 0) + 'px');
+    r.setProperty('--bottom-safe', bot + 'px');
+  }catch(e){}
+}
+
+try{
+  tg?.ready();
+  tg?.expand();
+  if(tg?.isVersionAtLeast?.('8.0') && !tg.isFullscreen) tg.requestFullscreen();
+  tg?.onEvent?.('fullscreenChanged', fitScreen);
+  tg?.onEvent?.('safeAreaChanged', fitScreen);
+  tg?.onEvent?.('contentSafeAreaChanged', fitScreen);
+  tg?.onEvent?.('viewportChanged', fitScreen);
+  fitScreen();
+}catch(e){}
 const initData = tg?.initData || '';
 let D = null, CAT = '', BUSY = false, FIRST = true;
 let WAL = '', TO = '';
